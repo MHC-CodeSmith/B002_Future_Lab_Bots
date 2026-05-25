@@ -50,7 +50,7 @@ TurtleBot4 Jazzy:
 
 ```bash
 cd turtlebot4_jazzy
-./run_lab_world.sh false false 0.0 0.0 0.0
+./sim/run_lab_world.sh false false 0.0 0.0 0.0
 ```
 
 MyCobot:
