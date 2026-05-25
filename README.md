@@ -17,7 +17,7 @@ originais; este repositorio salva quais versoes dos tres devem andar juntas.
 ## Clonar tudo
 
 ```bash
-git clone --recurse-submodules git@github.com:MHC-CodeSmith/B002_Future_Lab_Bots.git
+git clone --recurse-submodules https://github.com/MHC-CodeSmith/B002_Future_Lab_Bots.git
 cd B002_Future_Lab_Bots
 ```
 

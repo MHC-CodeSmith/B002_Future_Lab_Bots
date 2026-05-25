@@ -1,12 +1,12 @@
 [submodule "integration_cobot_tb4"]
 	path = integration_cobot_tb4
-	url = git@github.com:MHC-CodeSmith/integration_cobot_tb4.git
+	url = https://github.com/MHC-CodeSmith/integration_cobot_tb4.git
 	branch = main
 [submodule "turtlebot4_jazzy"]
 	path = turtlebot4_jazzy
-	url = git@github.com:MHC-CodeSmith/Bot_HOF.git
+	url = https://github.com/MHC-CodeSmith/Bot_HOF.git
 	branch = main
 [submodule "cobot"]
 	path = cobot
-	url = git@github.com:MHC-CodeSmith/Cobot.git
+	url = https://github.com/MHC-CodeSmith/Cobot.git
 	branch = master
