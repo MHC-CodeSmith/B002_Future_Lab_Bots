@@ -117,6 +117,8 @@ source /opt/ros/jazzy/setup.bash
 export ROS_DOMAIN_ID=0
 export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+export ROS_SUPER_CLIENT=True
+export ROS_DISCOVERY_SERVER="192.168.0.129:11811;"
 ```
 
 Se o robo estiver dockado, primeiro faca undock:
@@ -154,12 +156,24 @@ source /opt/ros/jazzy/setup.bash
 export ROS_DOMAIN_ID=0
 export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+export ROS_SUPER_CLIENT=True
+export ROS_DISCOVERY_SERVER="192.168.0.129:11811;"
 ./scripts/run_3d_view.sh
 ```
 
-Esse script gera/usa os assets 3D do mapa B002, publica a ancora do MyCobot em
-`map -> mycobot_base_link`, inicia a ponte de juntas do MyCobot quando o
-container esta ativo, e abre o RViz 3D.
+### Configuração de Chave SSH sem Senha (PC ↔ Robô)
+
+Para que o script `mission_manager.py` consiga ligar a câmera OAK-D no robô automaticamente via SSH, você precisa autorizar a chave SSH do seu PC no robô:
+
+1. Gere uma chave SSH no PC (se já não tiver uma):
+   ```bash
+   ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
+   ```
+2. Copie a chave para o robô:
+   ```bash
+   ssh-copy-id ubuntu@192.168.0.129
+   ```
+   *(Insira a senha do usuário `ubuntu` do robô quando solicitado).*
 
 ### Janela 2 ou nova aba - Mission manager
 
@@ -171,6 +185,8 @@ source /opt/ros/jazzy/setup.bash
 export ROS_DOMAIN_ID=0
 export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+export ROS_SUPER_CLIENT=True
+export ROS_DISCOVERY_SERVER="192.168.0.129:11811;"
 python3 scripts/mission_manager.py --ros-args --params-file params/waypoints.yaml
 ```
 
