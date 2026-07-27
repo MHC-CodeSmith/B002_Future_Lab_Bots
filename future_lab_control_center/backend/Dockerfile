@@ -12,12 +12,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copia dependências e instala pacotes Python
-COPY requirements.txt /app/
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# Copia o código da aplicação backend
-COPY . /app/
+# Copia o código da aplicação backend no módulo /app/backend
+COPY . /app/backend
+
+ENV PYTHONPATH=/app
 
 EXPOSE 8000
 
-CMD ["python3", "main.py"]
+CMD ["python3", "/app/backend/main.py"]

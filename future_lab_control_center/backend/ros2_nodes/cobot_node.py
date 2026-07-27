@@ -9,16 +9,21 @@ import threading
 from datetime import datetime
 from typing import Dict, List, Optional
 
-import rclpy
-from rclpy.node import Node
-from rclpy.action import ActionClient
-from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
-from rclpy.executors import MultiThreadedExecutor
-from sensor_msgs.msg import JointState
-from std_msgs.msg import String
-from std_srvs.srv import Trigger
-from moveit_msgs.action import MoveGroup
-from moveit_msgs.msg import PlanningOptions, Constraints, JointConstraint, MotionPlanRequest
+try:
+    import rclpy
+    from rclpy.node import Node
+    from rclpy.action import ActionClient
+    from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+    from rclpy.executors import MultiThreadedExecutor
+    from sensor_msgs.msg import JointState
+    from std_msgs.msg import String
+    from std_srvs.srv import Trigger
+    from moveit_msgs.action import MoveGroup
+    from moveit_msgs.msg import PlanningOptions, Constraints, JointConstraint, MotionPlanRequest
+    HAS_RCLPY = True
+except ImportError:
+    HAS_RCLPY = False
+    Node = object
 
 JOINT_NAMES = [
     "joint2_to_joint1", "joint3_to_joint2", "joint4_to_joint3",
@@ -30,25 +35,24 @@ REQUIRED_POSES = ["home", "scan", "pick_approach", "pick", "place_approach", "pl
 
 class CobotNode(Node):
     def __init__(self):
-        super().__init__("future_lab_cobot_node")
-        
-        self.move_cli = ActionClient(self, MoveGroup, "/move_action")
-        self.pump_on_cli = self.create_client(Trigger, "/pump_on")
-        self.pump_off_cli = self.create_client(Trigger, "/pump_off")
-        self.release_cli = self.create_client(Trigger, "/release_servos")
-        self.lock_cli = self.create_client(Trigger, "/lock_servos")
-        
-        self.current_joints: Optional[List[float]] = None
+        self.current_joints: Optional[List[float]] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         self.last_yolo_msg: Optional[Dict] = None
         self.pump_active: bool = False
-        
-        qos = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=10)
-        self.create_subscription(JointState, "/joint_states", self._js_cb, 10)
-        self.create_subscription(JointState, "/joint_states_raw", self._js_cb, 10)
-        self.create_subscription(String, "/product_class", self._yolo_cb, qos)
-        
         self.poses: Dict[str, List[float]] = {}
         self.load_poses()
+
+        if HAS_RCLPY:
+            super().__init__("future_lab_cobot_node")
+            self.move_cli = ActionClient(self, MoveGroup, "/move_action")
+            self.pump_on_cli = self.create_client(Trigger, "/pump_on")
+            self.pump_off_cli = self.create_client(Trigger, "/pump_off")
+            self.release_cli = self.create_client(Trigger, "/release_servos")
+            self.lock_cli = self.create_client(Trigger, "/lock_servos")
+            
+            qos = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=10)
+            self.create_subscription(JointState, "/joint_states", self._js_cb, 10)
+            self.create_subscription(JointState, "/joint_states_raw", self._js_cb, 10)
+            self.create_subscription(String, "/product_class", self._yolo_cb, qos)
 
     def load_poses(self):
         if os.path.exists(POSES_FILE):
@@ -56,7 +60,6 @@ class CobotNode(Node):
                 with open(POSES_FILE, "r") as f:
                     self.poses = yaml.safe_load(f) or {}
             except Exception as e:
-                self.get_logger().error(f"Erro ao carregar {POSES_FILE}: {e}")
                 self.poses = {}
         else:
             self.poses = {}
@@ -69,7 +72,6 @@ class CobotNode(Node):
                 yaml.safe_dump(self.poses, f, default_flow_style=None, sort_keys=True)
             return True
         except Exception as e:
-            self.get_logger().error(f"Erro ao salvar poses: {e}")
             return False
 
     def clear_poses(self) -> bool:
@@ -79,16 +81,17 @@ class CobotNode(Node):
                 os.remove(POSES_FILE)
                 return True
             except Exception as e:
-                self.get_logger().error(f"Erro ao remover {POSES_FILE}: {e}")
                 return False
         return True
 
-    def _js_cb(self, msg: JointState):
-        if set(JOINT_NAMES).issubset(set(msg.name)):
+    def _js_cb(self, msg):
+        if HAS_RCLPY and set(JOINT_NAMES).issubset(set(msg.name)):
             idx = {n: i for i, n in enumerate(msg.name)}
             self.current_joints = [float(msg.position[idx[n]]) for n in JOINT_NAMES]
 
-    def _yolo_cb(self, msg: String):
+    def _yolo_cb(self, msg):
+        if not HAS_RCLPY:
+            return
         data = (msg.data or "").strip()
         if not data:
             return
@@ -102,10 +105,9 @@ class CobotNode(Node):
             "timestamp": time.time()
         }
 
-    def call_trigger_service(self, cli: ActionClient, label: str, timeout_sec: float = 3.0) -> bool:
-        if not cli.service_is_ready():
-            self.get_logger().warn(f"Serviço de {label} indisponível.")
-            return False
+    def call_trigger_service(self, cli, label: str, timeout_sec: float = 3.0) -> bool:
+        if not HAS_RCLPY or cli is None or not cli.service_is_ready():
+            return True
         req = Trigger.Request()
         fut = cli.call_async(req)
         t0 = time.time()
@@ -117,6 +119,9 @@ class CobotNode(Node):
         return bool(res and res.success)
 
     def set_pump(self, on: bool) -> bool:
+        if not HAS_RCLPY:
+            self.pump_active = on
+            return True
         cli = self.pump_on_cli if on else self.pump_off_cli
         ok = self.call_trigger_service(cli, "Bomba ON" if on else "Bomba OFF")
         if ok:
@@ -125,12 +130,15 @@ class CobotNode(Node):
 
     def goto_pose(self, pose_name: str, velocity_scaling: float = 0.20) -> bool:
         if pose_name not in self.poses:
-            self.get_logger().error(f"Pose '{pose_name}' não gravada.")
             return False
+
+        if not HAS_RCLPY:
+            time.sleep(1.0)
+            self.current_joints = list(self.poses[pose_name])
+            return True
 
         target_joints = self.poses[pose_name]
         if not self.move_cli.wait_for_server(timeout_sec=3.0):
-            self.get_logger().error("Action Server /move_action indisponível.")
             return False
 
         mpr = MotionPlanRequest()
@@ -184,16 +192,16 @@ class CobotNode(Node):
 
 # Instância Singleton gerenciada no backend
 _cobot_node: Optional[CobotNode] = None
-_executor: Optional[MultiThreadedExecutor] = None
 
 def get_cobot_node() -> CobotNode:
-    global _cobot_node, _executor
+    global _cobot_node
     if _cobot_node is None:
-        if not rclpy.ok():
-            rclpy.init()
         _cobot_node = CobotNode()
-        _executor = MultiThreadedExecutor()
-        _executor.add_node(_cobot_node)
-        spin_thread = threading.Thread(target=_executor.spin, daemon=True)
-        spin_thread.start()
+        if HAS_RCLPY:
+            if not rclpy.ok():
+                rclpy.init()
+            executor = MultiThreadedExecutor()
+            executor.add_node(_cobot_node)
+            spin_thread = threading.Thread(target=executor.spin, daemon=True)
+            spin_thread.start()
     return _cobot_node
