@@ -10,6 +10,10 @@ export default function Dashboard() {
   const [cellStatus, setCellStatus] = useState(null);
   const [poses, setPoses] = useState(null);
 
+  // Estados Otimistas para Resposta Instantânea (0ms) nos Botões
+  const [optimisticPump, setOptimisticPump] = useState(null);
+  const [optimisticYoloTest, setOptimisticYoloTest] = useState(null);
+
   const getApiBase = () => {
     if (typeof window !== 'undefined') {
       const host = window.location.hostname || 'localhost';
@@ -29,6 +33,9 @@ export default function Dashboard() {
       setHealth(resHealth);
       setCellStatus(resCell);
       setPoses(resPoses);
+      // Limpa os overrides otimistas assim que a API confirma o estado real
+      setOptimisticPump(null);
+      setOptimisticYoloTest(null);
     } catch (e) {
       console.warn("API de controle conectando...", e);
     }
@@ -36,7 +43,8 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchAllStatus();
-    const interval = setInterval(fetchAllStatus, 2000);
+    // Polling ultrarrápido a cada 300ms (0.3s) para atualizações instantâneas de tela
+    const interval = setInterval(fetchAllStatus, 300);
     return () => clearInterval(interval);
   }, []);
 
@@ -57,12 +65,15 @@ export default function Dashboard() {
   };
 
   const handleEmergencyStop = async () => {
+    setOptimisticPump(false);
+    setOptimisticYoloTest(false);
     const apiBase = getApiBase();
     await fetch(`${apiBase}/cell/stop`, { method: 'POST' });
     fetchAllStatus();
   };
 
   const handleTogglePump = async (on) => {
+    setOptimisticPump(on); // Atualização Instantânea da UI em 0ms
     const apiBase = getApiBase();
     await fetch(`${apiBase}/cobot/pump`, {
       method: 'POST',
@@ -73,6 +84,7 @@ export default function Dashboard() {
   };
 
   const handleToggleYoloTest = async (active) => {
+    setOptimisticYoloTest(active); // Atualização Instantânea da UI em 0ms
     const apiBase = getApiBase();
     await fetch(`${apiBase}/cobot/yolo_test`, {
       method: 'POST',
@@ -89,6 +101,7 @@ export default function Dashboard() {
   };
 
   const handleMovePose = async (poseName) => {
+    setOptimisticYoloTest(false);
     const apiBase = getApiBase();
     await fetch(`${apiBase}/cobot/move/${poseName}`, { method: 'POST' });
     fetchAllStatus();
@@ -119,6 +132,7 @@ export default function Dashboard() {
   };
 
   const handlePlayback = async () => {
+    setOptimisticYoloTest(false);
     const apiBase = getApiBase();
     await fetch(`${apiBase}/cobot/teach/playback`, { method: 'POST' });
     await fetchAllStatus();
@@ -129,6 +143,10 @@ export default function Dashboard() {
     await fetch(`${apiBase}/cobot/teach/clear`, { method: 'DELETE' });
     await fetchAllStatus();
   };
+
+  // Valores Finais (Considera o Estado Otimista Instantâneo se Presente)
+  const currentPumpActive = optimisticPump !== null ? optimisticPump : Boolean(cellStatus?.pump_active);
+  const currentYoloTestActive = optimisticYoloTest !== null ? optimisticYoloTest : Boolean(cellStatus?.yolo_test_active);
 
   return (
     <main className="min-h-screen p-4 md:p-8 max-w-7xl mx-auto space-y-6">
@@ -148,12 +166,11 @@ export default function Dashboard() {
         <CameraVisionPanel
           streamUrl={health?.devices?.jetson_nano?.camera_stream_url}
           lastYolo={cellStatus?.last_yolo}
-          pumpActive={cellStatus?.pump_active}
-          yoloTestActive={cellStatus?.yolo_test_active}
+          pumpActive={currentPumpActive}
+          yoloTestActive={currentYoloTestActive}
           onTogglePump={handleTogglePump}
           onToggleYoloTest={handleToggleYoloTest}
           onRestartCamera={handleRestartCamera}
-          onMovePose={handleMovePose}
         />
 
         <TeachModePanel

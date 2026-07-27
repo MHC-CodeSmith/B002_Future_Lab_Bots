@@ -1,13 +1,24 @@
 import React, { useState } from 'react';
-import { Camera, Eye, Power, CheckCircle, AlertTriangle, RefreshCw, FlaskConical } from 'lucide-react';
+import { Camera, Eye, Power, CheckCircle, AlertTriangle, RefreshCw, FlaskConical, Search, XCircle } from 'lucide-react';
 
-export default function CameraVisionPanel({ streamUrl, lastYolo, pumpActive, yoloTestActive, onTogglePump, onToggleYoloTest, onRestartCamera }) {
+export default function CameraVisionPanel({
+  streamUrl,
+  lastYolo,
+  pumpActive,
+  yoloTestActive,
+  onTogglePump,
+  onToggleYoloTest,
+  onRestartCamera
+}) {
   const [streamError, setStreamError] = useState(false);
   const [streamKey, setStreamKey] = useState(Date.now());
   const [restarting, setRestarting] = useState(false);
 
   const rawUrl = streamUrl || "http://192.168.0.250:8080/stream.mjpg";
   const liveUrl = `${rawUrl}${rawUrl.includes('?') ? '&' : '?'}t=${streamKey}`;
+
+  // Verifica se a última mensagem do YOLO é recente (últimos 2.5 segundos)
+  const isFresh = lastYolo && (Date.now() / 1000 - (lastYolo.timestamp || 0)) < 2.5;
 
   const handleRefreshStream = async () => {
     setRestarting(true);
@@ -22,6 +33,34 @@ export default function CameraVisionPanel({ streamUrl, lastYolo, pumpActive, yol
     }
     setTimeout(() => setRestarting(false), 2000);
   };
+
+  const getDetectionBadge = () => {
+    if (!isFresh || !lastYolo) return null;
+    const cls = (lastYolo.class || '').toLowerCase();
+    const conf = (lastYolo.confidence * 100).toFixed(0);
+
+    if (cls.includes('red')) {
+      return {
+        bg: 'bg-red-950/90 border-red-500/70 text-red-200',
+        dot: 'bg-red-500',
+        label: `Lata Válida Vermelha (Triângulo) — ${conf}%`
+      };
+    }
+    if (cls.includes('blue')) {
+      return {
+        bg: 'bg-blue-950/90 border-blue-500/70 text-blue-200',
+        dot: 'bg-blue-500',
+        label: `Lata Válida Azul (Quadrado) — ${conf}%`
+      };
+    }
+    return {
+      bg: 'bg-amber-950/90 border-amber-500/70 text-amber-200',
+      dot: 'bg-amber-500',
+      label: `Lata Inválida (Rejeitada) — ${conf}%`
+    };
+  };
+
+  const badge = getDetectionBadge();
 
   return (
     <div className="glass-card p-5 rounded-xl space-y-4">
@@ -42,10 +81,10 @@ export default function CameraVisionPanel({ streamUrl, lastYolo, pumpActive, yol
             {restarting ? 'REINICIANDO...' : 'REINICIAR CÂMERA'}
           </button>
 
-          {/* Botão de Toggle do Teste YOLO (Estilo do Botão da Bomba) */}
+          {/* Botão de Toggle do Teste YOLO (Instantâneo) */}
           <button
             onClick={() => onToggleYoloTest(!yoloTestActive)}
-            className={`px-3 py-1.5 text-xs font-bold rounded-lg btn-hover flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 text-xs font-bold rounded-lg btn-hover flex items-center gap-1.5 transition-all duration-150 ${
               yoloTestActive
                 ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/40 animate-pulse'
                 : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
@@ -55,10 +94,10 @@ export default function CameraVisionPanel({ streamUrl, lastYolo, pumpActive, yol
             {yoloTestActive ? 'TESTE YOLO: LIGADO' : 'TESTAR YOLO'}
           </button>
 
-          {/* Botão de Toggle da Bomba */}
+          {/* Botão de Toggle da Bomba (Instantâneo) */}
           <button
             onClick={() => onTogglePump(!pumpActive)}
-            className={`px-3 py-1.5 text-xs font-bold rounded-lg btn-hover flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 text-xs font-bold rounded-lg btn-hover flex items-center gap-1.5 transition-all duration-150 ${
               pumpActive
                 ? 'bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-900/40'
                 : 'bg-emerald-600 hover:bg-emerald-500 text-white'
@@ -96,37 +135,42 @@ export default function CameraVisionPanel({ streamUrl, lastYolo, pumpActive, yol
 
         {/* Overlay de Status do Teste YOLO */}
         {yoloTestActive && (
-          <div className="absolute top-3 right-3 bg-emerald-950/80 backdrop-blur border border-emerald-500/60 px-3 py-1.5 rounded-lg flex items-center gap-2">
+          <div className="absolute top-3 right-3 bg-emerald-950/90 backdrop-blur border border-emerald-500/60 px-3 py-1.5 rounded-lg flex items-center gap-2 shadow-lg">
             <FlaskConical className="w-4 h-4 text-emerald-400 animate-spin" />
             <span className="text-xs font-bold text-emerald-300">MODO TESTE YOLO ATIVO</span>
           </div>
         )}
 
-        {/* Overlay de Rótulo YOLO */}
-        {lastYolo && (
-          <div className="absolute top-3 left-3 bg-slate-950/80 backdrop-blur border border-emerald-500/50 px-3 py-2 rounded-lg flex items-center gap-2">
-            <Eye className="w-4 h-4 text-emerald-400 animate-pulse" />
+        {/* Overlay de Rótulo YOLO ao vivo */}
+        {isFresh && badge && (
+          <div className={`absolute top-3 left-3 backdrop-blur border px-3 py-2 rounded-lg flex items-center gap-2 shadow-lg ${badge.bg}`}>
+            <span className={`w-2.5 h-2.5 rounded-full ${badge.dot} animate-ping`} />
             <div>
-              <p className="text-xs text-slate-400">Última Detecção:</p>
-              <p className="text-sm font-bold text-emerald-300 uppercase">
-                {lastYolo.class} ({(lastYolo.confidence * 100).toFixed(0)}%)
-              </p>
+              <p className="text-[10px] text-slate-300 uppercase tracking-wider font-semibold">Detecção ao Vivo:</p>
+              <p className="text-xs font-bold">{badge.label}</p>
             </div>
           </div>
         )}
       </div>
 
-      {/* Card de Leitura da Classe */}
-      <div className="p-3 bg-slate-800/60 rounded-xl border border-slate-700/50 flex items-center justify-between text-sm">
-        <span className="text-slate-400">Classificação Atual:</span>
-        {lastYolo ? (
-          <span className="font-bold text-emerald-400 flex items-center gap-1">
-            <CheckCircle className="w-4 h-4" />
-            {lastYolo.class} (Confiança: {(lastYolo.confidence * 100).toFixed(0)}%)
+      {/* Card de Status da Classificação Atual com Alerta de "Nenhuma lata identificada" */}
+      <div className="p-3.5 bg-slate-800/60 rounded-xl border border-slate-700/50 flex flex-wrap items-center justify-between text-sm gap-2">
+        <span className="text-slate-400 font-medium">Classificação Atual:</span>
+        
+        {isFresh && badge ? (
+          <span className="font-bold text-emerald-400 flex items-center gap-1.5 bg-emerald-950/40 px-3 py-1 rounded-lg border border-emerald-500/30">
+            <CheckCircle className="w-4 h-4 text-emerald-400" />
+            {badge.label}
+          </span>
+        ) : yoloTestActive ? (
+          <span className="font-bold text-amber-400 flex items-center gap-1.5 bg-amber-950/40 px-3 py-1 rounded-lg border border-amber-500/30 animate-pulse">
+            <Search className="w-4 h-4 text-amber-400 animate-spin" />
+            Nenhuma lata identificada no campo de visão
           </span>
         ) : (
-          <span className="text-slate-500 italic">
-            {yoloTestActive ? 'Analisando imagem em qualquer posição...' : 'Aguardando teste do YOLO ou scan...'}
+          <span className="text-slate-500 italic flex items-center gap-1">
+            <XCircle className="w-4 h-4 text-slate-600" />
+            Aguardando ativasão do Teste YOLO ou scan da célula...
           </span>
         )}
       </div>
