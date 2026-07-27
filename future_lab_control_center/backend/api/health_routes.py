@@ -2,7 +2,7 @@
 # health_routes.py — API Router para Diagnóstico de Rede & Pings
 # ============================================================
 import subprocess
-import requests
+import urllib.request
 from fastapi import APIRouter
 from backend.config.settings import get_settings
 
@@ -24,8 +24,9 @@ def check_http_stream(url: str, timeout_sec: float = 1.5) -> bool:
     if not url:
         return False
     try:
-        resp = requests.get(url, stream=True, timeout=timeout_sec)
-        return resp.status_code == 200
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
+            return resp.status in [200, 301, 302]
     except Exception:
         return False
 

@@ -4,14 +4,22 @@
 import os
 import socket
 from pathlib import Path
-from pydantic_settings import BaseSettings
-from dotenv import load_dotenv
+from dataclasses import dataclass, asdict
 
+# Carregador simples de .env sem exigir pydantic-settings no SO host
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 ENV_PATH = BASE_DIR / ".env"
 
-if ENV_PATH.exists():
-    load_dotenv(dotenv_path=ENV_PATH)
+def load_env_file():
+    if ENV_PATH.exists():
+        with open(ENV_PATH, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    os.environ[k.strip()] = v.strip()
+
+load_env_file()
 
 def get_auto_ip() -> str:
     """Detecta automaticamente o IP primário da máquina na rede local."""
@@ -24,7 +32,8 @@ def get_auto_ip() -> str:
     except Exception:
         return "127.0.0.1"
 
-class Settings(BaseSettings):
+@dataclass
+class Settings:
     ROS_DOMAIN_ID: int = int(os.getenv("ROS_DOMAIN_ID", 42))
     RMW_IMPLEMENTATION: str = os.getenv("RMW_IMPLEMENTATION", "rmw_cyclonedds_cpp")
     
@@ -34,17 +43,17 @@ class Settings(BaseSettings):
     
     BACKEND_PORT: int = int(os.getenv("BACKEND_PORT", 8000))
     FRONTEND_PORT: int = int(os.getenv("FRONTEND_PORT", 3000))
-    CAMERA_STREAM_URL: str = os.getenv("CAMERA_STREAM_URL", f"http://192.168.0.250:8080/stream.mjpg")
+    CAMERA_STREAM_URL: str = os.getenv("CAMERA_STREAM_URL", "http://192.168.0.250:8080/stream.mjpg")
     
     DEFAULT_COOLDOWN_SEC: float = float(os.getenv("DEFAULT_COOLDOWN_SEC", 5.0))
     DEFAULT_YOLO_CONF: float = float(os.getenv("DEFAULT_YOLO_CONF", 0.60))
     DEFAULT_VELOCITY_SCALING: float = float(os.getenv("DEFAULT_VELOCITY_SCALING", 0.20))
 
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
+    def model_dump(self) -> dict:
+        return asdict(self)
 
 def get_settings() -> Settings:
+    load_env_file()
     return Settings()
 
 def update_env_file(new_data: dict) -> bool:
