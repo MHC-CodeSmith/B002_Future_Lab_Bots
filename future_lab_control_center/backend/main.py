@@ -4,6 +4,8 @@
 # ============================================================
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from backend.api.settings_routes import router as settings_router
+from backend.api.health_routes import router as health_router
 
 app = FastAPI(
     title="Future Lab Control Center API",
@@ -20,14 +22,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Registra os roteadores de API
+app.include_router(settings_router)
+app.include_router(health_router)
+
 @app.get("/")
 def read_root():
     return {
         "status": "online",
         "system": "Future Lab Control Center API",
-        "version": "1.0.0"
+        "version": "1.0.0",
+        "endpoints": [
+            "/api/v1/health",
+            "/api/v1/settings"
+        ]
     }
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    from backend.config.settings import get_settings
+    settings = get_settings()
+    uvicorn.run("main:app", host="0.0.0.0", port=settings.BACKEND_PORT, reload=True)
