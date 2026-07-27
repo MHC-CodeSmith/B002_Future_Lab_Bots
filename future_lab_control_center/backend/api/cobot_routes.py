@@ -36,29 +36,32 @@ def stop_yolo_test_process():
         pass
 
 def start_yolo_test_process():
-    """Inicia o script de inspeção do YOLO em background."""
+    """Inicia o script de inspeção do YOLO em background com ambiente ROS 2 ativo e confiança 0.25."""
     global yolo_process, yolo_test_active
     stop_yolo_test_process()
     
-    possible_paths = [
-        Path("/cobot/mycobot_docker/RUN_CAMERA_TEST.sh"),
-        Path("/home/future-lab/B002_Future_Lab_Bots/cobot/mycobot_docker/RUN_CAMERA_TEST.sh")
+    possible_scripts = [
+        Path("/cobot/mycobot_docker/custom_ws/scripts/cam_yolo_test.py"),
+        Path("/home/future-lab/B002_Future_Lab_Bots/cobot/mycobot_docker/custom_ws/scripts/cam_yolo_test.py")
     ]
     
-    target_path = None
-    for p in possible_paths:
+    target_script = None
+    for p in possible_scripts:
         if p.exists():
-            target_path = p
+            target_script = p
             break
             
-    if target_path:
+    if target_script:
         try:
-            cmd = ["bash", str(target_path), "--headless", "--nano"]
+            cmd = [
+                "bash", "-c",
+                f"source /opt/ros/jazzy/setup.bash && python3 {target_script} --headless --conf 0.25 --url http://192.168.0.250:8080/stream.mjpg"
+            ]
             yolo_process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             yolo_test_active = True
             return True
         except Exception as e:
-            print(f"[WARN] Erro ao disparar RUN_CAMERA_TEST.sh: {e}")
+            print(f"[WARN] Erro ao disparar cam_yolo_test.py: {e}")
             return False
     return False
 

@@ -5,20 +5,22 @@ FROM ros:jazzy-ros-base
 
 WORKDIR /app
 
-# Instala pip, ferramentas de rede, SSH e bibliotecas ROS 2
+# Instala pip, ferramentas de rede, SSH, OpenGL e bibliotecas ROS 2
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     iputils-ping \
     curl \
     sshpass \
     openssh-client \
+    libgl1 \
+    libglib2.0-0 \
     ros-jazzy-cyclonedds \
     ros-jazzy-rmw-cyclonedds-cpp \
     ros-jazzy-moveit-msgs \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir --break-system-packages -r /app/requirements.txt
+RUN pip install --no-cache-dir --break-system-packages --ignore-installed -r /app/requirements.txt
 
 COPY . /app/backend
 
