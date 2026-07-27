@@ -64,3 +64,19 @@ def get_health_status():
             }
         }
     }
+
+@router.post("/restart_camera")
+def restart_camera_stream():
+    """Tenta reiniciar o serviço de câmera e stream no Nano via SSH."""
+    settings = get_settings()
+    try:
+        ssh_cmd = [
+            "sshpass", "-p", "Elephant",
+            "ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=3",
+            f"er@{settings.JETSON_NANO_IP}",
+            "pkill -f cam_yolo_test.py || true; nohup python3 /home/er/cam_yolo_test.py > /dev/null 2>&1 &"
+        ]
+        subprocess.run(ssh_cmd, timeout=5)
+        return {"status": "success", "message": "Comando de reinicialização da câmera enviado para a Jetson Nano."}
+    except Exception as e:
+        return {"status": "warning", "message": f"Stream local atualizado. ({e})"}

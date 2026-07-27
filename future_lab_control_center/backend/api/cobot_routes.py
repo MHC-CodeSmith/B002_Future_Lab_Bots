@@ -18,7 +18,6 @@ class MovePoseSchema(BaseModel):
 def get_poses_status():
     """Retorna a lista de poses gravadas, status de cada pose e data do último salvamento."""
     node = get_cobot_node()
-    node.load_poses()
     poses_map = node.poses
     saved_at = poses_map.get("_last_saved", "Nenhum salvamento registrado")
     
@@ -111,7 +110,6 @@ def playback_trajectory():
     if missing:
         raise HTTPException(status_code=400, detail=f"Gravação incompleta. Poses pendentes: {missing}")
 
-    # Executa a trajetória em sequência segura
     sequence_part1 = ["home", "scan", "pick_approach", "pick"]
     for p in sequence_part1:
         if not node.goto_pose(p, velocity_scaling=0.10):

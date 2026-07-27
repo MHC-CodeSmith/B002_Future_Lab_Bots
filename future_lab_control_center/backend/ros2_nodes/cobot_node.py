@@ -6,6 +6,7 @@ import sys
 import time
 import yaml
 import threading
+from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -34,8 +35,17 @@ JOINT_NAMES = [
     "joint5_to_joint4", "joint6_to_joint5", "joint6output_to_joint6",
 ]
 GROUP = "mycobot_arm"
-POSES_FILE = "/home/future-lab/B002_Future_Lab_Bots/cobot/mycobot_docker/custom_ws/config/test_table_poses.yaml"
 REQUIRED_POSES = ["home", "scan", "pick_approach", "pick", "place_approach", "place"]
+
+# Resolução de caminho inteligente para o arquivo de poses
+HOST_POSES_FILE = Path("/home/future-lab/B002_Future_Lab_Bots/cobot/mycobot_docker/custom_ws/config/test_table_poses.yaml")
+CONTAINER_POSES_FILE = Path(__file__).resolve().parent.parent / "config" / "test_table_poses.yaml"
+
+def get_poses_file() -> Path:
+    if HOST_POSES_FILE.parent.exists():
+        return HOST_POSES_FILE
+    CONTAINER_POSES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    return CONTAINER_POSES_FILE
 
 class DummyNode:
     """Fallback simples caso o ROS 2 não esteja inicializado."""
@@ -71,30 +81,35 @@ class CobotNode(BaseNode):
                 self.is_ros_active = False
 
     def load_poses(self):
-        if os.path.exists(POSES_FILE):
+        poses_path = get_poses_file()
+        if poses_path.exists():
             try:
-                with open(POSES_FILE, "r") as f:
+                with open(poses_path, "r") as f:
                     self.poses = yaml.safe_load(f) or {}
             except Exception as e:
+                print(f"Erro ao carregar poses: {e}")
                 self.poses = {}
         else:
             self.poses = {}
 
     def save_poses(self) -> bool:
-        os.makedirs(os.path.dirname(POSES_FILE), exist_ok=True)
+        poses_path = get_poses_file()
+        poses_path.parent.mkdir(parents=True, exist_ok=True)
         self.poses["_last_saved"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         try:
-            with open(POSES_FILE, "w") as f:
+            with open(poses_path, "w") as f:
                 yaml.safe_dump(self.poses, f, default_flow_style=None, sort_keys=True)
             return True
         except Exception as e:
+            print(f"Erro ao salvar poses: {e}")
             return False
 
     def clear_poses(self) -> bool:
         self.poses = {}
-        if os.path.exists(POSES_FILE):
+        poses_path = get_poses_file()
+        if poses_path.exists():
             try:
-                os.remove(POSES_FILE)
+                os.remove(poses_path)
                 return True
             except Exception as e:
                 return False
@@ -212,6 +227,12 @@ _cobot_node: Optional[CobotNode] = None
 def get_cobot_node() -> CobotNode:
     global _cobot_node
     if _cobot_node is None:
+        if HAS_RCLPY:
+            try:
+                if not rclpy.ok():
+                    rclpy.init(args=None)
+            except Exception:
+                pass
         _cobot_node = CobotNode()
         if getattr(_cobot_node, 'is_ros_active', False):
             try:

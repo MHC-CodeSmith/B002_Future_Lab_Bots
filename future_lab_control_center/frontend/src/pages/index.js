@@ -72,6 +72,12 @@ export default function Dashboard() {
     fetchAllStatus();
   };
 
+  const handleRestartCamera = async () => {
+    const apiBase = getApiBase();
+    await fetch(`${apiBase}/health/restart_camera`, { method: 'POST' });
+    fetchAllStatus();
+  };
+
   const handleRelease = async () => {
     const apiBase = getApiBase();
     await fetch(`${apiBase}/cobot/teach/release`, { method: 'POST' });
@@ -87,25 +93,25 @@ export default function Dashboard() {
   const handleRecord = async (poseName) => {
     const apiBase = getApiBase();
     await fetch(`${apiBase}/cobot/teach/record/${poseName}`, { method: 'POST' });
-    fetchAllStatus();
+    await fetchAllStatus();
   };
 
   const handleSave = async () => {
     const apiBase = getApiBase();
     await fetch(`${apiBase}/cobot/teach/save`, { method: 'POST' });
-    fetchAllStatus();
+    await fetchAllStatus();
   };
 
   const handlePlayback = async () => {
     const apiBase = getApiBase();
     await fetch(`${apiBase}/cobot/teach/playback`, { method: 'POST' });
-    fetchAllStatus();
+    await fetchAllStatus();
   };
 
   const handleClear = async () => {
     const apiBase = getApiBase();
     await fetch(`${apiBase}/cobot/teach/clear`, { method: 'DELETE' });
-    fetchAllStatus();
+    await fetchAllStatus();
   };
 
   return (
@@ -128,6 +134,7 @@ export default function Dashboard() {
           lastYolo={cellStatus?.last_yolo}
           pumpActive={cellStatus?.pump_active}
           onTogglePump={handleTogglePump}
+          onRestartCamera={handleRestartCamera}
         />
 
         <TeachModePanel
