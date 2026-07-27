@@ -5,36 +5,44 @@ import CameraVisionPanel from '../components/CameraVisionPanel';
 import TeachModePanel from '../components/TeachModePanel';
 import TurtleBotPanel from '../components/TurtleBotPanel';
 
-const API_BASE = "http://localhost:8000/api/v1";
-
 export default function Dashboard() {
   const [health, setHealth] = useState(null);
   const [cellStatus, setCellStatus] = useState(null);
   const [poses, setPoses] = useState(null);
 
+  const getApiBase = () => {
+    if (typeof window !== 'undefined') {
+      const host = window.location.hostname || 'localhost';
+      return `http://${host}:8000/api/v1`;
+    }
+    return 'http://localhost:8000/api/v1';
+  };
+
   const fetchAllStatus = async () => {
+    const apiBase = getApiBase();
     try {
       const [resHealth, resCell, resPoses] = await Promise.all([
-        fetch(`${API_BASE}/health`).then(r => r.json()),
-        fetch(`${API_BASE}/cell/status`).then(r => r.json()),
-        fetch(`${API_BASE}/cobot/poses`).then(r => r.json())
+        fetch(`${apiBase}/health`).then(r => r.json()),
+        fetch(`${apiBase}/cell/status`).then(r => r.json()),
+        fetch(`${apiBase}/cobot/poses`).then(r => r.json())
       ]);
       setHealth(resHealth);
       setCellStatus(resCell);
       setPoses(resPoses);
     } catch (e) {
-      console.warn("Backend API offline or connecting...", e);
+      console.warn("API de controle conectando...", e);
     }
   };
 
   useEffect(() => {
     fetchAllStatus();
-    const interval = setInterval(fetchAllStatus, 3000);
+    const interval = setInterval(fetchAllStatus, 2000);
     return () => clearInterval(interval);
   }, []);
 
   const handleUpdateMode = async (payload) => {
-    await fetch(`${API_BASE}/cell/mode`, {
+    const apiBase = getApiBase();
+    await fetch(`${apiBase}/cell/mode`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -43,17 +51,20 @@ export default function Dashboard() {
   };
 
   const handleAuthorizeScan = async () => {
-    await fetch(`${API_BASE}/cell/authorize_scan`, { method: 'POST' });
+    const apiBase = getApiBase();
+    await fetch(`${apiBase}/cell/authorize_scan`, { method: 'POST' });
     fetchAllStatus();
   };
 
   const handleEmergencyStop = async () => {
-    await fetch(`${API_BASE}/cell/stop`, { method: 'POST' });
+    const apiBase = getApiBase();
+    await fetch(`${apiBase}/cell/stop`, { method: 'POST' });
     fetchAllStatus();
   };
 
   const handleTogglePump = async (on) => {
-    await fetch(`${API_BASE}/cobot/pump`, {
+    const apiBase = getApiBase();
+    await fetch(`${apiBase}/cobot/pump`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ on })
@@ -61,19 +72,39 @@ export default function Dashboard() {
     fetchAllStatus();
   };
 
-  const handleRelease = () => fetch(`${API_BASE}/cobot/teach/release`, { method: 'POST' });
-  const handleLock = () => fetch(`${API_BASE}/cobot/teach/lock`, { method: 'POST' });
+  const handleRelease = async () => {
+    const apiBase = getApiBase();
+    await fetch(`${apiBase}/cobot/teach/release`, { method: 'POST' });
+    fetchAllStatus();
+  };
+
+  const handleLock = async () => {
+    const apiBase = getApiBase();
+    await fetch(`${apiBase}/cobot/teach/lock`, { method: 'POST' });
+    fetchAllStatus();
+  };
+
   const handleRecord = async (poseName) => {
-    await fetch(`${API_BASE}/cobot/teach/record/${poseName}`, { method: 'POST' });
+    const apiBase = getApiBase();
+    await fetch(`${apiBase}/cobot/teach/record/${poseName}`, { method: 'POST' });
     fetchAllStatus();
   };
+
   const handleSave = async () => {
-    await fetch(`${API_BASE}/cobot/teach/save`, { method: 'POST' });
+    const apiBase = getApiBase();
+    await fetch(`${apiBase}/cobot/teach/save`, { method: 'POST' });
     fetchAllStatus();
   };
-  const handlePlayback = () => fetch(`${API_BASE}/cobot/teach/playback`, { method: 'POST' });
+
+  const handlePlayback = async () => {
+    const apiBase = getApiBase();
+    await fetch(`${apiBase}/cobot/teach/playback`, { method: 'POST' });
+    fetchAllStatus();
+  };
+
   const handleClear = async () => {
-    await fetch(`${API_BASE}/cobot/teach/clear`, { method: 'DELETE' });
+    const apiBase = getApiBase();
+    await fetch(`${apiBase}/cobot/teach/clear`, { method: 'DELETE' });
     fetchAllStatus();
   };
 
