@@ -5,11 +5,13 @@ FROM ros:jazzy-ros-base
 
 WORKDIR /app
 
-# Instala pip, ferramentas de rede e bibliotecas ROS 2 (MoveIt msgs + CycloneDDS)
+# Instala pip, ferramentas de rede, SSH e bibliotecas ROS 2
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     iputils-ping \
     curl \
+    sshpass \
+    openssh-client \
     ros-jazzy-cyclonedds \
     ros-jazzy-rmw-cyclonedds-cpp \
     ros-jazzy-moveit-msgs \

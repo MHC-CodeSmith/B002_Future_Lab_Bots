@@ -1,8 +1,10 @@
 # ============================================================
 # health_routes.py — API Router para Diagnóstico de Rede & Pings
 # ============================================================
+import time
 import subprocess
 import urllib.request
+from pathlib import Path
 from fastapi import APIRouter
 from backend.config.settings import get_settings
 
@@ -67,16 +69,35 @@ def get_health_status():
 
 @router.post("/restart_camera")
 def restart_camera_stream():
-    """Tenta reiniciar o serviço de câmera e stream no Nano via SSH."""
+    """Executa a rotina idêntica ao RUN_NANO_CAMERA.sh start via SSH no Nano."""
     settings = get_settings()
+    nano_ip = settings.JETSON_NANO_IP
+    script_path = Path("/home/future-lab/B002_Future_Lab_Bots/cobot/mycobot_docker/nano_camera_server.py")
+    
     try:
-        ssh_cmd = [
-            "sshpass", "-p", "Elephant",
-            "ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=3",
-            f"er@{settings.JETSON_NANO_IP}",
-            "pkill -f cam_yolo_test.py || true; nohup python3 /home/er/cam_yolo_test.py > /dev/null 2>&1 &"
+        if script_path.exists():
+            scp_cmd = [
+                "sshpass", "-p", "Elephant", "scp",
+                "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=3",
+                str(script_path), f"er@{nano_ip}:~/nano_camera_server.py"
+            ]
+            subprocess.run(scp_cmd, timeout=5)
+
+        kill_cmd = [
+            "sshpass", "-p", "Elephant", "ssh",
+            "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=3",
+            f"er@{nano_ip}", "pkill -9 -f nano_camera_server.py 2>/dev/null || true"
         ]
-        subprocess.run(ssh_cmd, timeout=5)
-        return {"status": "success", "message": "Comando de reinicialização da câmera enviado para a Jetson Nano."}
+        subprocess.run(kill_cmd, timeout=5)
+
+        time.sleep(1.0)
+
+        start_cmd = [
+            "sshpass", "-p", "Elephant", "ssh",
+            "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=3",
+            f"er@{nano_ip}", "nohup python3 -u /home/er/nano_camera_server.py --device 0 --port 8080 > /tmp/camera.log 2>&1 &"
+        ]
+        subprocess.run(start_cmd, timeout=5)
+        return {"status": "success", "message": "Servidor MJPEG da câmera iniciado com sucesso na Jetson Nano!"}
     except Exception as e:
-        return {"status": "warning", "message": f"Stream local atualizado. ({e})"}
+        return {"status": "error", "message": f"Falha ao enviar comando SSH para o Nano: {e}"}

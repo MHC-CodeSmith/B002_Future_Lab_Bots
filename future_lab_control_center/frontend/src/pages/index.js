@@ -78,6 +78,12 @@ export default function Dashboard() {
     fetchAllStatus();
   };
 
+  const handleMovePose = async (poseName) => {
+    const apiBase = getApiBase();
+    await fetch(`${apiBase}/cobot/move/${poseName}`, { method: 'POST' });
+    fetchAllStatus();
+  };
+
   const handleRelease = async () => {
     const apiBase = getApiBase();
     await fetch(`${apiBase}/cobot/teach/release`, { method: 'POST' });
@@ -135,6 +141,7 @@ export default function Dashboard() {
           pumpActive={cellStatus?.pump_active}
           onTogglePump={handleTogglePump}
           onRestartCamera={handleRestartCamera}
+          onMovePose={handleMovePose}
         />
 
         <TeachModePanel
