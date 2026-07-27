@@ -1,6 +1,7 @@
 # ============================================================
 # cell_routes.py — API Router para Controle da Célula e Segurança
 # ============================================================
+import threading
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
@@ -25,16 +26,20 @@ cell_state = {
 def get_cell_status():
     """Retorna o status global da célula automatizada."""
     node = get_cobot_node()
+    from backend.api.cobot_routes import yolo_test_active
     return {
         "cell": cell_state,
         "current_joints": node.current_joints,
         "pump_active": node.pump_active,
+        "yolo_test_active": yolo_test_active,
         "last_yolo": node.last_yolo_msg
     }
 
 @router.post("/mode")
 def set_cell_mode(payload: CellModeSchema):
     """Altera o modo de operação da célula entre 'auto' e 'manual'."""
+    from backend.api.cobot_routes import stop_yolo_test_process
+    stop_yolo_test_process()
     if payload.mode not in ["auto", "manual"]:
         raise HTTPException(status_code=400, detail="Modo deve ser 'auto' ou 'manual'.")
     cell_state["mode"] = payload.mode
@@ -54,17 +59,18 @@ def authorize_manual_scan():
 
 @router.post("/stop")
 def emergency_stop():
-    """Parada de emergência: desliga bomba e instrui o robô a mover suavemente para HOME."""
+    """Parada de emergência: desliga bomba, desativa teste YOLO e move braço para HOME."""
+    from backend.api.cobot_routes import stop_yolo_test_process
+    stop_yolo_test_process()
     node = get_cobot_node()
     node.set_pump(False)
     cell_state["status"] = "stopped"
     cell_state["manual_authorized"] = False
     
-    import threading
     t = threading.Thread(target=node.goto_pose, args=("home", 0.15))
     t.start()
     
     return {
         "status": "emergency_stop_triggered",
-        "message": "Parada de emergência acionada. Bomba desligada e retornando o braço para HOME."
+        "message": "Parada de emergência acionada. Bomba e teste YOLO desligados e retornando o braço para HOME."
     }

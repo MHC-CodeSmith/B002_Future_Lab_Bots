@@ -72,6 +72,16 @@ export default function Dashboard() {
     fetchAllStatus();
   };
 
+  const handleToggleYoloTest = async (active) => {
+    const apiBase = getApiBase();
+    await fetch(`${apiBase}/cobot/yolo_test`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active })
+    });
+    fetchAllStatus();
+  };
+
   const handleRestartCamera = async () => {
     const apiBase = getApiBase();
     await fetch(`${apiBase}/health/restart_camera`, { method: 'POST' });
@@ -139,7 +149,9 @@ export default function Dashboard() {
           streamUrl={health?.devices?.jetson_nano?.camera_stream_url}
           lastYolo={cellStatus?.last_yolo}
           pumpActive={cellStatus?.pump_active}
+          yoloTestActive={cellStatus?.yolo_test_active}
           onTogglePump={handleTogglePump}
+          onToggleYoloTest={handleToggleYoloTest}
           onRestartCamera={handleRestartCamera}
           onMovePose={handleMovePose}
         />

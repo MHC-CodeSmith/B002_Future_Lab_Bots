@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
-import { Camera, Eye, Power, CheckCircle, AlertTriangle, RefreshCw, FlaskConical, Home } from 'lucide-react';
+import { Camera, Eye, Power, CheckCircle, AlertTriangle, RefreshCw, FlaskConical } from 'lucide-react';
 
-export default function CameraVisionPanel({ streamUrl, lastYolo, pumpActive, onTogglePump, onRestartCamera, onMovePose }) {
+export default function CameraVisionPanel({ streamUrl, lastYolo, pumpActive, yoloTestActive, onTogglePump, onToggleYoloTest, onRestartCamera }) {
   const [streamError, setStreamError] = useState(false);
   const [streamKey, setStreamKey] = useState(Date.now());
   const [restarting, setRestarting] = useState(false);
-  const [testingYolo, setTestingYolo] = useState(false);
 
   const rawUrl = streamUrl || "http://192.168.0.250:8080/stream.mjpg";
   const liveUrl = `${rawUrl}${rawUrl.includes('?') ? '&' : '?'}t=${streamKey}`;
@@ -24,20 +23,6 @@ export default function CameraVisionPanel({ streamUrl, lastYolo, pumpActive, onT
     setTimeout(() => setRestarting(false), 2000);
   };
 
-  const handleTestYolo = async () => {
-    setTestingYolo(true);
-    if (onMovePose) {
-      await onMovePose("scan");
-    }
-    setTimeout(() => setTestingYolo(false), 1000);
-  };
-
-  const handleReturnHome = async () => {
-    if (onMovePose) {
-      await onMovePose("home");
-    }
-  };
-
   return (
     <div className="glass-card p-5 rounded-xl space-y-4">
       <div className="flex flex-wrap items-center justify-between border-b border-slate-700 pb-3 gap-2">
@@ -46,7 +31,7 @@ export default function CameraVisionPanel({ streamUrl, lastYolo, pumpActive, onT
           Visão da Câmera & Classificação YOLO
         </h2>
         
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={handleRefreshStream}
             disabled={restarting}
@@ -57,10 +42,29 @@ export default function CameraVisionPanel({ streamUrl, lastYolo, pumpActive, onT
             {restarting ? 'REINICIANDO...' : 'REINICIAR CÂMERA'}
           </button>
 
+          {/* Botão de Toggle do Teste YOLO (Estilo do Botão da Bomba) */}
+          <button
+            onClick={() => onToggleYoloTest(!yoloTestActive)}
+            className={`px-3 py-1.5 text-xs font-bold rounded-lg btn-hover flex items-center gap-1.5 ${
+              yoloTestActive
+                ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/40 animate-pulse'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
+            }`}
+          >
+            <FlaskConical className="w-3.5 h-3.5" />
+            {yoloTestActive ? 'TESTE YOLO: LIGADO' : 'TESTAR YOLO'}
+          </button>
+
+          {/* Botão de Toggle da Bomba */}
           <button
             onClick={() => onTogglePump(!pumpActive)}
-            className={`px-3 py-1.5 text-xs font-bold rounded-lg btn-hover ${pumpActive ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}`}
+            className={`px-3 py-1.5 text-xs font-bold rounded-lg btn-hover flex items-center gap-1.5 ${
+              pumpActive
+                ? 'bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-900/40'
+                : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+            }`}
           >
+            <Power className="w-3.5 h-3.5" />
             {pumpActive ? 'DESLIGAR BOMBA' : 'LIGAR BOMBA'}
           </button>
         </div>
@@ -90,6 +94,14 @@ export default function CameraVisionPanel({ streamUrl, lastYolo, pumpActive, onT
           </div>
         )}
 
+        {/* Overlay de Status do Teste YOLO */}
+        {yoloTestActive && (
+          <div className="absolute top-3 right-3 bg-emerald-950/80 backdrop-blur border border-emerald-500/60 px-3 py-1.5 rounded-lg flex items-center gap-2">
+            <FlaskConical className="w-4 h-4 text-emerald-400 animate-spin" />
+            <span className="text-xs font-bold text-emerald-300">MODO TESTE YOLO ATIVO</span>
+          </div>
+        )}
+
         {/* Overlay de Rótulo YOLO */}
         {lastYolo && (
           <div className="absolute top-3 left-3 bg-slate-950/80 backdrop-blur border border-emerald-500/50 px-3 py-2 rounded-lg flex items-center gap-2">
@@ -104,26 +116,6 @@ export default function CameraVisionPanel({ streamUrl, lastYolo, pumpActive, onT
         )}
       </div>
 
-      {/* Botões Específicos para Teste de Visão YOLO */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-        <button
-          onClick={handleTestYolo}
-          disabled={testingYolo}
-          className="py-2.5 px-4 bg-emerald-600/30 hover:bg-emerald-600 text-emerald-300 border border-emerald-500/40 text-xs font-bold rounded-xl flex items-center justify-center gap-2 btn-hover"
-        >
-          <FlaskConical className={`w-4 h-4 ${testingYolo ? 'animate-bounce' : ''}`} />
-          🧪 TESTAR YOLO (POSIÇÃO SCAN)
-        </button>
-
-        <button
-          onClick={handleReturnHome}
-          className="py-2.5 px-4 bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-bold rounded-xl flex items-center justify-center gap-2 btn-hover"
-        >
-          <Home className="w-4 h-4" />
-          🏠 VOLTAR PARA HOME
-        </button>
-      </div>
-
       {/* Card de Leitura da Classe */}
       <div className="p-3 bg-slate-800/60 rounded-xl border border-slate-700/50 flex items-center justify-between text-sm">
         <span className="text-slate-400">Classificação Atual:</span>
@@ -133,7 +125,9 @@ export default function CameraVisionPanel({ streamUrl, lastYolo, pumpActive, onT
             {lastYolo.class} (Confiança: {(lastYolo.confidence * 100).toFixed(0)}%)
           </span>
         ) : (
-          <span className="text-slate-500 italic">Aguardando scan na posição...</span>
+          <span className="text-slate-500 italic">
+            {yoloTestActive ? 'Analisando imagem em qualquer posição...' : 'Aguardando teste do YOLO ou scan...'}
+          </span>
         )}
       </div>
     </div>

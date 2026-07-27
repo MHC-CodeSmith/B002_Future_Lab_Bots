@@ -1,6 +1,10 @@
 # ============================================================
 # cobot_routes.py — API Router de Controle do Cobot e Modo Ensino
 # ============================================================
+import os
+import signal
+import subprocess
+from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
@@ -8,8 +12,61 @@ from backend.ros2_nodes.cobot_node import get_cobot_node, REQUIRED_POSES
 
 router = APIRouter(prefix="/api/v1/cobot", tags=["Cobot Control"])
 
+# Gerenciamento do Processo de Teste Isolado do YOLO
+yolo_process: Optional[subprocess.Popen] = None
+yolo_test_active: bool = False
+
+def stop_yolo_test_process():
+    """Desativa e encerra o processo de teste isolado do YOLO por segurança."""
+    global yolo_process, yolo_test_active
+    yolo_test_active = False
+    if yolo_process is not None:
+        try:
+            yolo_process.terminate()
+            yolo_process.wait(timeout=2)
+        except Exception:
+            try:
+                yolo_process.kill()
+            except Exception:
+                pass
+        yolo_process = None
+    try:
+        subprocess.run(["pkill", "-f", "cam_yolo_test.py"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
+def start_yolo_test_process():
+    """Inicia o script de inspeção do YOLO em background."""
+    global yolo_process, yolo_test_active
+    stop_yolo_test_process()
+    
+    possible_paths = [
+        Path("/cobot/mycobot_docker/RUN_CAMERA_TEST.sh"),
+        Path("/home/future-lab/B002_Future_Lab_Bots/cobot/mycobot_docker/RUN_CAMERA_TEST.sh")
+    ]
+    
+    target_path = None
+    for p in possible_paths:
+        if p.exists():
+            target_path = p
+            break
+            
+    if target_path:
+        try:
+            cmd = ["bash", str(target_path), "--headless", "--nano"]
+            yolo_process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            yolo_test_active = True
+            return True
+        except Exception as e:
+            print(f"[WARN] Erro ao disparar RUN_CAMERA_TEST.sh: {e}")
+            return False
+    return False
+
 class PumpControlSchema(BaseModel):
     on: bool
+
+class YoloTestSchema(BaseModel):
+    active: bool
 
 class MovePoseSchema(BaseModel):
     velocity_scaling: Optional[float] = 0.20
@@ -38,7 +95,8 @@ def get_poses_status():
 
 @router.post("/move/{pose_name}")
 def move_to_pose(pose_name: str, payload: Optional[MovePoseSchema] = None):
-    """Move o braço do robô para a pose especificada."""
+    """Move o braço do robô desativando o teste isolado do YOLO por segurança."""
+    stop_yolo_test_process()
     node = get_cobot_node()
     vel = payload.velocity_scaling if payload else 0.20
     ok = node.goto_pose(pose_name, velocity_scaling=vel)
@@ -54,6 +112,23 @@ def control_pump(payload: PumpControlSchema):
     if not ok:
         raise HTTPException(status_code=500, detail="Falha no comando da bomba de sucção.")
     return {"status": "success", "pump_active": payload.on}
+
+@router.post("/yolo_test")
+def toggle_yolo_test(payload: YoloTestSchema):
+    """Ativa ou Desativa o Teste Isolado de Classificação do YOLO."""
+    if payload.active:
+        ok = start_yolo_test_process()
+        if not ok:
+            raise HTTPException(status_code=500, detail="Falha ao disparar script de teste do YOLO.")
+        return {"status": "success", "yolo_test_active": True}
+    else:
+        stop_yolo_test_process()
+        return {"status": "success", "yolo_test_active": False}
+
+@router.get("/yolo_test/status")
+def get_yolo_test_status():
+    """Retorna se o teste isolado do YOLO está ativo."""
+    return {"yolo_test_active": yolo_test_active}
 
 @router.post("/teach/release")
 def release_servos():
@@ -105,6 +180,7 @@ def clear_recorded_poses():
 @router.post("/teach/playback")
 def playback_trajectory():
     """Executa o teste da trajetória completa com acionamento da bomba a 10% de velocidade."""
+    stop_yolo_test_process()  # Trava de segurança: desativa o teste isolado do YOLO
     node = get_cobot_node()
     missing = [p for p in REQUIRED_POSES if p not in node.poses]
     if missing:

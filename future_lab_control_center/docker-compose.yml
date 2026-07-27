@@ -7,6 +7,8 @@ services:
       dockerfile: Dockerfile
     container_name: future_lab_backend
     network_mode: "host"
+    volumes:
+      - /home/future-lab/B002_Future_Lab_Bots/cobot:/cobot
     env_file:
       - .env
     restart: unless-stopped
