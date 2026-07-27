@@ -1,0 +1,139 @@
+import React, { useState } from 'react';
+import { BookOpen, Unlock, Lock, Save, Play, Trash2, CheckCircle2, XCircle, Clock } from 'lucide-react';
+
+export default function TeachModePanel({ posesData, onRelease, onLock, onRecord, onSave, onPlayback, onClear }) {
+  const [selectedPose, setSelectedPose] = useState('home');
+  const [loading, setLoading] = useState(false);
+
+  const posesList = posesData?.poses || [
+    { name: 'home', recorded: false },
+    { name: 'scan', recorded: false },
+    { name: 'pick_approach', recorded: false },
+    { name: 'pick', recorded: false },
+    { name: 'place_approach', recorded: false },
+    { name: 'place', recorded: false }
+  ];
+
+  const handleAction = async (actionFn, ...args) => {
+    setLoading(true);
+    try {
+      await actionFn(...args);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="glass-card p-5 rounded-xl space-y-5">
+      <div className="flex items-center justify-between border-b border-slate-700 pb-3">
+        <div>
+          <h2 className="text-lg font-bold flex items-center gap-2">
+            <BookOpen className="w-5 h-5 text-blue-400" />
+            Modo Ensino & Calibragem de Poses
+          </h2>
+          <p className="text-xs text-slate-400 flex items-center gap-1 mt-1">
+            <Clock className="w-3.5 h-3.5" />
+            Última gravação salva: <span className="font-semibold text-slate-200">{posesData?.last_saved || 'Nenhum salvamento registrado'}</span>
+          </p>
+        </div>
+        
+        {/* Controles de Torque dos Motores */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => handleAction(onRelease)}
+            disabled={loading}
+            className="px-3 py-1.5 bg-amber-600/30 hover:bg-amber-600 text-amber-300 border border-amber-500/40 text-xs font-bold rounded-lg flex items-center gap-1.5 btn-hover"
+          >
+            <Unlock className="w-4 h-4" />
+            SOLTAR MOTORES (1)
+          </button>
+          <button
+            onClick={() => handleAction(onLock)}
+            disabled={loading}
+            className="px-3 py-1.5 bg-blue-600/30 hover:bg-blue-600 text-blue-300 border border-blue-500/40 text-xs font-bold rounded-lg flex items-center gap-1.5 btn-hover"
+          >
+            <Lock className="w-4 h-4" />
+            TRAVAR MOTORES (2)
+          </button>
+        </div>
+      </div>
+
+      {/* Tabela de Poses */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-slate-800/80 text-xs uppercase text-slate-400">
+            <tr>
+              <th className="p-3">Pose</th>
+              <th className="p-3">Status</th>
+              <th className="p-3">Juntas (Rad)</th>
+              <th className="p-3 text-right">Ação</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800">
+            {posesList.map((p) => (
+              <tr key={p.name} className={selectedPose === p.name ? 'bg-blue-900/20' : 'hover:bg-slate-800/40'}>
+                <td className="p-3 font-mono font-bold text-blue-300">{p.name}</td>
+                <td className="p-3">
+                  {p.recorded ? (
+                    <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 font-bold flex items-center gap-1 w-max">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> GRAVADA
+                    </span>
+                  ) : (
+                    <span className="text-xs px-2.5 py-1 rounded-full bg-red-500/20 text-red-300 font-bold flex items-center gap-1 w-max">
+                      <XCircle className="w-3.5 h-3.5" /> PENDENTE
+                    </span>
+                  )}
+                </td>
+                <td className="p-3 font-mono text-xs text-slate-400">
+                  {p.joints ? `[${p.joints.map(v => v.toFixed(2)).join(', ')}]` : '—'}
+                </td>
+                <td className="p-3 text-right">
+                  <button
+                    onClick={() => {
+                      setSelectedPose(p.name);
+                      handleAction(onRecord, p.name);
+                    }}
+                    disabled={loading}
+                    className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-xs font-bold rounded-md btn-hover"
+                  >
+                    GRAVAR (3)
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Botões do Menu Principal de Calibragem */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
+        <button
+          onClick={() => handleAction(onPlayback)}
+          disabled={loading}
+          className="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-xs font-bold rounded-xl flex items-center justify-center gap-2 btn-hover"
+        >
+          <Play className="w-4 h-4 fill-current" />
+          PLAYBACK TESTE (4)
+        </button>
+
+        <button
+          onClick={() => handleAction(onSave)}
+          disabled={loading}
+          className="py-2.5 px-4 bg-blue-600 hover:bg-blue-500 text-xs font-bold rounded-xl flex items-center justify-center gap-2 btn-hover"
+        >
+          <Save className="w-4 h-4" />
+          SALVAR POSES NO DISCO (5)
+        </button>
+
+        <button
+          onClick={() => handleAction(onClear)}
+          disabled={loading}
+          className="py-2.5 px-4 bg-red-600/30 hover:bg-red-600 text-red-300 border border-red-500/40 text-xs font-bold rounded-xl flex items-center justify-center gap-2 btn-hover"
+        >
+          <Trash2 className="w-4 h-4" />
+          ZERAR CALIBRAGEM (6)
+        </button>
+      </div>
+    </div>
+  );
+}
