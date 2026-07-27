@@ -1,25 +1,30 @@
 # ============================================================
-# Dockerfile — Backend FastAPI (Future Lab Control Center)
+# Dockerfile — Backend FastAPI + ROS 2 (Future Lab Control Center)
 # ============================================================
-FROM python:3.10-slim
+FROM ros:jazzy-ros-base
 
 WORKDIR /app
 
-# Instala ferramentas básicas de rede para health check (ping, curl)
+# Instala pip, ferramentas de rede e bibliotecas ROS 2 (MoveIt msgs + CycloneDDS)
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3-pip \
     iputils-ping \
     curl \
+    ros-jazzy-cyclonedds \
+    ros-jazzy-rmw-cyclonedds-cpp \
+    ros-jazzy-moveit-msgs \
     && rm -rf /var/lib/apt/lists/*
 
-# Copia dependências e instala pacotes Python
 COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+RUN pip install --no-cache-dir --break-system-packages -r /app/requirements.txt
 
-# Copia o código da aplicação backend no módulo /app/backend
 COPY . /app/backend
 
 ENV PYTHONPATH=/app
+ENV ROS_DOMAIN_ID=42
+ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 
 EXPOSE 8000
 
-CMD ["python3", "/app/backend/main.py"]
+# Executa o backend com o ambiente do ROS 2 Jazzy ativado
+CMD ["bash", "-c", "source /opt/ros/jazzy/setup.bash && python3 /app/backend/main.py"]

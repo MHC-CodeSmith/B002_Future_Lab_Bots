@@ -9,6 +9,7 @@ import threading
 from datetime import datetime
 from typing import Dict, List, Optional
 
+HAS_RCLPY = False
 try:
     import rclpy
     from rclpy.node import Node
@@ -20,10 +21,13 @@ try:
     from std_srvs.srv import Trigger
     from moveit_msgs.action import MoveGroup
     from moveit_msgs.msg import PlanningOptions, Constraints, JointConstraint, MotionPlanRequest
+    
+    if not rclpy.ok():
+        rclpy.init()
     HAS_RCLPY = True
-except ImportError:
+except Exception as e:
+    print(f"[WARN] ROS 2 rclpy não ativado no momento: {e}")
     HAS_RCLPY = False
-    Node = object
 
 JOINT_NAMES = [
     "joint2_to_joint1", "joint3_to_joint2", "joint4_to_joint3",
@@ -33,26 +37,38 @@ GROUP = "mycobot_arm"
 POSES_FILE = "/home/future-lab/B002_Future_Lab_Bots/cobot/mycobot_docker/custom_ws/config/test_table_poses.yaml"
 REQUIRED_POSES = ["home", "scan", "pick_approach", "pick", "place_approach", "place"]
 
-class CobotNode(Node):
+class DummyNode:
+    """Fallback simples caso o ROS 2 não esteja inicializado."""
+    pass
+
+BaseNode = Node if HAS_RCLPY else DummyNode
+
+class CobotNode(BaseNode):
     def __init__(self):
         self.current_joints: Optional[List[float]] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         self.last_yolo_msg: Optional[Dict] = None
         self.pump_active: bool = False
         self.poses: Dict[str, List[float]] = {}
+        self.is_ros_active: bool = False
         self.load_poses()
 
-        if HAS_RCLPY:
-            super().__init__("future_lab_cobot_node")
-            self.move_cli = ActionClient(self, MoveGroup, "/move_action")
-            self.pump_on_cli = self.create_client(Trigger, "/pump_on")
-            self.pump_off_cli = self.create_client(Trigger, "/pump_off")
-            self.release_cli = self.create_client(Trigger, "/release_servos")
-            self.lock_cli = self.create_client(Trigger, "/lock_servos")
-            
-            qos = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=10)
-            self.create_subscription(JointState, "/joint_states", self._js_cb, 10)
-            self.create_subscription(JointState, "/joint_states_raw", self._js_cb, 10)
-            self.create_subscription(String, "/product_class", self._yolo_cb, qos)
+        if HAS_RCLPY and rclpy.ok():
+            try:
+                super().__init__("future_lab_cobot_node")
+                self.move_cli = ActionClient(self, MoveGroup, "/move_action")
+                self.pump_on_cli = self.create_client(Trigger, "/pump_on")
+                self.pump_off_cli = self.create_client(Trigger, "/pump_off")
+                self.release_cli = self.create_client(Trigger, "/release_servos")
+                self.lock_cli = self.create_client(Trigger, "/lock_servos")
+                
+                qos = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=10)
+                self.create_subscription(JointState, "/joint_states", self._js_cb, 10)
+                self.create_subscription(JointState, "/joint_states_raw", self._js_cb, 10)
+                self.create_subscription(String, "/product_class", self._yolo_cb, qos)
+                self.is_ros_active = True
+            except Exception as e:
+                print(f"[WARN] Erro ao inicializar nó ROS 2: {e}")
+                self.is_ros_active = False
 
     def load_poses(self):
         if os.path.exists(POSES_FILE):
@@ -85,12 +101,12 @@ class CobotNode(Node):
         return True
 
     def _js_cb(self, msg):
-        if HAS_RCLPY and set(JOINT_NAMES).issubset(set(msg.name)):
+        if self.is_ros_active and set(JOINT_NAMES).issubset(set(msg.name)):
             idx = {n: i for i, n in enumerate(msg.name)}
             self.current_joints = [float(msg.position[idx[n]]) for n in JOINT_NAMES]
 
     def _yolo_cb(self, msg):
-        if not HAS_RCLPY:
+        if not self.is_ros_active:
             return
         data = (msg.data or "").strip()
         if not data:
@@ -106,7 +122,7 @@ class CobotNode(Node):
         }
 
     def call_trigger_service(self, cli, label: str, timeout_sec: float = 3.0) -> bool:
-        if not HAS_RCLPY or cli is None or not cli.service_is_ready():
+        if not self.is_ros_active or cli is None or not cli.service_is_ready():
             return True
         req = Trigger.Request()
         fut = cli.call_async(req)
@@ -119,7 +135,7 @@ class CobotNode(Node):
         return bool(res and res.success)
 
     def set_pump(self, on: bool) -> bool:
-        if not HAS_RCLPY:
+        if not self.is_ros_active:
             self.pump_active = on
             return True
         cli = self.pump_on_cli if on else self.pump_off_cli
@@ -132,7 +148,7 @@ class CobotNode(Node):
         if pose_name not in self.poses:
             return False
 
-        if not HAS_RCLPY:
+        if not self.is_ros_active:
             time.sleep(1.0)
             self.current_joints = list(self.poses[pose_name])
             return True
@@ -197,11 +213,12 @@ def get_cobot_node() -> CobotNode:
     global _cobot_node
     if _cobot_node is None:
         _cobot_node = CobotNode()
-        if HAS_RCLPY:
-            if not rclpy.ok():
-                rclpy.init()
-            executor = MultiThreadedExecutor()
-            executor.add_node(_cobot_node)
-            spin_thread = threading.Thread(target=executor.spin, daemon=True)
-            spin_thread.start()
+        if getattr(_cobot_node, 'is_ros_active', False):
+            try:
+                executor = MultiThreadedExecutor()
+                executor.add_node(_cobot_node)
+                spin_thread = threading.Thread(target=executor.spin, daemon=True)
+                spin_thread.start()
+            except Exception as e:
+                print(f"[WARN] Erro ao iniciar executor ROS 2: {e}")
     return _cobot_node
