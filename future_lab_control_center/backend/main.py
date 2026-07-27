@@ -4,8 +4,12 @@
 # ============================================================
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from backend.api.settings_routes import router as settings_router
 from backend.api.health_routes import router as health_router
+from backend.api.cobot_routes import router as cobot_router
+from backend.api.cell_routes import router as cell_router
+from backend.api.turtlebot_routes import router as turtlebot_router
 
 app = FastAPI(
     title="Future Lab Control Center API",
@@ -25,6 +29,9 @@ app.add_middleware(
 # Registra os roteadores de API
 app.include_router(settings_router)
 app.include_router(health_router)
+app.include_router(cobot_router)
+app.include_router(cell_router)
+app.include_router(turtlebot_router)
 
 @app.get("/")
 def read_root():
@@ -34,7 +41,10 @@ def read_root():
         "version": "1.0.0",
         "endpoints": [
             "/api/v1/health",
-            "/api/v1/settings"
+            "/api/v1/settings",
+            "/api/v1/cobot/poses",
+            "/api/v1/cell/status",
+            "/api/v1/turtlebot/status"
         ]
     }
 
