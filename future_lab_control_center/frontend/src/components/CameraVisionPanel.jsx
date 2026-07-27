@@ -23,7 +23,7 @@ export default function CameraVisionPanel({
   const handleRefreshStream = async () => {
     setRestarting(true);
     setStreamError(false);
-    setStreamKey(Date.now());
+    
     if (onRestartCamera) {
       try {
         await onRestartCamera();
@@ -31,7 +31,12 @@ export default function CameraVisionPanel({
         console.warn("Erro ao reiniciar câmera:", e);
       }
     }
-    setTimeout(() => setRestarting(false), 2000);
+    
+    // Aguarda o script oficial de inicialização (scp + pkill + python server + 4 tentativas HTTP)
+    setTimeout(() => {
+      setStreamKey(Date.now());
+      setRestarting(false);
+    }, 7000);
   };
 
   const getDetectionBadge = () => {
@@ -75,13 +80,13 @@ export default function CameraVisionPanel({
             onClick={handleRefreshStream}
             disabled={restarting}
             className="px-3 py-1.5 text-xs font-bold rounded-lg bg-blue-600/30 hover:bg-blue-600 text-blue-300 border border-blue-500/40 flex items-center gap-1.5 btn-hover"
-            title="Reiniciar Servidor MJPEG na Jetson Nano"
+            title="Executar RUN_NANO_CAMERA.sh start via SSH na Jetson Nano"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${restarting ? 'animate-spin' : ''}`} />
-            {restarting ? 'REINICIANDO...' : 'REINICIAR CÂMERA'}
+            {restarting ? 'REINICIANDO NANO (~7s)...' : 'REINICIAR CÂMERA'}
           </button>
 
-          {/* Botão de Toggle do Teste YOLO (Instantâneo) */}
+          {/* Botão de Toggle do Teste YOLO */}
           <button
             onClick={() => onToggleYoloTest(!yoloTestActive)}
             className={`px-3 py-1.5 text-xs font-bold rounded-lg btn-hover flex items-center gap-1.5 transition-all duration-150 ${
@@ -94,7 +99,7 @@ export default function CameraVisionPanel({
             {yoloTestActive ? 'TESTE YOLO: LIGADO' : 'TESTAR YOLO'}
           </button>
 
-          {/* Botão de Toggle da Bomba (Instantâneo) */}
+          {/* Botão de Toggle da Bomba */}
           <button
             onClick={() => onTogglePump(!pumpActive)}
             className={`px-3 py-1.5 text-xs font-bold rounded-lg btn-hover flex items-center gap-1.5 transition-all duration-150 ${
@@ -126,9 +131,11 @@ export default function CameraVisionPanel({
             <p className="text-xs text-slate-500">Clique no botão abaixo para disparar a inicialização remota na Jetson Nano ({rawUrl}).</p>
             <button
               onClick={handleRefreshStream}
+              disabled={restarting}
               className="mt-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs font-bold rounded-lg flex items-center gap-1 mx-auto"
             >
-              <RefreshCw className="w-3.5 h-3.5" /> Disparar Câmera no Nano (SSH)
+              <RefreshCw className={`w-3.5 h-3.5 ${restarting ? 'animate-spin' : ''}`} />
+              {restarting ? 'REINICIANDO NANO (~7s)...' : 'Disparar Câmera no Nano (SSH)'}
             </button>
           </div>
         )}
@@ -153,7 +160,7 @@ export default function CameraVisionPanel({
         )}
       </div>
 
-      {/* Card de Status da Classificação Atual com Alerta de "Nenhuma lata identificada" */}
+      {/* Card de Status da Classificação Atual */}
       <div className="p-3.5 bg-slate-800/60 rounded-xl border border-slate-700/50 flex flex-wrap items-center justify-between text-sm gap-2">
         <span className="text-slate-400 font-medium">Classificação Atual:</span>
         
@@ -170,7 +177,7 @@ export default function CameraVisionPanel({
         ) : (
           <span className="text-slate-500 italic flex items-center gap-1">
             <XCircle className="w-4 h-4 text-slate-600" />
-            Aguardando ativasão do Teste YOLO ou scan da célula...
+            Aguardando ativação do Teste YOLO ou scan da célula...
           </span>
         )}
       </div>

@@ -2,10 +2,11 @@
 # health_routes.py — API Router para Diagnóstico de Rede & Pings
 # ============================================================
 import time
+import threading
 import subprocess
 import urllib.request
 from pathlib import Path
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from backend.config.settings import get_settings
 
 router = APIRouter(prefix="/api/v1/health", tags=["Health Check"])
@@ -69,35 +70,33 @@ def get_health_status():
 
 @router.post("/restart_camera")
 def restart_camera_stream():
-    """Executa a rotina idêntica ao RUN_NANO_CAMERA.sh start via SSH no Nano."""
-    settings = get_settings()
-    nano_ip = settings.JETSON_NANO_IP
-    script_path = Path("/home/future-lab/B002_Future_Lab_Bots/cobot/mycobot_docker/nano_camera_server.py")
+    """Executa a rotina oficial de inicialização RUN_NANO_CAMERA.sh start em segundo plano."""
+    possible_scripts = [
+        Path("/cobot/mycobot_docker/RUN_NANO_CAMERA.sh"),
+        Path("/home/future-lab/B002_Future_Lab_Bots/cobot/mycobot_docker/RUN_NANO_CAMERA.sh")
+    ]
     
-    try:
-        if script_path.exists():
-            scp_cmd = [
-                "sshpass", "-p", "Elephant", "scp",
-                "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=3",
-                str(script_path), f"er@{nano_ip}:~/nano_camera_server.py"
-            ]
-            subprocess.run(scp_cmd, timeout=5)
+    target_script = None
+    for p in possible_scripts:
+        if p.exists():
+            target_script = p
+            break
+            
+    if not target_script:
+        raise HTTPException(status_code=404, detail="Script RUN_NANO_CAMERA.sh não encontrado.")
 
-        kill_cmd = [
-            "sshpass", "-p", "Elephant", "ssh",
-            "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=3",
-            f"er@{nano_ip}", "pkill -9 -f nano_camera_server.py 2>/dev/null || true"
-        ]
-        subprocess.run(kill_cmd, timeout=5)
+    def async_restart():
+        try:
+            print(f"[INFO] Disparando reinicialização da câmera via {target_script} start...")
+            res = subprocess.run(["bash", str(target_script), "start"], timeout=25, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            print(f"[INFO] Resultado da câmera: {res.stdout}")
+        except Exception as e:
+            print(f"[WARN] Erro durante inicialização da câmera: {e}")
 
-        time.sleep(1.0)
+    t = threading.Thread(target=async_restart, daemon=True)
+    t.start()
 
-        start_cmd = [
-            "sshpass", "-p", "Elephant", "ssh",
-            "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=3",
-            f"er@{nano_ip}", "nohup python3 -u /home/er/nano_camera_server.py --device 0 --port 8080 > /tmp/camera.log 2>&1 &"
-        ]
-        subprocess.run(start_cmd, timeout=5)
-        return {"status": "success", "message": "Servidor MJPEG da câmera iniciado com sucesso na Jetson Nano!"}
-    except Exception as e:
-        return {"status": "error", "message": f"Falha ao enviar comando SSH para o Nano: {e}"}
+    return {
+        "status": "success",
+        "message": "Comando de reinicialização da câmera disparado na Jetson Nano. Aguarde ~8 segundos para estabilização."
+    }
