@@ -60,6 +60,7 @@ class CobotNode(BaseNode):
         self.pump_active: bool = False
         self.poses: Dict[str, List[float]] = {}
         self.is_ros_active: bool = False
+        self.lock = threading.Lock()
         self.load_poses()
 
         if HAS_RCLPY and rclpy.ok():
@@ -81,30 +82,47 @@ class CobotNode(BaseNode):
 
     def clear_yolo_state(self):
         """Zera e limpa completamente qualquer histórico de detecção do YOLO da memória."""
-        self.last_yolo_msg = None
+        with self.lock:
+            self.last_yolo_msg = None
 
     def load_poses(self):
         poses_path = get_poses_file()
         if poses_path.exists():
             try:
                 with open(poses_path, "r") as f:
-                    self.poses = yaml.safe_load(f) or {}
+                    loaded = yaml.safe_load(f) or {}
+                with self.lock:
+                    self.poses = loaded
             except Exception as e:
                 print(f"Erro ao carregar poses: {e}")
-                self.poses = {}
+                with self.lock:
+                    self.poses = {}
         else:
-            self.poses = {}
+            with self.lock:
+                self.poses = {}
 
     def save_poses(self) -> bool:
+        """Salva as poses com escrita atômica em arquivo temporário (.tmp) + substituição no SO."""
         poses_path = get_poses_file()
         poses_path.parent.mkdir(parents=True, exist_ok=True)
-        self.poses["_last_saved"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        tmp_path = poses_path.with_suffix(".yaml.tmp")
+        
+        with self.lock:
+            self.poses["_last_saved"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            data_to_save = dict(self.poses)
+            
         try:
-            with open(poses_path, "w") as f:
-                yaml.safe_dump(self.poses, f)
+            with open(tmp_path, "w") as f:
+                yaml.safe_dump(data_to_save, f)
+            tmp_path.replace(poses_path) # Escrita 100% atômica no SO (thread-safe)
             return True
         except Exception as e:
-            print(f"Erro ao salvar poses: {e}")
+            print(f"Erro ao salvar poses atomicamente: {e}")
+            if tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except Exception:
+                    pass
             return False
 
     def clear_poses(self) -> bool:

@@ -219,33 +219,56 @@ def clear_recorded_poses():
         raise HTTPException(status_code=500, detail="Falha ao apagar arquivo de poses.")
     return {"status": "success", "message": "Calibragem zerada com sucesso!"}
 
+def _playback_worker():
+    from backend.api.cell_routes import cell_state
+    cell_state["status"] = "busy"
+    node = get_cobot_node()
+    try:
+        sequence_part1 = ["home", "scan", "pick_approach", "pick"]
+        for p in sequence_part1:
+            if not node.goto_pose(p, velocity_scaling=0.10):
+                cell_state["status"] = "idle"
+                return
+                
+        node.set_pump(True)
+        
+        sequence_part2 = ["pick_approach", "home", "place_approach", "place"]
+        for p in sequence_part2:
+            if not node.goto_pose(p, velocity_scaling=0.10):
+                node.set_pump(False)
+                cell_state["status"] = "idle"
+                return
+                
+        node.set_pump(False)
+        
+        sequence_part3 = ["place_approach", "home", "scan"]
+        for p in sequence_part3:
+            if not node.goto_pose(p, velocity_scaling=0.10):
+                cell_state["status"] = "idle"
+                return
+        cell_state["status"] = "idle"
+    except Exception as e:
+        print(f"[WARN] Erro durante worker de playback: {e}")
+        node.set_pump(False)
+        cell_state["status"] = "idle"
+
 @router.post("/teach/playback")
 def playback_trajectory():
-    """Executa o teste da trajetória completa com acionamento da bomba a 10% de velocidade."""
-    stop_yolo_test_process()  # Trava de segurança: desativa o teste isolado do YOLO
+    """Executa o teste da trajetória de forma 100% assíncrona em segundo plano (resposta HTTP em 0ms)."""
+    stop_yolo_test_process()  # Trava de segurança: desativa o teste isolado do YOLO durante o movimento
     node = get_cobot_node()
     missing = [p for p in REQUIRED_POSES if p not in node.poses]
     if missing:
         raise HTTPException(status_code=400, detail=f"Gravação incompleta. Poses pendentes: {missing}")
 
-    sequence_part1 = ["home", "scan", "pick_approach", "pick"]
-    for p in sequence_part1:
-        if not node.goto_pose(p, velocity_scaling=0.10):
-            raise HTTPException(status_code=500, detail=f"Playback falhou na pose {p}.")
-            
-    node.set_pump(True)
-    
-    sequence_part2 = ["pick_approach", "home", "place_approach", "place"]
-    for p in sequence_part2:
-        if not node.goto_pose(p, velocity_scaling=0.10):
-            node.set_pump(False)
-            raise HTTPException(status_code=500, detail=f"Playback falhou na pose {p}.")
-            
-    node.set_pump(False)
-    
-    sequence_part3 = ["place_approach", "home", "scan"]
-    for p in sequence_part3:
-        if not node.goto_pose(p, velocity_scaling=0.10):
-            raise HTTPException(status_code=500, detail=f"Playback falhou na pose {p}.")
+    from backend.api.cell_routes import cell_state
+    if cell_state.get("status") == "busy":
+        raise HTTPException(status_code=409, detail="A célula já está executando uma trajetória.")
 
-    return {"status": "success", "message": "Playback completo com acionamento da bomba finalizado com sucesso!"}
+    thread = threading.Thread(target=_playback_worker, daemon=True)
+    thread.start()
+
+    return {
+        "status": "success",
+        "message": "Playback da trajetória iniciado em segundo plano com sucesso!"
+    }
