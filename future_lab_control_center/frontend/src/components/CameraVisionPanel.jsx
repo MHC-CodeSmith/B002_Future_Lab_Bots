@@ -5,6 +5,7 @@ export default function CameraVisionPanel({
   streamUrl,
   cameraOnline,
   lastYolo,
+  yoloConfThreshold = 0.60,
   pumpActive,
   yoloTestActive,
   onTogglePump,
@@ -100,33 +101,40 @@ export default function CameraVisionPanel({
   const getDetectionBadge = () => {
     if (!isFresh || !lastYolo || !lastYolo.class) return null;
     const cls = (lastYolo.class || '').toLowerCase();
-    const conf = (lastYolo.confidence * 100).toFixed(0);
+    const confVal = lastYolo.confidence ?? 0;
+    const confPct = (confVal * 100).toFixed(0);
+    const threshPct = (yoloConfThreshold * 100).toFixed(0);
+    const isBelowThresh = confVal < yoloConfThreshold;
 
     if (cls.includes('red') || cls.includes('vermelha') || cls.includes('triangle')) {
       return {
-        bg: 'bg-red-950/90 border-red-500/70 text-red-200 shadow-red-900/50',
-        dot: 'bg-red-500',
-        label: `Lata Válida Vermelha (Triângulo) — ${conf}%`
+        bg: isBelowThresh ? 'bg-amber-950/90 border-amber-500/70 text-amber-200' : 'bg-red-950/90 border-red-500/70 text-red-200 shadow-red-900/50',
+        dot: isBelowThresh ? 'bg-amber-500' : 'bg-red-500',
+        label: isBelowThresh 
+          ? `Lata Vermelha (Triângulo) — ${confPct}% (Abaixo do limiar de ${threshPct}%)`
+          : `Lata Válida Vermelha (Triângulo) — ${confPct}%`
       };
     }
     if (cls.includes('blue') || cls.includes('azul') || cls.includes('square')) {
       return {
-        bg: 'bg-blue-950/90 border-blue-500/70 text-blue-200 shadow-blue-900/50',
-        dot: 'bg-blue-500',
-        label: `Lata Válida Azul (Quadrado) — ${conf}%`
+        bg: isBelowThresh ? 'bg-amber-950/90 border-amber-500/70 text-amber-200' : 'bg-blue-950/90 border-blue-500/70 text-blue-200 shadow-blue-900/50',
+        dot: isBelowThresh ? 'bg-amber-500' : 'bg-blue-500',
+        label: isBelowThresh 
+          ? `Lata Azul (Quadrado) — ${confPct}% (Abaixo do limiar de ${threshPct}%)`
+          : `Lata Válida Azul (Quadrado) — ${confPct}%`
       };
     }
     if (cls.includes('invalid') || cls.includes('rejeitada')) {
       return {
         bg: 'bg-amber-950/90 border-amber-500/70 text-amber-200 shadow-amber-900/50',
         dot: 'bg-amber-500',
-        label: `Lata Inválida (Rejeitada) — ${conf}%`
+        label: `Lata Inválida (Rejeitada) — ${confPct}%`
       };
     }
     return {
       bg: 'bg-emerald-950/90 border-emerald-500/70 text-emerald-200 shadow-emerald-900/50',
       dot: 'bg-emerald-500',
-      label: `Objeto Detectado (${lastYolo.class}) — ${conf}%`
+      label: `Objeto Detectado (${lastYolo.class}) — ${confPct}%`
     };
   };
 

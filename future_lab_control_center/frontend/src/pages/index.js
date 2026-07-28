@@ -174,6 +174,7 @@ export default function Dashboard() {
           streamUrl={health?.devices?.jetson_nano?.camera_stream_url}
           cameraOnline={Boolean(health?.devices?.jetson_nano?.camera_stream_online)}
           lastYolo={cellStatus?.last_yolo}
+          yoloConfThreshold={cellStatus?.cell?.yolo_conf ?? 0.60}
           pumpActive={currentPumpActive}
           yoloTestActive={currentYoloTestActive}
           onTogglePump={handleTogglePump}

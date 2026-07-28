@@ -33,6 +33,15 @@ app.include_router(cobot_router)
 app.include_router(cell_router)
 app.include_router(turtlebot_router)
 
+@app.on_event("startup")
+def startup_event():
+    """Garante que nenhum processo de teste do YOLO inicie sozinho ao abrir a aplicação."""
+    try:
+        from backend.api.cobot_routes import stop_yolo_test_process
+        stop_yolo_test_process()
+    except Exception as e:
+        print(f"[WARN] Erro ao limpar processo YOLO no startup: {e}")
+
 @app.get("/")
 def read_root():
     return {
