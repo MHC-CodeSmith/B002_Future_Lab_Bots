@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Camera, Eye, Power, CheckCircle, AlertTriangle, RefreshCw, FlaskConical, Search, XCircle, Loader2 } from 'lucide-react';
 
 export default function CameraVisionPanel({
@@ -13,6 +13,7 @@ export default function CameraVisionPanel({
   const [streamError, setStreamError] = useState(false);
   const [streamKey, setStreamKey] = useState(Date.now());
   const [restarting, setRestarting] = useState(false);
+  const retryTimers = useRef([]);
 
   const rawUrl = streamUrl || "http://192.168.0.250:8080/stream.mjpg";
   const liveUrl = `${rawUrl}${rawUrl.includes('?') ? '&' : '?'}t=${streamKey}`;
@@ -20,10 +21,25 @@ export default function CameraVisionPanel({
   // Verifica se a última mensagem do YOLO é recente (últimos 2.5 segundos)
   const isFresh = lastYolo && (Date.now() / 1000 - (lastYolo.timestamp || 0)) < 2.5;
 
+  // Auto-recovery: quando o stream está em erro e NÃO estamos reiniciando,
+  // tenta reconectar a cada 3 segundos automaticamente
+  useEffect(() => {
+    if (streamError && !restarting) {
+      const interval = setInterval(() => {
+        setStreamError(false);
+        setStreamKey(Date.now());
+      }, 3000);
+      return () => clearInterval(interval);
+    }
+  }, [streamError, restarting]);
+
   const handleRefreshStream = async () => {
+    // Limpa timers anteriores
+    retryTimers.current.forEach(t => clearTimeout(t));
+    retryTimers.current = [];
+
     setRestarting(true);
     setStreamError(false);
-    setStreamKey(Date.now()); // Atualiza chave anticache imediatamente
     
     if (onRestartCamera) {
       try {
@@ -33,12 +49,20 @@ export default function CameraVisionPanel({
       }
     }
     
-    // Aguarda o tempo de inicialização do hardware no Nano (scp + pkill + servidor HTTP)
-    setTimeout(() => {
-      setStreamError(false);
-      setStreamKey(Date.now()); // Força o navegador a abrir a nova conexão HTTP limpa
-      setRestarting(false);
-    }, 6500);
+    // Múltiplas tentativas de reconexão: 7s, 10s, 13s, 16s após disparo
+    // O servidor Nano demora ~6-8s para inicializar (scp + pkill + sleep 2 + python + HTTP checks)
+    const retryDelays = [7000, 10000, 13000, 16000];
+    retryDelays.forEach((delay, i) => {
+      const timer = setTimeout(() => {
+        setStreamError(false);
+        setStreamKey(Date.now());
+        // Na última tentativa, desliga o estado de "reiniciando"
+        if (i === retryDelays.length - 1) {
+          setRestarting(false);
+        }
+      }, delay);
+      retryTimers.current.push(timer);
+    });
   };
 
   const getDetectionBadge = () => {
