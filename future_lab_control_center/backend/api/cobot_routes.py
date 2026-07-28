@@ -17,9 +17,14 @@ yolo_process: Optional[subprocess.Popen] = None
 yolo_test_active: bool = False
 
 def stop_yolo_test_process():
-    """Desativa e encerra o processo de teste isolado do YOLO por segurança."""
+    """Desativa e encerra o processo de teste isolado do YOLO e zera a memória de detecção."""
     global yolo_process, yolo_test_active
     yolo_test_active = False
+    try:
+        from backend.ros2_nodes.cobot_node import get_cobot_node
+        get_cobot_node().clear_yolo_state()
+    except Exception:
+        pass
     if yolo_process is not None:
         try:
             yolo_process.terminate()

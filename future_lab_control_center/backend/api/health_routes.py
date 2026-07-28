@@ -82,6 +82,11 @@ def _find_nano_camera_script():
 @router.post("/restart_camera")
 def restart_camera_stream():
     """Executa a rotina oficial de inicialização RUN_NANO_CAMERA.sh start em segundo plano."""
+    try:
+        from backend.ros2_nodes.cobot_node import get_cobot_node
+        get_cobot_node().clear_yolo_state()
+    except Exception:
+        pass
     target_script = _find_nano_camera_script()
     if not target_script:
         raise HTTPException(status_code=404, detail="Script RUN_NANO_CAMERA.sh não encontrado.")

@@ -71,14 +71,22 @@ class CobotNode(BaseNode):
                 self.release_cli = self.create_client(Trigger, "/release_servos")
                 self.lock_cli = self.create_client(Trigger, "/lock_servos")
                 
-                qos = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=10)
+                qos_sensor = QoSProfile(
+                    reliability=ReliabilityPolicy.BEST_EFFORT,
+                    history=HistoryPolicy.KEEP_LAST,
+                    depth=1
+                )
                 self.create_subscription(JointState, "/joint_states", self._js_cb, 10)
                 self.create_subscription(JointState, "/joint_states_raw", self._js_cb, 10)
-                self.create_subscription(String, "/product_class", self._yolo_cb, qos)
+                self.create_subscription(String, "/product_class", self._yolo_cb, qos_sensor)
                 self.is_ros_active = True
             except Exception as e:
                 print(f"[WARN] Erro ao inicializar nó ROS 2: {e}")
                 self.is_ros_active = False
+
+    def clear_yolo_state(self):
+        """Zera e limpa completamente qualquer histórico de detecção do YOLO da memória."""
+        self.last_yolo_msg = None
 
     def load_poses(self):
         poses_path = get_poses_file()
@@ -98,33 +106,36 @@ class CobotNode(BaseNode):
         self.poses["_last_saved"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         try:
             with open(poses_path, "w") as f:
-                yaml.safe_dump(self.poses, f, default_flow_style=None, sort_keys=True)
+                yaml.safe_dump(self.poses, f)
             return True
         except Exception as e:
             print(f"Erro ao salvar poses: {e}")
             return False
 
     def clear_poses(self) -> bool:
-        self.poses = {}
         poses_path = get_poses_file()
+        self.poses = {}
         if poses_path.exists():
             try:
-                os.remove(poses_path)
+                poses_path.unlink()
                 return True
             except Exception as e:
+                print(f"Erro ao apagar arquivo de poses: {e}")
                 return False
         return True
 
-    def _js_cb(self, msg):
-        if self.is_ros_active and set(JOINT_NAMES).issubset(set(msg.name)):
-            idx = {n: i for i, n in enumerate(msg.name)}
-            self.current_joints = [float(msg.position[idx[n]]) for n in JOINT_NAMES]
+    def _js_cb(self, msg: JointState):
+        if not self.is_ros_active:
+            return
+        if msg.position and len(msg.position) >= 6:
+            self.current_joints = [float(v) for v in msg.position[:6]]
 
-    def _yolo_cb(self, msg):
+    def _yolo_cb(self, msg: String):
         if not self.is_ros_active:
             return
         data = (msg.data or "").strip()
-        if not data:
+        if not data or data.startswith("none") or data.startswith("invalid_stream"):
+            self.last_yolo_msg = None
             return
         parts = data.replace(":", " ").split()
         cls_name = parts[0].lower()
