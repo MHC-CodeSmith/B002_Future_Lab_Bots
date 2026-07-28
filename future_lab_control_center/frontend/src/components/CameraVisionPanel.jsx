@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Camera, Eye, Power, CheckCircle, AlertTriangle, RefreshCw, FlaskConical, Search, XCircle } from 'lucide-react';
+import { Camera, Eye, Power, CheckCircle, AlertTriangle, RefreshCw, FlaskConical, Search, XCircle, Loader2 } from 'lucide-react';
 
 export default function CameraVisionPanel({
   streamUrl,
@@ -23,6 +23,7 @@ export default function CameraVisionPanel({
   const handleRefreshStream = async () => {
     setRestarting(true);
     setStreamError(false);
+    setStreamKey(Date.now()); // Atualiza chave anticache imediatamente
     
     if (onRestartCamera) {
       try {
@@ -32,11 +33,12 @@ export default function CameraVisionPanel({
       }
     }
     
-    // Aguarda o script oficial de inicialização (scp + pkill + python server + 4 tentativas HTTP)
+    // Aguarda o tempo de inicialização do hardware no Nano (scp + pkill + servidor HTTP)
     setTimeout(() => {
-      setStreamKey(Date.now());
+      setStreamError(false);
+      setStreamKey(Date.now()); // Força o navegador a abrir a nova conexão HTTP limpa
       setRestarting(false);
-    }, 7000);
+    }, 6500);
   };
 
   const getDetectionBadge = () => {
@@ -83,7 +85,7 @@ export default function CameraVisionPanel({
             title="Executar RUN_NANO_CAMERA.sh start via SSH na Jetson Nano"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${restarting ? 'animate-spin' : ''}`} />
-            {restarting ? 'REINICIANDO NANO (~7s)...' : 'REINICIAR CÂMERA'}
+            {restarting ? 'INICIALIZANDO NANO...' : 'REINICIAR CÂMERA'}
           </button>
 
           {/* Botão de Toggle do Teste YOLO */}
@@ -116,12 +118,20 @@ export default function CameraVisionPanel({
 
       {/* Video Feed MJPEG com chave dinâmica anticache */}
       <div className="relative aspect-video bg-slate-900 rounded-xl overflow-hidden border border-slate-800 flex items-center justify-center">
-        {!streamError ? (
+        {restarting ? (
+          <div className="text-center p-6 space-y-3">
+            <Loader2 className="w-10 h-10 text-blue-400 mx-auto animate-spin" />
+            <p className="text-sm font-semibold text-slate-200">Inicializando Servidor de Câmera na Jetson Nano...</p>
+            <p className="text-xs text-slate-400">Liberando hardware USB /dev/video0 e iniciando stream MJPEG (~6s).</p>
+          </div>
+        ) : !streamError ? (
           <img
             key={streamKey}
             src={liveUrl}
             alt="Feed ao vivo da Câmera Jetson Nano"
-            onError={() => setStreamError(true)}
+            onError={() => {
+              if (!restarting) setStreamError(true);
+            }}
             className="w-full h-full object-contain"
           />
         ) : (
@@ -135,13 +145,13 @@ export default function CameraVisionPanel({
               className="mt-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs font-bold rounded-lg flex items-center gap-1 mx-auto"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${restarting ? 'animate-spin' : ''}`} />
-              {restarting ? 'REINICIANDO NANO (~7s)...' : 'Disparar Câmera no Nano (SSH)'}
+              {restarting ? 'INICIALIZANDO NANO...' : 'Disparar Câmera no Nano (SSH)'}
             </button>
           </div>
         )}
 
         {/* Overlay de Status do Teste YOLO */}
-        {yoloTestActive && (
+        {yoloTestActive && !restarting && (
           <div className="absolute top-3 right-3 bg-emerald-950/90 backdrop-blur border border-emerald-500/60 px-3 py-1.5 rounded-lg flex items-center gap-2 shadow-lg">
             <FlaskConical className="w-4 h-4 text-emerald-400 animate-spin" />
             <span className="text-xs font-bold text-emerald-300">MODO TESTE YOLO ATIVO</span>
@@ -149,7 +159,7 @@ export default function CameraVisionPanel({
         )}
 
         {/* Overlay de Rótulo YOLO ao vivo */}
-        {isFresh && badge && (
+        {isFresh && badge && !restarting && (
           <div className={`absolute top-3 left-3 backdrop-blur border px-3 py-2 rounded-lg flex items-center gap-2 shadow-lg ${badge.bg}`}>
             <span className={`w-2.5 h-2.5 rounded-full ${badge.dot} animate-ping`} />
             <div>
@@ -164,7 +174,12 @@ export default function CameraVisionPanel({
       <div className="p-3.5 bg-slate-800/60 rounded-xl border border-slate-700/50 flex flex-wrap items-center justify-between text-sm gap-2">
         <span className="text-slate-400 font-medium">Classificação Atual:</span>
         
-        {isFresh && badge ? (
+        {restarting ? (
+          <span className="font-bold text-blue-400 flex items-center gap-1.5 bg-blue-950/40 px-3 py-1 rounded-lg border border-blue-500/30">
+            <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
+            Reiniciando stream da câmera...
+          </span>
+        ) : isFresh && badge ? (
           <span className="font-bold text-emerald-400 flex items-center gap-1.5 bg-emerald-950/40 px-3 py-1 rounded-lg border border-emerald-500/30">
             <CheckCircle className="w-4 h-4 text-emerald-400" />
             {badge.label}
