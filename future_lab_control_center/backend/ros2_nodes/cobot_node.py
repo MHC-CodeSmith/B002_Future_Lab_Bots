@@ -71,14 +71,9 @@ class CobotNode(BaseNode):
                 self.release_cli = self.create_client(Trigger, "/release_servos")
                 self.lock_cli = self.create_client(Trigger, "/lock_servos")
                 
-                qos_sensor = QoSProfile(
-                    reliability=ReliabilityPolicy.BEST_EFFORT,
-                    history=HistoryPolicy.KEEP_LAST,
-                    depth=1
-                )
                 self.create_subscription(JointState, "/joint_states", self._js_cb, 10)
                 self.create_subscription(JointState, "/joint_states_raw", self._js_cb, 10)
-                self.create_subscription(String, "/product_class", self._yolo_cb, qos_sensor)
+                self.create_subscription(String, "/product_class", self._yolo_cb, 10)
                 self.is_ros_active = True
             except Exception as e:
                 print(f"[WARN] Erro ao inicializar nó ROS 2: {e}")
