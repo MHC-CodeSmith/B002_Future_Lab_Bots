@@ -137,60 +137,64 @@ export default function Dashboard() {
     fetchCellStatus();
   };
 
+  const refreshStatus = async () => {
+    await Promise.all([fetchCellStatus(), fetchSlowStatus()]);
+  };
+
   const handleRestartCamera = async () => {
     const apiBase = getApiBase();
     await fetch(`${apiBase}/health/restart_camera`, { method: 'POST' });
-    fetchCellStatus();
+    refreshStatus();
   };
 
   const handleStopCamera = async () => {
     const apiBase = getApiBase();
     await fetch(`${apiBase}/health/stop_camera`, { method: 'POST' });
-    fetchAllStatus();
+    refreshStatus();
   };
 
   const handleMovePose = async (poseName) => {
     setOptimisticYoloTest(false);
     const apiBase = getApiBase();
     await fetch(`${apiBase}/cobot/move/${poseName}`, { method: 'POST' });
-    fetchAllStatus();
+    refreshStatus();
   };
 
   const handleRelease = async () => {
     const apiBase = getApiBase();
     await fetch(`${apiBase}/cobot/teach/release`, { method: 'POST' });
-    fetchAllStatus();
+    refreshStatus();
   };
 
   const handleLock = async () => {
     const apiBase = getApiBase();
     await fetch(`${apiBase}/cobot/teach/lock`, { method: 'POST' });
-    fetchAllStatus();
+    refreshStatus();
   };
 
   const handleRecord = async (poseName) => {
     const apiBase = getApiBase();
     await fetch(`${apiBase}/cobot/teach/record/${poseName}`, { method: 'POST' });
-    await fetchAllStatus();
+    await refreshStatus();
   };
 
   const handleSave = async () => {
     const apiBase = getApiBase();
     await fetch(`${apiBase}/cobot/teach/save`, { method: 'POST' });
-    await fetchAllStatus();
+    await refreshStatus();
   };
 
   const handlePlayback = async () => {
     setOptimisticYoloTest(false);
     const apiBase = getApiBase();
     await fetch(`${apiBase}/cobot/teach/playback`, { method: 'POST' });
-    await fetchAllStatus();
+    await refreshStatus();
   };
 
   const handleClear = async () => {
     const apiBase = getApiBase();
     await fetch(`${apiBase}/cobot/teach/clear`, { method: 'DELETE' });
-    await fetchAllStatus();
+    await refreshStatus();
   };
 
   // Valores Finais (Considera o Estado Otimista Instantâneo se Presente)
