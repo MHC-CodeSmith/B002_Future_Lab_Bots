@@ -135,22 +135,31 @@ def stop_camera_stream():
 
 @router.post("/restart_nano_hardware")
 def restart_nano_hardware():
-    """Reinicia a ponte de comunicação de hardware ROS 2 (mycobot_hw) na Jetson Nano via SSH."""
+    """Reinicia a ponte de comunicação de hardware (mycobot_hw) na Nano e o planejador MoveIt (galactic_demo.launch.py) no container."""
     def async_restart_hw():
+        # 1. Reinicia a ponte de hardware na Jetson Nano
         try:
-            print("[INFO] Reiniciando ponte de hardware na Jetson Nano via SSH com sourcing ROS 2...")
-            cmd = "sshpass -p Elephant ssh -o StrictHostKeyChecking=no er@192.168.0.250 'bash -c \"source /opt/ros/galactic/setup.bash && source ~/custom_ws/install/setup.bash && pkill -9 -f mycobot_bridge 2>/dev/null || true; sleep 1; nohup ros2 launch mycobot_hw_interface mycobot_hw.launch.py mock:=False baud:=1000000 > /tmp/hw_bridge.log 2>&1 < /dev/null &\"'"
-            res = subprocess.run(cmd, shell=True, timeout=10, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            print(f"[INFO] Resultado da reinicialização de hardware: {res.stdout}")
+            print("[INFO] Reiniciando ponte de hardware na Jetson Nano via SSH...")
+            cmd_nano = "sshpass -p Elephant ssh -o StrictHostKeyChecking=no er@192.168.0.250 'bash -c \"source /opt/ros/galactic/setup.bash && source ~/custom_ws/install/setup.bash && pkill -9 -f mycobot_bridge 2>/dev/null || true; sleep 1; nohup ros2 launch mycobot_hw_interface mycobot_hw.launch.py mock:=False baud:=1000000 > /tmp/hw_bridge.log 2>&1 < /dev/null &\"'"
+            subprocess.run(cmd_nano, shell=True, timeout=10)
         except Exception as e:
             print(f"[WARN] Erro durante reinicialização de hardware do Nano: {e}")
+
+        # 2. Reinicia o MoveIt Planning e RViz dentro do container mycobot_ros2 no PC
+        try:
+            print("[INFO] Reiniciando MoveIt Planning (galactic_demo.launch.py) no container mycobot_ros2...")
+            cmd_moveit = 'docker exec -d mycobot_ros2 bash -c "pkill -9 -f move_group 2>/dev/null || true; pkill -9 -f rviz 2>/dev/null || true; sleep 1; source /opt/ros/galactic/setup.bash && source /root/custom_ws/install/setup.bash && nohup ros2 launch mycobot_280_jn_moveit_config galactic_demo.launch.py > /tmp/moveit.log 2>&1 &"'
+            subprocess.run(cmd_moveit, shell=True, timeout=10)
+            print("[INFO] MoveIt Planning e RViz reiniciados com sucesso!")
+        except Exception as e:
+            print(f"[WARN] Erro ao reiniciar MoveIt planning no container: {e}")
 
     t = threading.Thread(target=async_restart_hw, daemon=True)
     t.start()
 
     return {
         "status": "success",
-        "message": "Comando de reinicialização de hardware enviado à Jetson Nano. Aguarde ~5 segundos."
+        "message": "Comando de reinicialização de hardware (Nano) e planejador MoveIt (PC) enviado com sucesso! Aguarde ~5 segundos."
     }
 
 
