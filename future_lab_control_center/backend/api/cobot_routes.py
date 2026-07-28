@@ -35,8 +35,8 @@ def stop_yolo_test_process():
     except Exception:
         pass
 
-def start_yolo_test_process():
-    """Inicia o script de inspeção do YOLO em background com ambiente ROS 2 ativo e confiança 0.25."""
+def start_yolo_test_process(conf: float = 0.25):
+    """Inicia o script de inspeção do YOLO em background com a confiança especificada."""
     global yolo_process, yolo_test_active
     stop_yolo_test_process()
     
@@ -56,7 +56,7 @@ def start_yolo_test_process():
             log_file = open("/tmp/yolo_test.log", "a")
             cmd = [
                 "bash", "-c",
-                f"source /opt/ros/jazzy/setup.bash && exec python3 {target_script} --headless --conf 0.25 --url http://192.168.0.250:8080/stream.mjpg"
+                f"source /opt/ros/jazzy/setup.bash && exec python3 {target_script} --headless --conf {conf:.2f} --url http://192.168.0.250:8080/stream.mjpg"
             ]
             yolo_process = subprocess.Popen(cmd, stdout=log_file, stderr=log_file)
             yolo_test_active = True
@@ -132,7 +132,9 @@ def control_pump(payload: PumpControlSchema):
 def toggle_yolo_test(payload: YoloTestSchema):
     """Ativa ou Desativa o Teste Isolado de Classificação do YOLO."""
     if payload.active:
-        ok = start_yolo_test_process()
+        from backend.api.cell_routes import cell_state
+        conf = float(cell_state.get("yolo_conf", 0.25))
+        ok = start_yolo_test_process(conf=conf)
         if not ok:
             raise HTTPException(status_code=500, detail="Falha ao disparar script de teste do YOLO.")
         return {"status": "success", "yolo_test_active": True}

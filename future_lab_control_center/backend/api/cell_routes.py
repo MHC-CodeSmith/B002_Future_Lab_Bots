@@ -37,9 +37,10 @@ def get_cell_status():
 
 @router.post("/mode")
 def set_cell_mode(payload: CellModeSchema):
-    """Altera o modo de operação da célula entre 'auto' e 'manual'."""
-    from backend.api.cobot_routes import stop_yolo_test_process
-    stop_yolo_test_process()
+    """Altera o modo de operação da célula e aplica a nova confiança do YOLO ao teste se estiver rodando."""
+    from backend.api.cobot_routes import start_yolo_test_process, is_yolo_process_alive
+    was_yolo_testing = is_yolo_process_alive()
+
     if payload.mode not in ["auto", "manual"]:
         raise HTTPException(status_code=400, detail="Modo deve ser 'auto' ou 'manual'.")
     cell_state["mode"] = payload.mode
@@ -47,6 +48,10 @@ def set_cell_mode(payload: CellModeSchema):
         cell_state["cooldown_sec"] = max(0.0, payload.cooldown_sec)
     if payload.yolo_conf is not None:
         cell_state["yolo_conf"] = max(0.10, min(1.0, payload.yolo_conf))
+        # Se o teste do YOLO estiver ativo, atualiza a confiança do processo em tempo real
+        if was_yolo_testing:
+            start_yolo_test_process(conf=cell_state["yolo_conf"])
+
     return {"status": "success", "cell": cell_state}
 
 @router.post("/authorize_scan")
