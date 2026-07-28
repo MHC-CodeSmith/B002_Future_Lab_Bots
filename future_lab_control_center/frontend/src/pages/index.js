@@ -5,6 +5,7 @@ import CameraVisionPanel from '../components/CameraVisionPanel';
 import TeachModePanel from '../components/TeachModePanel';
 import TurtleBotPanel from '../components/TurtleBotPanel';
 import NotificationToast from '../components/NotificationToast';
+import PanicOverlayModal from '../components/PanicOverlayModal';
 
 export default function Dashboard() {
   const [health, setHealth] = useState(null);
@@ -161,9 +162,22 @@ export default function Dashboard() {
     setNotification({
       type: 'panic',
       title: '🚨 PÂNICO GERAL ATIVADO',
-      message: data?.message || 'Todos os processos parados, motores travados e planejamento cancelado imediatamente!'
+      message: data?.message || 'Todos os componentes do projeto foram desligados! O sistema requer reinicialização.'
     });
     fetchCellStatus();
+  };
+
+  const handleResetPanic = async () => {
+    const apiBase = getApiBase();
+    const { ok, data } = await safeApiCall(`${apiBase}/cell/reset_panic`, { method: 'POST' }, '🔄 DESBLOQUEIO DE PÂNICO');
+    if (ok) {
+      setNotification({
+        type: 'success',
+        title: '🔄 SISTEMA REINICIADO',
+        message: data?.message || 'Pânico desbloqueado. Componentes e ponte do Nano sendo reiniciados.'
+      });
+    }
+    refreshStatus();
   };
 
   const handleRestartNanoHardware = async () => {
@@ -352,6 +366,12 @@ export default function Dashboard() {
 
   return (
     <main className="min-h-screen p-4 md:p-8 max-w-7xl mx-auto space-y-6 relative">
+      {/* Modal Popup de Bloqueio de Pânico Absoluto */}
+      <PanicOverlayModal
+        isLocked={Boolean(cellStatus?.cell?.panic_locked)}
+        onResetPanic={handleResetPanic}
+      />
+
       {/* Toast de Notificação Dinâmica */}
       <NotificationToast
         notification={notification}

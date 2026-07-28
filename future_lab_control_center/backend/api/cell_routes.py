@@ -19,7 +19,8 @@ cell_state = {
     "cooldown_sec": 5.0,
     "yolo_conf": 0.60,
     "manual_authorized": False,
-    "status": "idle"
+    "status": "idle",
+    "panic_locked": False
 }
 
 @router.get("/status")
@@ -38,6 +39,8 @@ def get_cell_status():
 @router.post("/mode")
 def set_cell_mode(payload: CellModeSchema):
     """Altera o modo de operação da célula e atualiza as configurações mestre."""
+    if cell_state.get("panic_locked"):
+        raise HTTPException(status_code=423, detail="Célula bloqueada em modo de Pânico. É necessário reiniciar o sistema.")
     if payload.mode not in ["auto", "manual"]:
         raise HTTPException(status_code=400, detail="Modo deve ser 'auto' ou 'manual'.")
     cell_state["mode"] = payload.mode
@@ -51,6 +54,8 @@ def set_cell_mode(payload: CellModeSchema):
 @router.post("/authorize_scan")
 def authorize_manual_scan():
     """No modo manual, autoriza a execução da próxima inspeção/scan."""
+    if cell_state.get("panic_locked"):
+        raise HTTPException(status_code=423, detail="Célula bloqueada em modo de Pânico. É necessário reiniciar o sistema.")
     if cell_state["mode"] != "manual":
         raise HTTPException(status_code=400, detail="Autorização só é necessária no modo manual.")
     cell_state["manual_authorized"] = True
@@ -59,6 +64,8 @@ def authorize_manual_scan():
 @router.post("/stop")
 def emergency_stop():
     """Parada de emergência: desliga bomba, desativa teste YOLO e move braço para HOME."""
+    if cell_state.get("panic_locked"):
+        raise HTTPException(status_code=423, detail="Célula bloqueada em modo de Pânico. É necessário reiniciar o sistema.")
     node = get_cobot_node()
     node.load_poses()  # Recarrega do arquivo YAML do disco para ter a versão mais recente
     if "home" not in node.poses:
@@ -83,23 +90,57 @@ def emergency_stop():
 
 @router.post("/panic")
 def panic_stop():
-    """Botão de Pânico Master: cancela o planejamento, para todos os processos, desliga a bomba e trava as juntas do robô imediatamente."""
+    """Botão de Pânico Master: interrompe TUDO no projeto (Bomba, Câmera, YOLO, Robô, Motores e Planejamento) e bloqueia a célula."""
     from backend.api.cobot_routes import stop_yolo_test_process
-    stop_yolo_test_process()
-    node = get_cobot_node()
-    node.set_pump(False)
+    from backend.api.health_routes import stop_camera_stream
     
-    # Trava os motores do robô imediatamente
+    # 1. Encerra o processo do teste YOLO e o servidor de câmera no Nano
     try:
+        stop_yolo_test_process()
+    except Exception as e:
+        print(f"[WARN] Erro ao parar teste YOLO no pânico: {e}")
+        
+    try:
+        stop_camera_stream()
+    except Exception as e:
+        print(f"[WARN] Erro ao desligar câmera no pânico: {e}")
+    
+    # 2. Desliga a bomba de sucção e trava os servos do robô
+    node = get_cobot_node()
+    try:
+        node.set_pump(False)
+        node.clear_yolo_state()
         node.call_trigger_service(node.lock_cli, "Travar Servos (Pânico)")
     except Exception as e:
-        print(f"[WARN] Erro ao travar motores no Pânico: {e}")
+        print(f"[WARN] Erro ao desligar bomba/motores no Pânico: {e}")
         
-    cell_state["status"] = "panic_stopped"
+    # 3. Trava persistentemente o estado da célula em PANIC_LOCKED
+    cell_state["panic_locked"] = True
+    cell_state["status"] = "panic_locked"
     cell_state["manual_authorized"] = False
     
     return {
         "status": "panic_triggered",
-        "message": "PÂNICO ACIONADO: Todos os processos interrompidos, motores travados e planejamento cancelado!"
+        "panic_locked": True,
+        "message": "PÂNICO ABSOLUTO: Todos os componentes do projeto (Câmera, Bomba, YOLO, Motores) foram desligados! O sistema está bloqueado até a reinicialização."
+    }
+
+@router.post("/reset_panic")
+def reset_panic():
+    """Desbloqueia o estado de Pânico e dispara a reinicialização da câmera e do hardware para restaurar o sistema."""
+    cell_state["panic_locked"] = False
+    cell_state["status"] = "idle"
+    cell_state["manual_authorized"] = False
+    
+    from backend.api.health_routes import restart_camera_stream, restart_nano_hardware
+    try:
+        restart_camera_stream()
+        restart_nano_hardware()
+    except Exception as e:
+        print(f"[WARN] Erro ao reiniciar componentes no desbloqueio do pânico: {e}")
+        
+    return {
+        "status": "success",
+        "message": "Pânico desbloqueado. Componentes de hardware e câmera estão sendo reiniciados..."
     }
 

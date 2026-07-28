@@ -137,6 +137,9 @@ def get_poses_status():
 @router.post("/move/{pose_name}")
 def move_to_pose(pose_name: str, payload: Optional[MovePoseSchema] = None):
     """Move o braço do robô desativando o teste isolado do YOLO por segurança."""
+    from backend.api.cell_routes import cell_state
+    if cell_state.get("panic_locked"):
+        raise HTTPException(status_code=423, detail="Célula bloqueada em modo de Pânico. É necessário reiniciar o sistema.")
     stop_yolo_test_process()
     node = get_cobot_node()
     vel = payload.velocity_scaling if payload else 0.20
@@ -148,6 +151,9 @@ def move_to_pose(pose_name: str, payload: Optional[MovePoseSchema] = None):
 @router.post("/pump")
 def control_pump(payload: PumpControlSchema):
     """Liga (on=true) ou Desliga (on=false) a bomba de sucção."""
+    from backend.api.cell_routes import cell_state
+    if cell_state.get("panic_locked"):
+        raise HTTPException(status_code=423, detail="Célula bloqueada em modo de Pânico. É necessário reiniciar o sistema.")
     node = get_cobot_node()
     ok = node.set_pump(payload.on)
     if not ok:
@@ -157,8 +163,10 @@ def control_pump(payload: PumpControlSchema):
 @router.post("/yolo_test")
 def toggle_yolo_test(payload: YoloTestSchema):
     """Ativa ou Desativa o Teste Isolado de Classificação do YOLO."""
+    from backend.api.cell_routes import cell_state
+    if payload.active and cell_state.get("panic_locked"):
+        raise HTTPException(status_code=423, detail="Célula bloqueada em modo de Pânico. É necessário reiniciar o sistema.")
     if payload.active:
-        from backend.api.cell_routes import cell_state
         conf = float(cell_state.get("yolo_conf", 0.25))
         ok = start_yolo_test_process(conf=conf)
         if not ok:
