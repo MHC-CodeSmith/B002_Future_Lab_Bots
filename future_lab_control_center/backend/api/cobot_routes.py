@@ -113,9 +113,8 @@ class MovePoseSchema(BaseModel):
 
 @router.get("/poses")
 def get_poses_status():
-    """Retorna a lista de poses gravadas, status de cada pose e data do último salvamento diretamente do disco."""
+    """Retorna a lista de poses gravadas em memória, status de cada pose e data do último salvamento."""
     node = get_cobot_node()
-    node.load_poses()  # Garante leitura sincronizada com o arquivo do disco em todo F5/GET
     poses_map = node.poses
     saved_at = poses_map.get("_last_saved", "Nenhum salvamento registrado")
     
