@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { BookOpen, Unlock, Lock, Save, Play, Trash2, CheckCircle2, XCircle, Clock } from 'lucide-react';
+import { BookOpen, Unlock, Lock, Save, Play, Trash2, CheckCircle2, XCircle, Clock, RotateCcw } from 'lucide-react';
 
-export default function TeachModePanel({ posesData, onRelease, onLock, onRecord, onSave, onPlayback, onClear }) {
+export default function TeachModePanel({ posesData, onRelease, onLock, onRecord, onSave, onPlayback, onClear, onRestore }) {
   const [selectedPose, setSelectedPose] = useState('home');
   const [loading, setLoading] = useState(false);
 
@@ -13,6 +13,8 @@ export default function TeachModePanel({ posesData, onRelease, onLock, onRecord,
     { name: 'place_approach', recorded: false },
     { name: 'place', recorded: false }
   ];
+
+  const hasBackup = Boolean(posesData?.has_backup);
 
   const handleAction = async (actionFn, ...args) => {
     setLoading(true);
@@ -106,11 +108,11 @@ export default function TeachModePanel({ posesData, onRelease, onLock, onRecord,
       </div>
 
       {/* Botões do Menu Principal de Calibragem */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 pt-2">
         <button
           onClick={() => handleAction(onPlayback)}
           disabled={loading}
-          className="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-xs font-bold rounded-xl flex items-center justify-center gap-2 btn-hover"
+          className="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 btn-hover"
         >
           <Play className="w-4 h-4 fill-current" />
           PLAYBACK TESTE (4)
@@ -119,19 +121,34 @@ export default function TeachModePanel({ posesData, onRelease, onLock, onRecord,
         <button
           onClick={() => handleAction(onSave)}
           disabled={loading}
-          className="py-2.5 px-4 bg-blue-600 hover:bg-blue-500 text-xs font-bold rounded-xl flex items-center justify-center gap-2 btn-hover"
+          className="py-2.5 px-3 bg-blue-600 hover:bg-blue-500 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 btn-hover"
         >
           <Save className="w-4 h-4" />
-          SALVAR POSES NO DISCO (5)
+          SALVAR NO DISCO (5)
         </button>
 
         <button
           onClick={() => handleAction(onClear)}
           disabled={loading}
-          className="py-2.5 px-4 bg-red-600/30 hover:bg-red-600 text-red-300 border border-red-500/40 text-xs font-bold rounded-xl flex items-center justify-center gap-2 btn-hover"
+          className="py-2.5 px-3 bg-red-600/30 hover:bg-red-600 text-red-300 border border-red-500/40 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 btn-hover"
+          title="Zera a calibragem atual e cria um backup da versão anterior"
         >
           <Trash2 className="w-4 h-4" />
-          ZERAR CALIBRAGEM (6)
+          ZERAR POSES (6)
+        </button>
+
+        <button
+          onClick={() => handleAction(onRestore)}
+          disabled={loading || !hasBackup}
+          className={`py-2.5 px-3 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 ${
+            hasBackup && !loading
+              ? 'bg-purple-600 hover:bg-purple-500 text-white shadow-lg shadow-purple-900/30 btn-hover'
+              : 'bg-slate-800/50 text-slate-600 border border-slate-700/50 cursor-not-allowed'
+          }`}
+          title={hasBackup ? "Restaurar poses da calibragem gravada anteriormente" : "Nenhum backup de calibragem disponível"}
+        >
+          <RotateCcw className="w-4 h-4" />
+          RECUPERAR ÚLTIMA
         </button>
       </div>
     </div>

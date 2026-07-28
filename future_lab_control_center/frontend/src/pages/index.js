@@ -327,7 +327,20 @@ export default function Dashboard() {
       setNotification({
         type: 'warning',
         title: '🗑️ CALIBRAGEM ZERADA',
-        message: 'Todas as poses salvas foram apagadas.'
+        message: 'Todas as poses salvas foram limpas. Um backup automático da versão anterior foi criado!'
+      });
+    }
+    await refreshStatus();
+  };
+
+  const handleRestore = async () => {
+    const apiBase = getApiBase();
+    const { ok, data } = await safeApiCall(`${apiBase}/cobot/teach/restore`, { method: 'POST' }, '⏪ RESTAURAÇÃO DE CALIBRAGEM');
+    if (ok) {
+      setNotification({
+        type: 'success',
+        title: '⏪ CALIBRAGEM RESTAURADA',
+        message: data.message || 'Todas as poses da calibragem anterior foram recuperadas com sucesso!'
       });
     }
     await refreshStatus();
@@ -381,6 +394,7 @@ export default function Dashboard() {
           onSave={handleSave}
           onPlayback={handlePlayback}
           onClear={handleClear}
+          onRestore={handleRestore}
         />
       </div>
 

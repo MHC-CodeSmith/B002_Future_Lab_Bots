@@ -130,6 +130,7 @@ def get_poses_status():
         
     return {
         "last_saved": saved_at,
+        "has_backup": node.has_backup_poses(),
         "required_poses": REQUIRED_POSES,
         "poses": status_list
     }
@@ -214,12 +215,24 @@ def save_recorded_poses():
 
 @router.delete("/teach/clear")
 def clear_recorded_poses():
-    """Apaga todas as poses gravadas e remove o arquivo de calibragem (Zerar calibragem)."""
+    """Cria um backup (.yaml.bak) das últimas poses salvas antes de zerar a calibragem ativa."""
     node = get_cobot_node()
     ok = node.clear_poses()
     if not ok:
         raise HTTPException(status_code=500, detail="Falha ao apagar arquivo de poses.")
-    return {"status": "success", "message": "Calibragem zerada com sucesso!"}
+    return {"status": "success", "message": "Calibragem zerada com sucesso! Backup da versão anterior salvo."}
+
+@router.post("/teach/restore")
+def restore_recorded_poses():
+    """Restaura a última calibragem salva a partir do arquivo de backup (.yaml.bak)."""
+    node = get_cobot_node()
+    if not node.has_backup_poses():
+        raise HTTPException(status_code=404, detail="Nenhum backup da calibragem anterior foi encontrado para restaurar.")
+    
+    ok = node.restore_backup_poses()
+    if not ok:
+        raise HTTPException(status_code=500, detail="Falha ao restaurar o backup de calibragem.")
+    return {"status": "success", "message": "Última calibragem restaurada com sucesso!"}
 
 def _playback_worker():
     from backend.api.cell_routes import cell_state

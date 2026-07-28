@@ -143,8 +143,23 @@ class CobotNode(BaseNode):
             return False
 
     def clear_poses(self) -> bool:
+        """Cria uma cópia de segurança de backup (.yaml.bak) antes de zerar a calibragem ativa."""
+        import shutil
         poses_path = get_poses_file()
-        self.poses = {}
+        bak_path = poses_path.with_suffix(".yaml.bak")
+
+        # 1. Se o arquivo de poses existe no disco, salva uma cópia de backup antes de apagar!
+        if poses_path.exists():
+            try:
+                shutil.copy2(poses_path, bak_path)
+                print(f"[INFO] Backup automático de calibragem criado em: {bak_path}")
+            except Exception as e:
+                print(f"[WARN] Erro ao criar backup da calibragem: {e}")
+
+        # 2. Limpa o mapa em memória e remove o arquivo ativo do disco
+        with self.lock:
+            self.poses = {}
+
         if poses_path.exists():
             try:
                 poses_path.unlink()
@@ -153,6 +168,30 @@ class CobotNode(BaseNode):
                 print(f"Erro ao apagar arquivo de poses: {e}")
                 return False
         return True
+
+    def restore_backup_poses(self) -> bool:
+        """Restaura as poses do arquivo de backup (.yaml.bak) de volta para o arquivo ativo e recarrega na memória."""
+        import shutil
+        poses_path = get_poses_file()
+        bak_path = poses_path.with_suffix(".yaml.bak")
+
+        if not bak_path.exists():
+            print("[WARN] Nenhum arquivo de backup (.yaml.bak) foi encontrado para restaurar.")
+            return False
+
+        try:
+            shutil.copy2(bak_path, poses_path)
+            self.load_poses()
+            print(f"[INFO] Calibragem restaurada com sucesso a partir do backup: {bak_path}")
+            return True
+        except Exception as e:
+            print(f"[WARN] Erro ao restaurar backup da calibragem: {e}")
+            return False
+
+    def has_backup_poses(self) -> bool:
+        """Verifica se existe um arquivo de backup de calibragem no disco."""
+        bak_path = get_poses_file().with_suffix(".yaml.bak")
+        return bak_path.exists()
 
     def _js_cb(self, msg: JointState):
         if not self.is_ros_active:
