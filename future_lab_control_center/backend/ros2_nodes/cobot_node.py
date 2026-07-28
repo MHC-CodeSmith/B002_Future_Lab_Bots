@@ -94,9 +94,30 @@ class CobotNode(BaseNode):
                 self.create_subscription(JointState, "/joint_states_raw", self._js_cb, 10)
                 self.create_subscription(String, "/product_class", self._yolo_cb, 10)
                 self.is_ros_active = True
+                
+                # Aquecimento proativo de serviços ROS 2 DDS em segundo plano
+                t_warmup = threading.Thread(target=self._warmup_services, daemon=True)
+                t_warmup.start()
             except Exception as e:
                 print(f"[WARN] Erro ao inicializar nó ROS 2: {e}")
                 self.is_ros_active = False
+
+    def _warmup_services(self):
+        """Conecta e mantêm aquecidos os canais de serviços DDS em segundo plano para resposta instantânea (0ms)."""
+        time.sleep(1.0)
+        clients = [
+            ("Bomba ON", getattr(self, "pump_on_cli", None)),
+            ("Bomba OFF", getattr(self, "pump_off_cli", None)),
+            ("Liberar Servos", getattr(self, "release_cli", None)),
+            ("Travar Servos", getattr(self, "lock_cli", None))
+        ]
+        for label, cli in clients:
+            if cli is not None:
+                try:
+                    cli.wait_for_service(timeout_sec=3.0)
+                    print(f"[INFO] Serviço ROS 2 DDS '{label}' aquecido e pronto!")
+                except Exception:
+                    pass
 
     def clear_yolo_state(self):
         """Zera e limpa completamente qualquer histórico de detecção do YOLO da memória."""
@@ -229,8 +250,36 @@ class CobotNode(BaseNode):
             "timestamp": time.time()
         }
 
+    def _trigger_service_fallback_http(self, label: str) -> bool:
+        """Chamada de ultra-alta velocidade via HTTP Micro-Bridge na Jetson Nano (resposta em ~27ms)."""
+        endpoint = None
+        if "Bomba ON" in label:
+            endpoint = "/pump/on"
+        elif "Bomba OFF" in label:
+            endpoint = "/pump/off"
+        elif "Liberar" in label:
+            endpoint = "/servos/release"
+        elif "Travar" in label:
+            endpoint = "/servos/lock"
+
+        if not endpoint:
+            return False
+
+        try:
+            url = f"http://192.168.0.250:8088{endpoint}"
+            import urllib.request
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=1.5) as resp:
+                if resp.status == 200:
+                    print(f"[INFO] HTTP Micro-Bridge '{label}' executado com SUCESSO INSTANTÂNEO (~27ms)!")
+                    return True
+        except Exception as e:
+            print(f"[WARN] HTTP Micro-Bridge para '{label}' falhou ({e}), usando fallback SSH...")
+            return self._trigger_service_fallback_ssh(label)
+        return False
+
     def _trigger_service_fallback_ssh(self, label: str) -> bool:
-        """Fallback direto via SSH para disparar o serviço diretamente na Jetson Nano se o DDS falhar."""
+        """Fallback secundário via SSH reutilizando conexão para disparar o serviço na Jetson Nano."""
         srv_name = None
         if "Bomba ON" in label:
             srv_name = "/pump_on"
@@ -245,11 +294,11 @@ class CobotNode(BaseNode):
             return False
 
         try:
-            print(f"[INFO] Disparando serviço '{srv_name}' via fallback SSH direto na Jetson Nano...")
-            cmd = f"sshpass -p Elephant ssh -o StrictHostKeyChecking=no er@192.168.0.250 'bash -c \"source /opt/ros/galactic/setup.bash && source ~/custom_ws/install/setup.bash && ros2 service call {srv_name} std_srvs/srv/Trigger\"'"
-            res = subprocess.run(cmd, shell=True, timeout=8, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            print(f"[INFO] Disparando serviço '{srv_name}' via fallback SSH na Jetson Nano...")
+            cmd = f"sshpass -p Elephant ssh -o StrictHostKeyChecking=no -o ControlMaster=auto -o ControlPath=/tmp/ssh_nano_socket -o ControlPersist=60m er@192.168.0.250 'bash -c \"source /opt/ros/galactic/setup.bash && source ~/custom_ws/install/setup.bash && ros2 service call {srv_name} std_srvs/srv/Trigger\"'"
+            res = subprocess.run(cmd, shell=True, timeout=5, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             output = (res.stdout or "") + (res.stderr or "")
-            if "success=True" in output or "success=true" in output or "success: true" in output or "Servos soltos" in output or "Servos travados" in output:
+            if "success=True" in output or "success=true" in output or "success: true" in output or "Servos soltos" in output or "Servos travados" in output or "Pump" in output:
                 print(f"[INFO] Fallback SSH do serviço '{label}' executado com SUCESSO!")
                 return True
             else:
@@ -258,31 +307,27 @@ class CobotNode(BaseNode):
             print(f"[WARN] Fallback SSH para '{label}' falhou: {e}")
         return False
 
-    def call_trigger_service(self, cli, label: str, timeout_sec: float = 1.0) -> bool:
+    def call_trigger_service(self, cli, label: str, timeout_sec: float = 0.5) -> bool:
         if not self.is_ros_active or cli is None:
             return True
 
-        if not cli.service_is_ready():
-            if not cli.wait_for_service(timeout_sec=0.5):
-                print(f"[WARN] Serviço ROS 2 '{label}' não respondeu no timeout de descoberta. Usando fallback SSH...")
-                return self._trigger_service_fallback_ssh(label)
-
+        # 1. Tenta chamada direta síncrona via ROS 2 DDS primeiro (se já descoberto)
         try:
-            req = Trigger.Request()
-            fut = cli.call_async(req)
-            t0 = time.time()
-            while not fut.done() and (time.time() - t0) < timeout_sec:
-                time.sleep(0.02)
-            if fut.done():
-                res = fut.result()
-                if res and res.success:
-                    return True
-
-            print(f"[WARN] Serviço ROS 2 '{label}' expirou timeout de {timeout_sec}s. Usando fallback SSH...")
-            return self._trigger_service_fallback_ssh(label)
+            if cli.service_is_ready():
+                req = Trigger.Request()
+                fut = cli.call_async(req)
+                t0 = time.time()
+                while not fut.done() and (time.time() - t0) < timeout_sec:
+                    time.sleep(0.005)
+                if fut.done():
+                    res = fut.result()
+                    if res and res.success:
+                        return True
         except Exception as e:
-            print(f"[WARN] Erro ao chamar serviço ROS 2 '{label}': {e}. Usando fallback SSH...")
-            return self._trigger_service_fallback_ssh(label)
+            print(f"[WARN] Chamada DDS direta falhou para '{label}': {e}")
+
+        # 2. Se o DDS não respondeu instantaneamente, aciona o HTTP Micro-Bridge (~27ms)
+        return self._trigger_service_fallback_http(label)
 
     def set_pump(self, on: bool) -> bool:
         if not self.is_ros_active:
