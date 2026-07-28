@@ -138,8 +138,8 @@ def restart_nano_hardware():
     """Reinicia a ponte de comunicação de hardware ROS 2 (mycobot_hw) na Jetson Nano via SSH."""
     def async_restart_hw():
         try:
-            print("[INFO] Reiniciando ponte de hardware na Jetson Nano via SSH...")
-            cmd = "sshpass -p Elephant ssh -o StrictHostKeyChecking=no er@192.168.0.250 'pkill -9 -f mycobot_bridge 2>/dev/null || true; sleep 1; nohup ros2 launch mycobot_hw_interface mycobot_hw.launch.py mock:=False baud:=1000000 > /tmp/hw_bridge.log 2>&1 &'"
+            print("[INFO] Reiniciando ponte de hardware na Jetson Nano via SSH com sourcing ROS 2...")
+            cmd = "sshpass -p Elephant ssh -o StrictHostKeyChecking=no er@192.168.0.250 'bash -c \"source /opt/ros/galactic/setup.bash && source ~/custom_ws/install/setup.bash && pkill -9 -f mycobot_bridge 2>/dev/null || true; sleep 1; nohup ros2 launch mycobot_hw_interface mycobot_hw.launch.py mock:=False baud:=1000000 > /tmp/hw_bridge.log 2>&1 < /dev/null &\"'"
             res = subprocess.run(cmd, shell=True, timeout=10, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             print(f"[INFO] Resultado da reinicialização de hardware: {res.stdout}")
         except Exception as e:
