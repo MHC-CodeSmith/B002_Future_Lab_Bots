@@ -21,8 +21,15 @@ export default function CameraVisionPanel({
   const rawUrl = streamUrl || "http://192.168.0.250:8080/stream.mjpg";
   const liveUrl = `${rawUrl}${rawUrl.includes('?') ? '&' : '?'}t=${streamKey}`;
 
-  // Verifica se a última mensagem do YOLO é recente (últimos 2.5 segundos)
-  const isFresh = lastYolo && (Date.now() / 1000 - (lastYolo.timestamp || 0)) < 2.5;
+  // Tick do relógio a cada 500ms para forçar re-avaliação do isFresh
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick(k => k + 1), 500);
+    return () => clearInterval(t);
+  }, []);
+
+  // Verifica se a última mensagem do YOLO é recente (últimos 5 segundos — margem para clock skew)
+  const isFresh = lastYolo && (Date.now() / 1000 - (lastYolo.timestamp || 0)) < 5;
 
   // Auto-recovery: quando o stream está em erro e NÃO estamos reiniciando/parando,
   // tenta reconectar a cada 3 segundos automaticamente

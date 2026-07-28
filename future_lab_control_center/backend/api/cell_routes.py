@@ -26,12 +26,12 @@ cell_state = {
 def get_cell_status():
     """Retorna o status global da célula automatizada."""
     node = get_cobot_node()
-    from backend.api.cobot_routes import yolo_test_active
+    from backend.api.cobot_routes import is_yolo_process_alive
     return {
         "cell": cell_state,
         "current_joints": node.current_joints,
         "pump_active": node.pump_active,
-        "yolo_test_active": yolo_test_active,
+        "yolo_test_active": is_yolo_process_alive(),
         "last_yolo": node.last_yolo_msg
     }
 

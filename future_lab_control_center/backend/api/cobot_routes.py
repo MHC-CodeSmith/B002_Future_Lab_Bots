@@ -53,17 +53,32 @@ def start_yolo_test_process():
             
     if target_script:
         try:
+            log_file = open("/tmp/yolo_test.log", "w")
             cmd = [
                 "bash", "-c",
                 f"source /opt/ros/jazzy/setup.bash && python3 {target_script} --headless --conf 0.25 --url http://192.168.0.250:8080/stream.mjpg"
             ]
-            yolo_process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            yolo_process = subprocess.Popen(cmd, stdout=log_file, stderr=log_file)
             yolo_test_active = True
             return True
         except Exception as e:
             print(f"[WARN] Erro ao disparar cam_yolo_test.py: {e}")
             return False
     return False
+
+def is_yolo_process_alive():
+    """Verifica se o processo do YOLO test ainda está vivo e actualiza o estado global."""
+    global yolo_process, yolo_test_active
+    if yolo_process is None:
+        yolo_test_active = False
+        return False
+    poll = yolo_process.poll()
+    if poll is not None:
+        # Processo morreu (câmera desligada, erro, etc.)
+        yolo_process = None
+        yolo_test_active = False
+        return False
+    return True
 
 class PumpControlSchema(BaseModel):
     on: bool
@@ -130,8 +145,9 @@ def toggle_yolo_test(payload: YoloTestSchema):
 
 @router.get("/yolo_test/status")
 def get_yolo_test_status():
-    """Retorna se o teste isolado do YOLO está ativo."""
-    return {"yolo_test_active": yolo_test_active}
+    """Retorna se o teste isolado do YOLO está ativo (verifica se o processo está vivo)."""
+    alive = is_yolo_process_alive()
+    return {"yolo_test_active": alive}
 
 @router.post("/teach/release")
 def release_servos():
