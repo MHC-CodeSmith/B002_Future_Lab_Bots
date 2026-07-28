@@ -2,6 +2,7 @@
 # cobot_routes.py — API Router de Controle do Cobot e Modo Ensino
 # ============================================================
 import os
+import time
 import signal
 import subprocess
 from pathlib import Path
