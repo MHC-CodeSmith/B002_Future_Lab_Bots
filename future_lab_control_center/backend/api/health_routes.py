@@ -104,7 +104,10 @@ def restart_camera_stream():
 
 @router.post("/stop_camera")
 def stop_camera_stream():
-    """Executa RUN_NANO_CAMERA.sh stop para desligar o servidor MJPEG da câmera na Jetson Nano."""
+    """Executa RUN_NANO_CAMERA.sh stop para desligar o servidor MJPEG e encerra o teste YOLO."""
+    from backend.api.cobot_routes import stop_yolo_test_process
+    stop_yolo_test_process()
+
     target_script = _find_nano_camera_script()
     if not target_script:
         raise HTTPException(status_code=404, detail="Script RUN_NANO_CAMERA.sh não encontrado.")

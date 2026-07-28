@@ -190,17 +190,21 @@ export default function CameraVisionPanel({
             )}
           </button>
 
-          {/* Botão de Toggle do Teste YOLO */}
+          {/* Botão de Toggle do Teste YOLO — Apenas ativável quando a câmera está LIGADA */}
           <button
             onClick={() => onToggleYoloTest(!yoloTestActive)}
-            className={`px-3 py-1.5 text-xs font-bold rounded-lg btn-hover flex items-center gap-1.5 transition-all duration-150 ${
-              yoloTestActive
-                ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/40 animate-pulse'
-                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
+            disabled={!cameraOnline || isBusy}
+            className={`px-3 py-1.5 text-xs font-bold rounded-lg flex items-center gap-1.5 transition-all duration-150 ${
+              !cameraOnline || isBusy
+                ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed border border-slate-700/50'
+                : yoloTestActive
+                  ? 'bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-900/40 btn-hover'
+                  : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/30 btn-hover'
             }`}
+            title={!cameraOnline ? "Ligue a câmera antes de iniciar o teste do YOLO" : yoloTestActive ? "Desligar teste isolado do YOLO" : "Iniciar teste isolado de classificação do YOLO"}
           >
-            <FlaskConical className="w-3.5 h-3.5" />
-            {yoloTestActive ? 'TESTE YOLO: LIGADO' : 'TESTAR YOLO'}
+            <FlaskConical className={`w-3.5 h-3.5 ${yoloTestActive ? 'animate-pulse' : ''}`} />
+            {yoloTestActive ? 'DESLIGAR TESTE YOLO' : 'TESTAR YOLO'}
           </button>
 
           {/* Botão de Toggle da Bomba */}
