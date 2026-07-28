@@ -6,6 +6,7 @@ import sys
 import time
 import yaml
 import threading
+import subprocess
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -228,21 +229,60 @@ class CobotNode(BaseNode):
             "timestamp": time.time()
         }
 
+    def _trigger_service_fallback_ssh(self, label: str) -> bool:
+        """Fallback direto via SSH para disparar o serviço diretamente na Jetson Nano se o DDS falhar."""
+        srv_name = None
+        if "Bomba ON" in label:
+            srv_name = "/pump_on"
+        elif "Bomba OFF" in label:
+            srv_name = "/pump_off"
+        elif "Liberar" in label:
+            srv_name = "/release_servos"
+        elif "Travar" in label:
+            srv_name = "/lock_servos"
+
+        if not srv_name:
+            return False
+
+        try:
+            print(f"[INFO] Disparando serviço '{srv_name}' via fallback SSH direto na Jetson Nano...")
+            cmd = f"sshpass -p Elephant ssh -o StrictHostKeyChecking=no er@192.168.0.250 'bash -c \"source /opt/ros/galactic/setup.bash && source ~/custom_ws/install/setup.bash && ros2 service call {srv_name} std_srvs/srv/Trigger\"'"
+            res = subprocess.run(cmd, shell=True, timeout=8, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            output = (res.stdout or "") + (res.stderr or "")
+            if "success=True" in output or "success=true" in output or "success: true" in output or "Servos soltos" in output or "Servos travados" in output:
+                print(f"[INFO] Fallback SSH do serviço '{label}' executado com SUCESSO!")
+                return True
+            else:
+                print(f"[WARN] Fallback SSH retornou output não-esperado: {output}")
+        except Exception as e:
+            print(f"[WARN] Fallback SSH para '{label}' falhou: {e}")
+        return False
+
     def call_trigger_service(self, cli, label: str, timeout_sec: float = 1.0) -> bool:
         if not self.is_ros_active or cli is None:
             return True
+
         if not cli.service_is_ready():
-            print(f"[WARN] Serviço ROS 2 '{label}' não está pronto no momento.")
-            return False
-        req = Trigger.Request()
-        fut = cli.call_async(req)
-        t0 = time.time()
-        while not fut.done() and (time.time() - t0) < timeout_sec:
-            time.sleep(0.02)
-        if not fut.done():
-            return False
-        res = fut.result()
-        return bool(res and res.success)
+            if not cli.wait_for_service(timeout_sec=0.5):
+                print(f"[WARN] Serviço ROS 2 '{label}' não respondeu no timeout de descoberta. Usando fallback SSH...")
+                return self._trigger_service_fallback_ssh(label)
+
+        try:
+            req = Trigger.Request()
+            fut = cli.call_async(req)
+            t0 = time.time()
+            while not fut.done() and (time.time() - t0) < timeout_sec:
+                time.sleep(0.02)
+            if fut.done():
+                res = fut.result()
+                if res and res.success:
+                    return True
+
+            print(f"[WARN] Serviço ROS 2 '{label}' expirou timeout de {timeout_sec}s. Usando fallback SSH...")
+            return self._trigger_service_fallback_ssh(label)
+        except Exception as e:
+            print(f"[WARN] Erro ao chamar serviço ROS 2 '{label}': {e}. Usando fallback SSH...")
+            return self._trigger_service_fallback_ssh(label)
 
     def set_pump(self, on: bool) -> bool:
         if not self.is_ros_active:

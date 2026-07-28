@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     ros-jazzy-cyclonedds \
     ros-jazzy-rmw-cyclonedds-cpp \
+    ros-jazzy-rmw-fastrtps-cpp \
     ros-jazzy-moveit-msgs \
     ros-jazzy-control-msgs \
     && rm -rf /var/lib/apt/lists/*
@@ -27,7 +28,7 @@ COPY . /app/backend
 
 ENV PYTHONPATH=/app
 ENV ROS_DOMAIN_ID=42
-ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 
 EXPOSE 8000
 
