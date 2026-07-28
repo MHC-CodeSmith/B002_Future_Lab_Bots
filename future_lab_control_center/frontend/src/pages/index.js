@@ -33,6 +33,10 @@ export default function Dashboard() {
       setHealth(resHealth);
       setCellStatus(resCell);
       setPoses(resPoses);
+
+      // Limpa os estados otimistas APENAS quando a API confirmar que o estado coincide
+      setOptimisticPump(prev => (prev !== null && Boolean(resCell?.pump_active) === prev ? null : prev));
+      setOptimisticYoloTest(prev => (prev !== null && Boolean(resCell?.yolo_test_active) === prev ? null : prev));
     } catch (e) {
       console.warn("API de controle conectando...", e);
     }
@@ -77,7 +81,6 @@ export default function Dashboard() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ on })
     });
-    setTimeout(() => setOptimisticPump(null), 1000);
     fetchAllStatus();
   };
 
@@ -89,7 +92,6 @@ export default function Dashboard() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ active })
     });
-    setTimeout(() => setOptimisticYoloTest(null), 1500);
     fetchAllStatus();
   };
 
