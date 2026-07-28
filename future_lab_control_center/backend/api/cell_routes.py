@@ -60,6 +60,7 @@ def authorize_manual_scan():
 def emergency_stop():
     """Parada de emergência: desliga bomba, desativa teste YOLO e move braço para HOME."""
     node = get_cobot_node()
+    node.load_poses()  # Recarrega do arquivo YAML do disco para ter a versão mais recente
     if "home" not in node.poses:
         raise HTTPException(
             status_code=400,

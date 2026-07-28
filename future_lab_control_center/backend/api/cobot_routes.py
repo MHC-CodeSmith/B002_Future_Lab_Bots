@@ -258,6 +258,7 @@ def playback_trajectory():
     """Executa o teste da trajetória de forma 100% assíncrona em segundo plano (resposta HTTP em 0ms)."""
     stop_yolo_test_process()  # Trava de segurança: desativa o teste isolado do YOLO durante o movimento
     node = get_cobot_node()
+    node.load_poses()  # Recarrega as poses salvas do disco antes de validar
     missing = [p for p in REQUIRED_POSES if p not in node.poses]
     if missing:
         raise HTTPException(status_code=400, detail=f"Gravação incompleta. Poses pendentes: {missing}")

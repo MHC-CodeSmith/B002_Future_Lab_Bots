@@ -20,8 +20,6 @@ try:
     from sensor_msgs.msg import JointState
     from std_msgs.msg import String
     from std_srvs.srv import Trigger
-    from moveit_msgs.action import MoveGroup
-    from moveit_msgs.msg import PlanningOptions, Constraints, JointConstraint, MotionPlanRequest
     
     if not rclpy.ok():
         rclpy.init()
@@ -29,6 +27,22 @@ try:
 except Exception as e:
     print(f"[WARN] ROS 2 rclpy não ativado no momento: {e}")
     HAS_RCLPY = False
+    JointState = object
+    String = object
+    Trigger = object
+
+try:
+    from moveit_msgs.action import MoveGroup
+    from moveit_msgs.msg import PlanningOptions, Constraints, JointConstraint, MotionPlanRequest
+except Exception:
+    MoveGroup = object
+
+try:
+    from control_msgs.action import FollowJointTrajectory
+    from trajectory_msgs.msg import JointTrajectoryPoint
+except Exception:
+    FollowJointTrajectory = object
+    JointTrajectoryPoint = object
 
 JOINT_NAMES = [
     "joint2_to_joint1", "joint3_to_joint2", "joint4_to_joint3",
@@ -37,15 +51,17 @@ JOINT_NAMES = [
 GROUP = "mycobot_arm"
 REQUIRED_POSES = ["home", "scan", "pick_approach", "pick", "place_approach", "place"]
 
-# Resolução de caminho inteligente para o arquivo de poses
-HOST_POSES_FILE = Path("/home/future-lab/B002_Future_Lab_Bots/cobot/mycobot_docker/custom_ws/config/test_table_poses.yaml")
-CONTAINER_POSES_FILE = Path(__file__).resolve().parent.parent / "config" / "test_table_poses.yaml"
+POSES_PATH_CONTAINER = Path("/cobot/mycobot_docker/custom_ws/config/test_table_poses.yaml")
+POSES_PATH_HOST = Path("/home/future-lab/B002_Future_Lab_Bots/cobot/mycobot_docker/custom_ws/config/test_table_poses.yaml")
+POSES_PATH_LOCAL = Path(__file__).resolve().parent.parent / "config" / "test_table_poses.yaml"
 
 def get_poses_file() -> Path:
-    if HOST_POSES_FILE.parent.exists():
-        return HOST_POSES_FILE
-    CONTAINER_POSES_FILE.parent.mkdir(parents=True, exist_ok=True)
-    return CONTAINER_POSES_FILE
+    if POSES_PATH_CONTAINER.parent.exists():
+        return POSES_PATH_CONTAINER
+    if POSES_PATH_HOST.parent.exists():
+        return POSES_PATH_HOST
+    POSES_PATH_LOCAL.parent.mkdir(parents=True, exist_ok=True)
+    return POSES_PATH_LOCAL
 
 class DummyNode:
     """Fallback simples caso o ROS 2 não esteja inicializado."""
@@ -67,6 +83,7 @@ class CobotNode(BaseNode):
             try:
                 super().__init__("future_lab_cobot_node")
                 self.move_cli = ActionClient(self, MoveGroup, "/move_action")
+                self.follow_jt_cli = ActionClient(self, FollowJointTrajectory, "/mycobot_arm_controller/follow_joint_trajectory")
                 self.pump_on_cli = self.create_client(Trigger, "/pump_on")
                 self.pump_off_cli = self.create_client(Trigger, "/pump_off")
                 self.release_cli = self.create_client(Trigger, "/release_servos")
@@ -186,6 +203,52 @@ class CobotNode(BaseNode):
             self.pump_active = on
         return ok
 
+    def goto_pose_direct_bridge(self, target_joints: List[float], duration_sec: float = 3.0) -> bool:
+        """Fallback direto: envia trajetórias angulares diretamente para a Action Server da ponte de hardware no Nano/ROS."""
+        if not self.is_ros_active or not hasattr(self, 'follow_jt_cli'):
+            return False
+            
+        if not self.follow_jt_cli.wait_for_server(timeout_sec=2.0):
+            print("[WARN] Action Server /mycobot_arm_controller/follow_joint_trajectory não respondeu no timeout.")
+            return False
+
+        try:
+            goal = FollowJointTrajectory.Goal()
+            goal.trajectory.joint_names = [
+                "cobot_joint_1", "cobot_joint_2", "cobot_joint_3",
+                "cobot_joint_4", "cobot_joint_5", "cobot_joint_6"
+            ]
+
+            p = JointTrajectoryPoint()
+            p.positions = [float(v) for v in target_joints[:6]]
+            p.time_from_start.sec = int(duration_sec)
+            p.time_from_start.nanosec = int((duration_sec - int(duration_sec)) * 1e9)
+            goal.trajectory.points = [p]
+
+            send_fut = self.follow_jt_cli.send_goal_async(goal)
+            t0 = time.time()
+            while not send_fut.done() and (time.time() - t0) < 3.0:
+                time.sleep(0.05)
+            if not send_fut.done():
+                return False
+
+            gh = send_fut.result()
+            if gh is None or not gh.accepted:
+                return False
+
+            res_fut = gh.get_result_async()
+            t0 = time.time()
+            while not res_fut.done() and (time.time() - t0) < (duration_sec + 4.0):
+                time.sleep(0.05)
+            if not res_fut.done():
+                return False
+
+            self.current_joints = list(target_joints[:6])
+            return True
+        except Exception as e:
+            print(f"[WARN] Erro durante envio direto à ponte de hardware: {e}")
+            return False
+
     def goto_pose(self, pose_name: str, velocity_scaling: float = 0.20) -> bool:
         if pose_name not in self.poses:
             return False
@@ -196,57 +259,60 @@ class CobotNode(BaseNode):
             return True
 
         target_joints = self.poses[pose_name]
-        if not self.move_cli.wait_for_server(timeout_sec=3.0):
-            return False
 
-        mpr = MotionPlanRequest()
-        mpr.group_name = GROUP
-        mpr.allowed_planning_time = 5.0
-        mpr.num_planning_attempts = 5
-        mpr.max_velocity_scaling_factor = float(velocity_scaling)
-        mpr.max_acceleration_scaling_factor = float(velocity_scaling)
-        mpr.start_state.is_diff = True
-        if self.current_joints is not None:
-            mpr.start_state.joint_state.name = list(JOINT_NAMES)
-            mpr.start_state.joint_state.position = [float(v) for v in self.current_joints]
+        # 1. Tenta mover via MoveIt (/move_action) se o MoveIt estiver no ar
+        if self.move_cli.wait_for_server(timeout_sec=1.5):
+            try:
+                mpr = MotionPlanRequest()
+                mpr.group_name = GROUP
+                mpr.allowed_planning_time = 5.0
+                mpr.num_planning_attempts = 5
+                mpr.max_velocity_scaling_factor = float(velocity_scaling)
+                mpr.max_acceleration_scaling_factor = float(velocity_scaling)
+                mpr.start_state.is_diff = True
+                if self.current_joints is not None:
+                    mpr.start_state.joint_state.name = list(JOINT_NAMES)
+                    mpr.start_state.joint_state.position = [float(v) for v in self.current_joints]
 
-        c = Constraints()
-        for n, p in zip(JOINT_NAMES, target_joints):
-            jc = JointConstraint()
-            jc.joint_name = n
-            jc.position = float(p)
-            jc.tolerance_above = jc.tolerance_below = 0.01
-            jc.weight = 1.0
-            c.joint_constraints.append(jc)
-        mpr.goal_constraints = [c]
+                c = Constraints()
+                for n, p in zip(JOINT_NAMES, target_joints):
+                    jc = JointConstraint()
+                    jc.joint_name = n
+                    jc.position = float(p)
+                    jc.tolerance_above = jc.tolerance_below = 0.01
+                    jc.weight = 1.0
+                    c.joint_constraints.append(jc)
+                mpr.goal_constraints = [c]
 
-        po = PlanningOptions()
-        po.plan_only = False
+                po = PlanningOptions()
+                po.plan_only = False
 
-        goal = MoveGroup.Goal()
-        goal.request = mpr
-        goal.planning_options = po
+                goal = MoveGroup.Goal()
+                goal.request = mpr
+                goal.planning_options = po
 
-        send_fut = self.move_cli.send_goal_async(goal)
-        t0 = time.time()
-        while not send_fut.done() and (time.time() - t0) < 5.0:
-            time.sleep(0.05)
-        if not send_fut.done():
-            return False
+                send_fut = self.move_cli.send_goal_async(goal)
+                t0 = time.time()
+                while not send_fut.done() and (time.time() - t0) < 3.0:
+                    time.sleep(0.05)
 
-        gh = send_fut.result()
-        if gh is None or not gh.accepted:
-            return False
+                if send_fut.done():
+                    gh = send_fut.result()
+                    if gh is not None and gh.accepted:
+                        res_fut = gh.get_result_async()
+                        t0 = time.time()
+                        while not res_fut.done() and (time.time() - t0) < 15.0:
+                            time.sleep(0.05)
+                        if res_fut.done():
+                            res = res_fut.result()
+                            if res and res.result.error_code.val == 1:
+                                return True
+            except Exception as e:
+                print(f"[WARN] MoveIt falhou no goto_pose, usando fallback direto: {e}")
 
-        res_fut = gh.get_result_async()
-        t0 = time.time()
-        while not res_fut.done() and (time.time() - t0) < 15.0:
-            time.sleep(0.05)
-        if not res_fut.done():
-            return False
-
-        res = res_fut.result()
-        return bool(res and res.result.error_code.val == 1)
+        # 2. Fallback direto via Action Server da ponte de hardware no Nano/ROS (/mycobot_arm_controller/follow_joint_trajectory)
+        print(f"[INFO] Movendo braço para '{pose_name}' via ponte direta de hardware...")
+        return self.goto_pose_direct_bridge(target_joints, duration_sec=2.5)
 
 # Instância Singleton gerenciada no backend
 _cobot_node: Optional[CobotNode] = None

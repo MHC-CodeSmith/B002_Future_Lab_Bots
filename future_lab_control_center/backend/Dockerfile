@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-jazzy-cyclonedds \
     ros-jazzy-rmw-cyclonedds-cpp \
     ros-jazzy-moveit-msgs \
+    ros-jazzy-control-msgs \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /app/requirements.txt
