@@ -22,31 +22,65 @@ export default function Dashboard() {
     return 'http://localhost:8000/api/v1';
   };
 
-  const fetchAllStatus = async () => {
+  const fetchCellStatus = async () => {
     const apiBase = getApiBase();
     try {
-      const [resHealth, resCell, resPoses] = await Promise.all([
-        fetch(`${apiBase}/health`).then(r => r.json()),
-        fetch(`${apiBase}/cell/status`).then(r => r.json()),
-        fetch(`${apiBase}/cobot/poses`).then(r => r.json())
-      ]);
-      setHealth(resHealth);
+      const resCell = await fetch(`${apiBase}/cell/status`).then(r => r.json());
       setCellStatus(resCell);
-      setPoses(resPoses);
-
-      // Limpa os estados otimistas APENAS quando a API confirmar que o estado coincide
       setOptimisticPump(prev => (prev !== null && Boolean(resCell?.pump_active) === prev ? null : prev));
       setOptimisticYoloTest(prev => (prev !== null && Boolean(resCell?.yolo_test_active) === prev ? null : prev));
     } catch (e) {
-      console.warn("API de controle conectando...", e);
+      console.warn("API de célula conectando...", e);
+    }
+  };
+
+  const fetchSlowStatus = async () => {
+    const apiBase = getApiBase();
+    try {
+      const [resHealth, resPoses] = await Promise.all([
+        fetch(`${apiBase}/health`).then(r => r.json()),
+        fetch(`${apiBase}/cobot/poses`).then(r => r.json())
+      ]);
+      setHealth(resHealth);
+      setPoses(resPoses);
+    } catch (e) {
+      console.warn("API de saúde conectando...", e);
     }
   };
 
   useEffect(() => {
-    fetchAllStatus();
-    // Polling ultra-responsivo a cada 150ms (0.15s) para atualizações instantâneas no dashboard
-    const interval = setInterval(fetchAllStatus, 150);
-    return () => clearInterval(interval);
+    // Por padrão: Sempre que a página for carregada/recarregada no navegador:
+    // 1. O modo de teste do YOLO é desligado
+    // 2. A câmera é reiniciada no Nano
+    const initOnPageLoad = async () => {
+      const apiBase = getApiBase();
+      try {
+        await Promise.all([
+          fetch(`${apiBase}/cobot/yolo_test`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ active: false })
+          }),
+          fetch(`${apiBase}/health/restart_camera`, { method: 'POST' })
+        ]);
+      } catch (e) {
+        console.warn("Falha ao reinicializar estado na carga da página:", e);
+      }
+      fetchCellStatus();
+      fetchSlowStatus();
+    };
+
+    initOnPageLoad();
+
+    // Polling ultrarrápido de 250ms APENAS para o status da célula (sem congestionar HTTP)
+    const fastInterval = setInterval(fetchCellStatus, 250);
+    // Polling lento de 3000ms para saúde de rede e arquivo de poses
+    const slowInterval = setInterval(fetchSlowStatus, 3000);
+
+    return () => {
+      clearInterval(fastInterval);
+      clearInterval(slowInterval);
+    };
   }, []);
 
   const handleUpdateMode = async (payload) => {
@@ -56,13 +90,13 @@ export default function Dashboard() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-    fetchAllStatus();
+    fetchCellStatus();
   };
 
   const handleAuthorizeScan = async () => {
     const apiBase = getApiBase();
     await fetch(`${apiBase}/cell/authorize_scan`, { method: 'POST' });
-    fetchAllStatus();
+    fetchCellStatus();
   };
 
   const handleEmergencyStop = async () => {
@@ -70,35 +104,43 @@ export default function Dashboard() {
     setOptimisticYoloTest(false);
     const apiBase = getApiBase();
     await fetch(`${apiBase}/cell/stop`, { method: 'POST' });
-    fetchAllStatus();
+    fetchCellStatus();
   };
 
   const handleTogglePump = async (on) => {
     setOptimisticPump(on);
     const apiBase = getApiBase();
-    await fetch(`${apiBase}/cobot/pump`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ on })
-    });
-    fetchAllStatus();
+    try {
+      await fetch(`${apiBase}/cobot/pump`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ on })
+      });
+    } catch (e) {
+      setOptimisticPump(null);
+    }
+    fetchCellStatus();
   };
 
   const handleToggleYoloTest = async (active) => {
     setOptimisticYoloTest(active);
     const apiBase = getApiBase();
-    await fetch(`${apiBase}/cobot/yolo_test`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ active })
-    });
-    fetchAllStatus();
+    try {
+      await fetch(`${apiBase}/cobot/yolo_test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active })
+      });
+    } catch (e) {
+      setOptimisticYoloTest(null);
+    }
+    fetchCellStatus();
   };
 
   const handleRestartCamera = async () => {
     const apiBase = getApiBase();
     await fetch(`${apiBase}/health/restart_camera`, { method: 'POST' });
-    fetchAllStatus();
+    fetchCellStatus();
   };
 
   const handleStopCamera = async () => {

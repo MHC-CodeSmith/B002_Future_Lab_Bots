@@ -71,24 +71,34 @@ def start_yolo_test_process(conf: float = 0.10):
             return False
     return False
 
+_last_pgrep_time = 0.0
+_cached_alive = False
+
 def is_yolo_process_alive():
-    """Verifica se o processo python3 cam_yolo_test.py está ativo no SO sem falso-positivos."""
-    global yolo_process, yolo_test_active
+    """Verifica se o processo python3 cam_yolo_test.py está ativo no SO sem falso-positivos e com cache de 500ms."""
+    global yolo_process, yolo_test_active, _last_pgrep_time, _cached_alive
+    now = time.time()
     if yolo_process is not None:
         poll = yolo_process.poll()
         if poll is None:
             yolo_test_active = True
+            _cached_alive = True
             return True
         else:
             yolo_process = None
 
+    if (now - _last_pgrep_time) < 0.5:
+        return _cached_alive
+
+    _last_pgrep_time = now
     try:
         res = subprocess.run(["pgrep", "-f", "python3.*cam_yolo_test.py"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        alive = (res.returncode == 0 and len(res.stdout.strip()) > 0)
-        yolo_test_active = alive
-        return alive
+        _cached_alive = (res.returncode == 0 and len(res.stdout.strip()) > 0)
+        yolo_test_active = _cached_alive
+        return _cached_alive
     except Exception:
         yolo_test_active = False
+        _cached_alive = False
         return False
 
 class PumpControlSchema(BaseModel):
