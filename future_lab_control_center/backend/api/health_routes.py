@@ -68,20 +68,21 @@ def get_health_status():
         }
     }
 
-@router.post("/restart_camera")
-def restart_camera_stream():
-    """Executa a rotina oficial de inicialização RUN_NANO_CAMERA.sh start em segundo plano."""
+def _find_nano_camera_script():
+    """Localiza o script RUN_NANO_CAMERA.sh no filesystem."""
     possible_scripts = [
         Path("/cobot/mycobot_docker/RUN_NANO_CAMERA.sh"),
         Path("/home/future-lab/B002_Future_Lab_Bots/cobot/mycobot_docker/RUN_NANO_CAMERA.sh")
     ]
-    
-    target_script = None
     for p in possible_scripts:
         if p.exists():
-            target_script = p
-            break
-            
+            return p
+    return None
+
+@router.post("/restart_camera")
+def restart_camera_stream():
+    """Executa a rotina oficial de inicialização RUN_NANO_CAMERA.sh start em segundo plano."""
+    target_script = _find_nano_camera_script()
     if not target_script:
         raise HTTPException(status_code=404, detail="Script RUN_NANO_CAMERA.sh não encontrado.")
 
@@ -98,5 +99,29 @@ def restart_camera_stream():
 
     return {
         "status": "success",
-        "message": "Comando de reinicialização da câmera disparado na Jetson Nano. Aguarde ~8 segundos para estabilização."
+        "message": "Comando de inicialização da câmera disparado na Jetson Nano. Aguarde ~8 segundos para estabilização."
     }
+
+@router.post("/stop_camera")
+def stop_camera_stream():
+    """Executa RUN_NANO_CAMERA.sh stop para desligar o servidor MJPEG da câmera na Jetson Nano."""
+    target_script = _find_nano_camera_script()
+    if not target_script:
+        raise HTTPException(status_code=404, detail="Script RUN_NANO_CAMERA.sh não encontrado.")
+
+    def async_stop():
+        try:
+            print(f"[INFO] Disparando desligamento da câmera via {target_script} stop...")
+            res = subprocess.run(["bash", str(target_script), "stop"], timeout=10, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            print(f"[INFO] Resultado do stop: {res.stdout}")
+        except Exception as e:
+            print(f"[WARN] Erro durante desligamento da câmera: {e}")
+
+    t = threading.Thread(target=async_stop, daemon=True)
+    t.start()
+
+    return {
+        "status": "success",
+        "message": "Comando de desligamento da câmera enviado à Jetson Nano."
+    }
+

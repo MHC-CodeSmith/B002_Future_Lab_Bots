@@ -100,6 +100,12 @@ export default function Dashboard() {
     fetchAllStatus();
   };
 
+  const handleStopCamera = async () => {
+    const apiBase = getApiBase();
+    await fetch(`${apiBase}/health/stop_camera`, { method: 'POST' });
+    fetchAllStatus();
+  };
+
   const handleMovePose = async (poseName) => {
     setOptimisticYoloTest(false);
     const apiBase = getApiBase();
@@ -165,12 +171,14 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <CameraVisionPanel
           streamUrl={health?.devices?.jetson_nano?.camera_stream_url}
+          cameraOnline={Boolean(health?.devices?.jetson_nano?.camera_stream_online)}
           lastYolo={cellStatus?.last_yolo}
           pumpActive={currentPumpActive}
           yoloTestActive={currentYoloTestActive}
           onTogglePump={handleTogglePump}
           onToggleYoloTest={handleToggleYoloTest}
           onRestartCamera={handleRestartCamera}
+          onStopCamera={handleStopCamera}
         />
 
         <TeachModePanel
