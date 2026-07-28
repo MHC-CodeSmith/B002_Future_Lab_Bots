@@ -133,3 +133,24 @@ def stop_camera_stream():
         "message": "Comando de desligamento da câmera enviado à Jetson Nano."
     }
 
+@router.post("/restart_nano_hardware")
+def restart_nano_hardware():
+    """Reinicia a ponte de comunicação de hardware ROS 2 (mycobot_hw) na Jetson Nano via SSH."""
+    def async_restart_hw():
+        try:
+            print("[INFO] Reiniciando ponte de hardware na Jetson Nano via SSH...")
+            cmd = "sshpass -p Elephant ssh -o StrictHostKeyChecking=no er@192.168.0.250 'pkill -9 -f mycobot_bridge 2>/dev/null || true; sleep 1; nohup ros2 launch mycobot_hw_interface mycobot_hw.launch.py mock:=False baud:=1000000 > /tmp/hw_bridge.log 2>&1 &'"
+            res = subprocess.run(cmd, shell=True, timeout=10, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            print(f"[INFO] Resultado da reinicialização de hardware: {res.stdout}")
+        except Exception as e:
+            print(f"[WARN] Erro durante reinicialização de hardware do Nano: {e}")
+
+    t = threading.Thread(target=async_restart_hw, daemon=True)
+    t.start()
+
+    return {
+        "status": "success",
+        "message": "Comando de reinicialização de hardware enviado à Jetson Nano. Aguarde ~5 segundos."
+    }
+
+

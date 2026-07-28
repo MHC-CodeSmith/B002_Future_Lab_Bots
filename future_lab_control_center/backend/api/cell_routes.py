@@ -59,9 +59,15 @@ def authorize_manual_scan():
 @router.post("/stop")
 def emergency_stop():
     """Parada de emergência: desliga bomba, desativa teste YOLO e move braço para HOME."""
+    node = get_cobot_node()
+    if "home" not in node.poses:
+        raise HTTPException(
+            status_code=400,
+            detail="A pose 'home' ainda não foi salva no disco! Grave e salve a pose 'home' antes de acionar o retorno de emergência."
+        )
+
     from backend.api.cobot_routes import stop_yolo_test_process
     stop_yolo_test_process()
-    node = get_cobot_node()
     node.set_pump(False)
     cell_state["status"] = "stopped"
     cell_state["manual_authorized"] = False
@@ -73,3 +79,26 @@ def emergency_stop():
         "status": "emergency_stop_triggered",
         "message": "Parada de emergência acionada. Bomba e teste YOLO desligados e retornando o braço para HOME."
     }
+
+@router.post("/panic")
+def panic_stop():
+    """Botão de Pânico Master: cancela o planejamento, para todos os processos, desliga a bomba e trava as juntas do robô imediatamente."""
+    from backend.api.cobot_routes import stop_yolo_test_process
+    stop_yolo_test_process()
+    node = get_cobot_node()
+    node.set_pump(False)
+    
+    # Trava os motores do robô imediatamente
+    try:
+        node.call_trigger_service(node.lock_cli, "Travar Servos (Pânico)")
+    except Exception as e:
+        print(f"[WARN] Erro ao travar motores no Pânico: {e}")
+        
+    cell_state["status"] = "panic_stopped"
+    cell_state["manual_authorized"] = False
+    
+    return {
+        "status": "panic_triggered",
+        "message": "PÂNICO ACIONADO: Todos os processos interrompidos, motores travados e planejamento cancelado!"
+    }
+

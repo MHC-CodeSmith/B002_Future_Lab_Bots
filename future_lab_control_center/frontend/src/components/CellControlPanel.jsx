@@ -1,11 +1,19 @@
 import React, { useState } from 'react';
-import { Play, Pause, AlertOctagon, RefreshCw, Sliders, CheckCircle } from 'lucide-react';
+import { Play, Pause, AlertOctagon, RefreshCw, Sliders, CheckCircle, Flame, Cpu, Loader2 } from 'lucide-react';
 
-export default function CellControlPanel({ cellState, onUpdateMode, onAuthorizeScan, onEmergencyStop }) {
+export default function CellControlPanel({
+  cellState,
+  onUpdateMode,
+  onAuthorizeScan,
+  onEmergencyStop,
+  onPanicStop,
+  onRestartNanoHardware
+}) {
   const [mode, setMode] = useState(cellState?.mode || 'auto');
   const [cooldown, setCooldown] = useState(cellState?.cooldown_sec || 5.0);
   const [conf, setConf] = useState((cellState?.yolo_conf || 0.60) * 100);
   const [authorized, setAuthorized] = useState(false);
+  const [restartingHw, setRestartingHw] = useState(false);
 
   const handleModeChange = (newMode) => {
     setMode(newMode);
@@ -24,6 +32,15 @@ export default function CellControlPanel({ cellState, onUpdateMode, onAuthorizeS
     setTimeout(() => setAuthorized(false), 3000);
   };
 
+  const handleRestartHw = async () => {
+    setRestartingHw(true);
+    try {
+      if (onRestartNanoHardware) await onRestartNanoHardware();
+    } finally {
+      setTimeout(() => setRestartingHw(false), 4000);
+    }
+  };
+
   return (
     <div className="glass-card p-5 rounded-xl space-y-6">
       <div className="flex items-center justify-between border-b border-slate-700 pb-3">
@@ -31,35 +48,57 @@ export default function CellControlPanel({ cellState, onUpdateMode, onAuthorizeS
           <Sliders className="w-5 h-5 text-blue-400" />
           Controle Mestre da Célula
         </h2>
-        <span className={`px-3 py-1 text-xs font-bold rounded-full ${mode === 'auto' ? 'bg-blue-500/20 text-blue-400' : 'bg-amber-500/20 text-amber-400'}`}>
-          MODO: {mode.toUpperCase()}
-        </span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleRestartHw}
+            disabled={restartingHw}
+            className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors"
+            title="Reiniciar a ponte de comunicação ROS 2 hardware (mycobot_hw) na Jetson Nano"
+          >
+            {restartingHw ? <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-400" /> : <Cpu className="w-3.5 h-3.5 text-blue-400" />}
+            {restartingHw ? 'REINICIANDO NANO...' : 'REINICIAR NANO (HW)'}
+          </button>
+
+          <span className={`px-3 py-1 text-xs font-bold rounded-full ${mode === 'auto' ? 'bg-blue-500/20 text-blue-400' : 'bg-amber-500/20 text-amber-400'}`}>
+            MODO: {mode.toUpperCase()}
+          </span>
+        </div>
       </div>
 
       {/* Botões Mestre de Operação */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
         <button
           onClick={() => handleModeChange('auto')}
-          className="flex items-center justify-center gap-2 py-3 px-4 bg-emerald-600 hover:bg-emerald-500 font-bold rounded-xl btn-hover shadow-lg shadow-emerald-900/30"
+          className="flex items-center justify-center gap-2 py-3 px-3 bg-emerald-600 hover:bg-emerald-500 font-bold rounded-xl btn-hover shadow-lg shadow-emerald-900/30 text-xs md:text-sm"
         >
-          <Play className="w-5 h-5 fill-current" />
+          <Play className="w-4 h-4 fill-current" />
           MODO AUTOMÁTICO
         </button>
 
         <button
           onClick={() => handleModeChange('manual')}
-          className="flex items-center justify-center gap-2 py-3 px-4 bg-amber-600 hover:bg-amber-500 font-bold rounded-xl btn-hover shadow-lg shadow-amber-900/30"
+          className="flex items-center justify-center gap-2 py-3 px-3 bg-amber-600 hover:bg-amber-500 font-bold rounded-xl btn-hover shadow-lg shadow-amber-900/30 text-xs md:text-sm"
         >
-          <Pause className="w-5 h-5 fill-current" />
+          <Pause className="w-4 h-4 fill-current" />
           MODO MANUAL
         </button>
 
         <button
           onClick={onEmergencyStop}
-          className="flex items-center justify-center gap-2 py-3 px-4 bg-red-600 hover:bg-red-500 font-bold rounded-xl btn-hover shadow-lg shadow-red-900/40"
+          className="flex items-center justify-center gap-2 py-3 px-3 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl btn-hover shadow-lg shadow-amber-900/40 text-xs md:text-sm"
+          title="Parada de emergência suave: Desliga bomba e retorna robô para HOME"
         >
-          <AlertOctagon className="w-5 h-5" />
+          <AlertOctagon className="w-4 h-4" />
           EMERGÊNCIA (HOME)
+        </button>
+
+        <button
+          onClick={onPanicStop}
+          className="flex items-center justify-center gap-2 py-3 px-3 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl btn-hover shadow-lg shadow-red-900/50 animate-pulse text-xs md:text-sm"
+          title="PÂNICO ABSOLUTO: Interrompe todos os processos, cancela o planejamento, desliga a bomba e TRAVA OS MOTORES"
+        >
+          <Flame className="w-4 h-4" />
+          🚨 BOTÃO DE PÂNICO
         </button>
       </div>
 
