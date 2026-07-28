@@ -22,15 +22,15 @@ export default function CameraVisionPanel({
   const rawUrl = streamUrl || "http://192.168.0.250:8080/stream.mjpg";
   const liveUrl = `${rawUrl}${rawUrl.includes('?') ? '&' : '?'}t=${streamKey}`;
 
-  // Tick do relógio a cada 500ms para forçar re-avaliação do isFresh
+  // Tick do relógio a cada 150ms para re-avaliação instantânea da tela
   const [tick, setTick] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => setTick(k => k + 1), 500);
+    const t = setInterval(() => setTick(k => k + 1), 150);
     return () => clearInterval(t);
   }, []);
 
-  // Considera recente se a mensagem chegou nos últimos 10 segundos
-  const isFresh = lastYolo && lastYolo.timestamp && Math.abs(Date.now() / 1000 - lastYolo.timestamp) < 10.0;
+  // Considera recente se a mensagem chegou nos últimos 1.5 segundos
+  const isFresh = lastYolo && lastYolo.timestamp && Math.abs(Date.now() / 1000 - lastYolo.timestamp) < 1.5;
 
   // Auto-recovery: quando o stream está em erro e NÃO estamos reiniciando/parando,
   // tenta reconectar a cada 3 segundos automaticamente

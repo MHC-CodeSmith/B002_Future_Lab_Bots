@@ -44,8 +44,8 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchAllStatus();
-    // Polling ultrarrápido a cada 300ms (0.3s) para atualizações instantâneas de tela
-    const interval = setInterval(fetchAllStatus, 300);
+    // Polling ultra-responsivo a cada 150ms (0.15s) para atualizações instantâneas no dashboard
+    const interval = setInterval(fetchAllStatus, 150);
     return () => clearInterval(interval);
   }, []);
 
