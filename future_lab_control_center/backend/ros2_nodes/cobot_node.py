@@ -142,14 +142,17 @@ class CobotNode(BaseNode):
             "timestamp": time.time()
         }
 
-    def call_trigger_service(self, cli, label: str, timeout_sec: float = 3.0) -> bool:
-        if not self.is_ros_active or cli is None or not cli.service_is_ready():
+    def call_trigger_service(self, cli, label: str, timeout_sec: float = 1.0) -> bool:
+        if not self.is_ros_active or cli is None:
             return True
+        if not cli.service_is_ready():
+            print(f"[WARN] Serviço ROS 2 '{label}' não está pronto no momento.")
+            return False
         req = Trigger.Request()
         fut = cli.call_async(req)
         t0 = time.time()
         while not fut.done() and (time.time() - t0) < timeout_sec:
-            time.sleep(0.05)
+            time.sleep(0.02)
         if not fut.done():
             return False
         res = fut.result()

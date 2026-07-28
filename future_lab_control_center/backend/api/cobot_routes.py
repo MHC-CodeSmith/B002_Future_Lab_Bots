@@ -40,8 +40,8 @@ def stop_yolo_test_process():
     except Exception:
         pass
 
-def start_yolo_test_process(conf: float = 0.25):
-    """Inicia o script de inspeção do YOLO em background com a confiança especificada."""
+def start_yolo_test_process(conf: float = 0.10):
+    """Inicia o script de inspeção do YOLO em background com threshold base de 0.10 para captura bruta."""
     global yolo_process, yolo_test_active
     stop_yolo_test_process()
     
@@ -61,7 +61,7 @@ def start_yolo_test_process(conf: float = 0.25):
             log_file = open("/tmp/yolo_test.log", "a")
             cmd = [
                 "bash", "-c",
-                f"source /opt/ros/jazzy/setup.bash && exec python3 {target_script} --headless --conf {conf:.2f} --url http://192.168.0.250:8080/stream.mjpg"
+                f"source /opt/ros/jazzy/setup.bash && exec python3 {target_script} --headless --conf 0.10 --url http://192.168.0.250:8080/stream.mjpg"
             ]
             yolo_process = subprocess.Popen(cmd, stdout=log_file, stderr=log_file)
             yolo_test_active = True
@@ -72,15 +72,24 @@ def start_yolo_test_process(conf: float = 0.25):
     return False
 
 def is_yolo_process_alive():
-    """Verifica se o processo cam_yolo_test.py está ativo no SO de forma 100% confiável."""
-    global yolo_test_active
+    """Verifica se o processo python3 cam_yolo_test.py está ativo no SO sem falso-positivos."""
+    global yolo_process, yolo_test_active
+    if yolo_process is not None:
+        poll = yolo_process.poll()
+        if poll is None:
+            yolo_test_active = True
+            return True
+        else:
+            yolo_process = None
+
     try:
-        res = subprocess.run(["pgrep", "-f", "cam_yolo_test.py"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        res = subprocess.run(["pgrep", "-f", "python3.*cam_yolo_test.py"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         alive = (res.returncode == 0 and len(res.stdout.strip()) > 0)
         yolo_test_active = alive
         return alive
     except Exception:
-        return yolo_test_active
+        yolo_test_active = False
+        return False
 
 class PumpControlSchema(BaseModel):
     on: bool
