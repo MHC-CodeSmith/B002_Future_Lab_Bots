@@ -31,6 +31,72 @@ export default function CameraVisionPanel({
   // Considera recente se a mensagem chegou nos últimos 10 segundos
   const isFresh = lastYolo && lastYolo.timestamp && Math.abs(Date.now() / 1000 - lastYolo.timestamp) < 10.0;
 
+  // Auto-recovery: quando o stream está em erro e NÃO estamos reiniciando/parando,
+  // tenta reconectar a cada 3 segundos automaticamente
+  useEffect(() => {
+    if (streamError && !restarting && !stopping && cameraOnline) {
+      const interval = setInterval(() => {
+        setStreamError(false);
+        setStreamKey(Date.now());
+      }, 3000);
+      return () => clearInterval(interval);
+    }
+  }, [streamError, restarting, stopping, cameraOnline]);
+
+  const handleStartOrRestart = async () => {
+    // Limpa timers anteriores
+    retryTimers.current.forEach(t => clearTimeout(t));
+    retryTimers.current = [];
+
+    setRestarting(true);
+    setStopping(false);
+    setStreamError(false);
+    
+    if (onRestartCamera) {
+      try {
+        await onRestartCamera();
+      } catch (e) {
+        console.warn("Erro ao iniciar/reiniciar câmera:", e);
+      }
+    }
+    
+    // Múltiplas tentativas de reconexão: 7s, 10s, 13s, 16s após disparo
+    const retryDelays = [7000, 10000, 13000, 16000];
+    retryDelays.forEach((delay, i) => {
+      const timer = setTimeout(() => {
+        setStreamError(false);
+        setStreamKey(Date.now());
+        if (i === retryDelays.length - 1) {
+          setRestarting(false);
+        }
+      }, delay);
+      retryTimers.current.push(timer);
+    });
+  };
+
+  const handleStop = async () => {
+    // Limpa timers de restart pendentes
+    retryTimers.current.forEach(t => clearTimeout(t));
+    retryTimers.current = [];
+
+    setStopping(true);
+    setRestarting(false);
+    
+    if (onStopCamera) {
+      try {
+        await onStopCamera();
+      } catch (e) {
+        console.warn("Erro ao desligar câmera:", e);
+      }
+    }
+
+    // Aguarda o stop completar e limpa o stream
+    setTimeout(() => {
+      setStreamError(true);
+      setStopping(false);
+    }, 2000);
+  };
+
   const getDetectionBadge = () => {
     if (!isFresh || !lastYolo || !lastYolo.class) return null;
     const cls = (lastYolo.class || '').toLowerCase();
@@ -151,7 +217,7 @@ export default function CameraVisionPanel({
           {/* Botão de Toggle da Bomba */}
           <button
             onClick={() => onTogglePump(!pumpActive)}
-            className={`px-3 py-1.5 text-xs font-bold rounded-lg btn-hover flex items-center gap-1.5 transition-all duration-150 ${
+            className={`px-3 py-1.5 text-xs font-bold rounded-lg flex items-center gap-1.5 transition-all duration-150 ${
               pumpActive
                 ? 'bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-900/40'
                 : 'bg-emerald-600 hover:bg-emerald-500 text-white'
@@ -163,7 +229,7 @@ export default function CameraVisionPanel({
         </div>
       </div>
 
-      {/* Video Feed MJPEG */}
+      {/* Video Feed MJPEG com chave dinâmica anticache */}
       <div className="relative aspect-video bg-slate-900 rounded-xl overflow-hidden border border-slate-800 flex items-center justify-center">
         {restarting ? (
           <div className="text-center p-6 space-y-3">
