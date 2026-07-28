@@ -143,20 +143,32 @@ class CobotNode(BaseNode):
             return False
 
     def clear_poses(self) -> bool:
-        """Cria uma cópia de segurança de backup (.yaml.bak) antes de zerar a calibragem ativa."""
+        """Cria uma cópia de segurança de backup (.yaml.bak) das poses salvas ou em rascunho de memória antes de zerar a calibragem."""
         import shutil
         poses_path = get_poses_file()
         bak_path = poses_path.with_suffix(".yaml.bak")
 
-        # 1. Se o arquivo de poses existe no disco, salva uma cópia de backup antes de apagar!
+        # 1. Se o arquivo de poses existe no disco, copia para o backup!
         if poses_path.exists():
             try:
                 shutil.copy2(poses_path, bak_path)
                 print(f"[INFO] Backup automático de calibragem criado em: {bak_path}")
             except Exception as e:
                 print(f"[WARN] Erro ao criar backup da calibragem: {e}")
+        elif self.poses:
+            # 2. Se existirem poses em memória (rascunho), salva o backup diretamente a partir da memória!
+            try:
+                with self.lock:
+                    data_to_backup = dict(self.poses)
+                    if "_last_saved" not in data_to_backup:
+                        data_to_backup["_last_saved"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S (rascunho)")
+                with open(bak_path, "w") as f:
+                    yaml.safe_dump(data_to_backup, f)
+                print(f"[INFO] Backup de rascunho de calibragem em memória salvo em: {bak_path}")
+            except Exception as e:
+                print(f"[WARN] Erro ao salvar backup de rascunho: {e}")
 
-        # 2. Limpa o mapa em memória e remove o arquivo ativo do disco
+        # 3. Limpa o mapa em memória e remove o arquivo ativo do disco
         with self.lock:
             self.poses = {}
 
