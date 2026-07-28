@@ -33,9 +33,6 @@ export default function Dashboard() {
       setHealth(resHealth);
       setCellStatus(resCell);
       setPoses(resPoses);
-      // Limpa os overrides otimistas assim que a API confirma o estado real
-      setOptimisticPump(null);
-      setOptimisticYoloTest(null);
     } catch (e) {
       console.warn("API de controle conectando...", e);
     }
@@ -73,24 +70,26 @@ export default function Dashboard() {
   };
 
   const handleTogglePump = async (on) => {
-    setOptimisticPump(on); // Atualização Instantânea da UI em 0ms
+    setOptimisticPump(on);
     const apiBase = getApiBase();
     await fetch(`${apiBase}/cobot/pump`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ on })
     });
+    setTimeout(() => setOptimisticPump(null), 1000);
     fetchAllStatus();
   };
 
   const handleToggleYoloTest = async (active) => {
-    setOptimisticYoloTest(active); // Atualização Instantânea da UI em 0ms
+    setOptimisticYoloTest(active);
     const apiBase = getApiBase();
     await fetch(`${apiBase}/cobot/yolo_test`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ active })
     });
+    setTimeout(() => setOptimisticYoloTest(null), 1500);
     fetchAllStatus();
   };
 

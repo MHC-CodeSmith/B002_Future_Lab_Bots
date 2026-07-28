@@ -53,10 +53,10 @@ def start_yolo_test_process():
             
     if target_script:
         try:
-            log_file = open("/tmp/yolo_test.log", "w")
+            log_file = open("/tmp/yolo_test.log", "a")
             cmd = [
                 "bash", "-c",
-                f"source /opt/ros/jazzy/setup.bash && python3 {target_script} --headless --conf 0.25 --url http://192.168.0.250:8080/stream.mjpg"
+                f"source /opt/ros/jazzy/setup.bash && exec python3 {target_script} --headless --conf 0.25 --url http://192.168.0.250:8080/stream.mjpg"
             ]
             yolo_process = subprocess.Popen(cmd, stdout=log_file, stderr=log_file)
             yolo_test_active = True
@@ -67,18 +67,15 @@ def start_yolo_test_process():
     return False
 
 def is_yolo_process_alive():
-    """Verifica se o processo do YOLO test ainda está vivo e actualiza o estado global."""
-    global yolo_process, yolo_test_active
-    if yolo_process is None:
-        yolo_test_active = False
-        return False
-    poll = yolo_process.poll()
-    if poll is not None:
-        # Processo morreu (câmera desligada, erro, etc.)
-        yolo_process = None
-        yolo_test_active = False
-        return False
-    return True
+    """Verifica se o processo cam_yolo_test.py está ativo no SO de forma 100% confiável."""
+    global yolo_test_active
+    try:
+        res = subprocess.run(["pgrep", "-f", "cam_yolo_test.py"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        alive = (res.returncode == 0 and len(res.stdout.strip()) > 0)
+        yolo_test_active = alive
+        return alive
+    except Exception:
+        return yolo_test_active
 
 class PumpControlSchema(BaseModel):
     on: bool

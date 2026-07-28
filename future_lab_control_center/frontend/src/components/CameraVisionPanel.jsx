@@ -28,98 +28,39 @@ export default function CameraVisionPanel({
     return () => clearInterval(t);
   }, []);
 
-  // Verifica se a última mensagem do YOLO é recente (últimos 5 segundos — margem para clock skew)
-  const isFresh = lastYolo && (Date.now() / 1000 - (lastYolo.timestamp || 0)) < 5;
-
-  // Auto-recovery: quando o stream está em erro e NÃO estamos reiniciando/parando,
-  // tenta reconectar a cada 3 segundos automaticamente
-  useEffect(() => {
-    if (streamError && !restarting && !stopping && cameraOnline) {
-      const interval = setInterval(() => {
-        setStreamError(false);
-        setStreamKey(Date.now());
-      }, 3000);
-      return () => clearInterval(interval);
-    }
-  }, [streamError, restarting, stopping, cameraOnline]);
-
-  const handleStartOrRestart = async () => {
-    // Limpa timers anteriores
-    retryTimers.current.forEach(t => clearTimeout(t));
-    retryTimers.current = [];
-
-    setRestarting(true);
-    setStopping(false);
-    setStreamError(false);
-    
-    if (onRestartCamera) {
-      try {
-        await onRestartCamera();
-      } catch (e) {
-        console.warn("Erro ao iniciar/reiniciar câmera:", e);
-      }
-    }
-    
-    // Múltiplas tentativas de reconexão: 7s, 10s, 13s, 16s após disparo
-    const retryDelays = [7000, 10000, 13000, 16000];
-    retryDelays.forEach((delay, i) => {
-      const timer = setTimeout(() => {
-        setStreamError(false);
-        setStreamKey(Date.now());
-        if (i === retryDelays.length - 1) {
-          setRestarting(false);
-        }
-      }, delay);
-      retryTimers.current.push(timer);
-    });
-  };
-
-  const handleStop = async () => {
-    // Limpa timers de restart pendentes
-    retryTimers.current.forEach(t => clearTimeout(t));
-    retryTimers.current = [];
-
-    setStopping(true);
-    setRestarting(false);
-    
-    if (onStopCamera) {
-      try {
-        await onStopCamera();
-      } catch (e) {
-        console.warn("Erro ao desligar câmera:", e);
-      }
-    }
-
-    // Aguarda o stop completar e limpa o stream
-    setTimeout(() => {
-      setStreamError(true);
-      setStopping(false);
-    }, 2000);
-  };
+  // Considera recente se a mensagem chegou nos últimos 10 segundos
+  const isFresh = lastYolo && lastYolo.timestamp && Math.abs(Date.now() / 1000 - lastYolo.timestamp) < 10.0;
 
   const getDetectionBadge = () => {
-    if (!isFresh || !lastYolo) return null;
+    if (!isFresh || !lastYolo || !lastYolo.class) return null;
     const cls = (lastYolo.class || '').toLowerCase();
     const conf = (lastYolo.confidence * 100).toFixed(0);
 
-    if (cls.includes('red')) {
+    if (cls.includes('red') || cls.includes('vermelha') || cls.includes('triangle')) {
       return {
-        bg: 'bg-red-950/90 border-red-500/70 text-red-200',
+        bg: 'bg-red-950/90 border-red-500/70 text-red-200 shadow-red-900/50',
         dot: 'bg-red-500',
         label: `Lata Válida Vermelha (Triângulo) — ${conf}%`
       };
     }
-    if (cls.includes('blue')) {
+    if (cls.includes('blue') || cls.includes('azul') || cls.includes('square')) {
       return {
-        bg: 'bg-blue-950/90 border-blue-500/70 text-blue-200',
+        bg: 'bg-blue-950/90 border-blue-500/70 text-blue-200 shadow-blue-900/50',
         dot: 'bg-blue-500',
         label: `Lata Válida Azul (Quadrado) — ${conf}%`
       };
     }
+    if (cls.includes('invalid') || cls.includes('rejeitada')) {
+      return {
+        bg: 'bg-amber-950/90 border-amber-500/70 text-amber-200 shadow-amber-900/50',
+        dot: 'bg-amber-500',
+        label: `Lata Inválida (Rejeitada) — ${conf}%`
+      };
+    }
     return {
-      bg: 'bg-amber-950/90 border-amber-500/70 text-amber-200',
-      dot: 'bg-amber-500',
-      label: `Lata Inválida (Rejeitada) — ${conf}%`
+      bg: 'bg-emerald-950/90 border-emerald-500/70 text-emerald-200 shadow-emerald-900/50',
+      dot: 'bg-emerald-500',
+      label: `Objeto Detectado (${lastYolo.class}) — ${conf}%`
     };
   };
 
