@@ -207,10 +207,33 @@ def record_current_pose(pose_name: str):
     if pose_name not in REQUIRED_POSES:
         raise HTTPException(status_code=400, detail=f"Pose inválida. Deve ser uma de: {REQUIRED_POSES}")
     node = get_cobot_node()
-    if node.current_joints is None:
-        raise HTTPException(status_code=503, detail="Sem leitura atual de /joint_states do robô.")
-    node.poses[pose_name] = [float(v) for v in node.current_joints]
-    return {"status": "success", "pose": pose_name, "joints": node.poses[pose_name]}
+    
+    # 1. Tenta obter os ângulos instantâneos direto da Micro-Bridge HTTP do Nano (< 5ms)
+    joints_to_record = None
+    try:
+        import urllib.request
+        import json
+        req = urllib.request.Request("http://192.168.0.250:8088/get_angles")
+        with urllib.request.urlopen(req, timeout=1.5) as resp:
+            if resp.status == 200:
+                data = json.loads(resp.read().decode())
+                if data.get("success") and data.get("joints") and len(data["joints"]) >= 6:
+                    joints_to_record = [float(v) for v in data["joints"][:6]]
+    except Exception as e:
+        print(f"[WARN] HTTP get_angles indisponível ({e}), tentando leitura DDS...")
+
+    # 2. Fallback via leitura DDS /joint_states
+    if joints_to_record is None:
+        if node.current_joints is not None and len(node.current_joints) >= 6:
+            joints_to_record = [float(v) for v in node.current_joints[:6]]
+
+    if joints_to_record is None:
+        raise HTTPException(status_code=503, detail="Sem leitura atual de /joint_states ou Micro-Bridge do robô.")
+
+    # Atualiza em memória
+    node.poses[pose_name] = joints_to_record
+    print(f"[INFO] Pose '{pose_name}' gravada com SUCESSO em memória: {joints_to_record}")
+    return {"status": "success", "pose": pose_name, "joints": joints_to_record}
 
 @router.post("/teach/save")
 def save_recorded_poses():
