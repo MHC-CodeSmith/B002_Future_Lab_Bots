@@ -413,63 +413,77 @@ class CobotNode(BaseNode):
 
         target_joints = self.poses[pose_name]
 
-        # 1. Tenta mover via MoveIt (/move_action) se o MoveIt estiver no ar
-        if self.move_cli.wait_for_server(timeout_sec=1.5):
-            try:
-                mpr = MotionPlanRequest()
-                mpr.group_name = GROUP
-                mpr.allowed_planning_time = 5.0
-                mpr.num_planning_attempts = 5
-                mpr.max_velocity_scaling_factor = float(velocity_scaling)
-                mpr.max_acceleration_scaling_factor = float(velocity_scaling)
-                mpr.start_state.is_diff = True
-                if self.current_joints is not None:
-                    mpr.start_state.joint_state.name = list(JOINT_NAMES)
-                    mpr.start_state.joint_state.position = [float(v) for v in self.current_joints]
+        # Helper de execução do movimento
+        def _execute_move() -> bool:
+            # 1. Tenta mover via MoveIt (/move_action) se o MoveIt estiver no ar
+            if self.move_cli.wait_for_server(timeout_sec=1.5):
+                try:
+                    mpr = MotionPlanRequest()
+                    mpr.group_name = GROUP
+                    mpr.allowed_planning_time = 5.0
+                    mpr.num_planning_attempts = 5
+                    mpr.max_velocity_scaling_factor = float(velocity_scaling)
+                    mpr.max_acceleration_scaling_factor = float(velocity_scaling)
+                    mpr.start_state.is_diff = True
+                    if self.current_joints is not None:
+                        mpr.start_state.joint_state.name = list(JOINT_NAMES)
+                        mpr.start_state.joint_state.position = [float(v) for v in self.current_joints]
 
-                c = Constraints()
-                for n, p in zip(JOINT_NAMES, target_joints):
-                    jc = JointConstraint()
-                    jc.joint_name = n
-                    jc.position = float(p)
-                    jc.tolerance_above = jc.tolerance_below = 0.01
-                    jc.weight = 1.0
-                    c.joint_constraints.append(jc)
-                mpr.goal_constraints = [c]
+                    c = Constraints()
+                    for n, p in zip(JOINT_NAMES, target_joints):
+                        jc = JointConstraint()
+                        jc.joint_name = n
+                        jc.position = float(p)
+                        jc.tolerance_above = jc.tolerance_below = 0.01
+                        jc.weight = 1.0
+                        c.joint_constraints.append(jc)
+                    mpr.goal_constraints = [c]
 
-                po = PlanningOptions()
-                po.plan_only = False
+                    po = PlanningOptions()
+                    po.plan_only = False
 
-                goal = MoveGroup.Goal()
-                goal.request = mpr
-                goal.planning_options = po
+                    goal = MoveGroup.Goal()
+                    goal.request = mpr
+                    goal.planning_options = po
 
-                send_fut = self.move_cli.send_goal_async(goal)
-                t0 = time.time()
-                while not send_fut.done() and (time.time() - t0) < 2.0:
-                    time.sleep(0.05)
+                    send_fut = self.move_cli.send_goal_async(goal)
+                    t0 = time.time()
+                    while not send_fut.done() and (time.time() - t0) < 2.0:
+                        time.sleep(0.05)
 
-                if send_fut.done():
-                    gh = send_fut.result()
-                    if gh is not None and gh.accepted:
-                        res_fut = gh.get_result_async()
-                        t0 = time.time()
-                        while not res_fut.done() and (time.time() - t0) < 10.0:
-                            time.sleep(0.05)
-                        if res_fut.done():
-                            res = res_fut.result()
-                            if res and res.result.error_code.val == 1:
-                                return True
-            except Exception as e:
-                print(f"[WARN] MoveIt falhou no goto_pose, usando fallback direto: {e}")
+                    if send_fut.done():
+                        gh = send_fut.result()
+                        if gh is not None and gh.accepted:
+                            res_fut = gh.get_result_async()
+                            t0 = time.time()
+                            while not res_fut.done() and (time.time() - t0) < 10.0:
+                                time.sleep(0.05)
+                            if res_fut.done():
+                                res = res_fut.result()
+                                if res and res.result.error_code.val == 1:
+                                    return True
+                except Exception as e:
+                    print(f"[WARN] MoveIt falhou no goto_pose, usando fallback direto: {e}")
 
-        # 2. Tenta HTTP Micro-Bridge (~28ms) para acionamento direto do robô real
-        if self.goto_pose_http_microbridge(target_joints):
-            return True
+            # 2. Tenta HTTP Micro-Bridge (~28ms) para acionamento direto do robô real
+            if self.goto_pose_http_microbridge(target_joints):
+                return True
 
-        # 3. Fallback direto via Action Server da ponte de hardware no Nano/ROS
-        print(f"[INFO] Movendo braço para '{pose_name}' via ponte direta de hardware...")
-        return self.goto_pose_direct_bridge(target_joints, duration_sec=2.5)
+            # 3. Fallback direto via Action Server da ponte de hardware no Nano/ROS
+            print(f"[INFO] Movendo braço para '{pose_name}' via ponte direta de hardware...")
+            return self.goto_pose_direct_bridge(target_joints, duration_sec=2.5)
+
+        success = _execute_move()
+        if success:
+            # Regra Mestre da Célula: Bomba LIGA no 'pick' e DESLIGA APENAS no 'place'
+            if pose_name == "pick":
+                print("[INFO] Pose 'pick' atingida -> LIGANDO bomba de sucção...")
+                self.set_pump(True)
+            elif pose_name == "place":
+                print("[INFO] Pose 'place' atingida -> DESLIGANDO bomba de sucção...")
+                self.set_pump(False)
+
+        return success
 
 # Instância Singleton gerenciada no backend
 _cobot_node: Optional[CobotNode] = None

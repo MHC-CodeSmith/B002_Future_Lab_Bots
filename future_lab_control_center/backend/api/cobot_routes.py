@@ -270,35 +270,21 @@ def _playback_worker():
     cell_state["status"] = "busy"
     node = get_cobot_node()
     try:
-        # 1. Movimento inicial até a pose PICK
-        for p in ["home", "scan", "pick_approach", "pick"]:
+        # Sequência completa de Playback:
+        # home -> scan -> pick_approach -> pick (bomba LIGA automaticamente ao chegar no pick)
+        # -> pick_approach -> home -> place_approach -> place (bomba DESLIGA automaticamente ao chegar no place)
+        # -> place_approach -> home -> scan
+        trajectory = [
+            "home", "scan", "pick_approach", "pick",
+            "pick_approach", "home", "place_approach", "place",
+            "place_approach", "home", "scan"
+        ]
+        for p in trajectory:
             if not node.goto_pose(p, velocity_scaling=0.10):
                 node.set_pump(False)
                 cell_state["status"] = "idle"
                 return
-                
-        # 2. Chegou EXATAMENTE no PICK -> Liga a bomba de sucção
-        print("[INFO] Braço chegou na pose 'pick' -> LIGANDO bomba de sucção...")
-        node.set_pump(True)
-        time.sleep(0.5)
-        
-        # 3. Elevação e transporte até a pose PLACE
-        for p in ["pick_approach", "home", "place_approach", "place"]:
-            if not node.goto_pose(p, velocity_scaling=0.10):
-                node.set_pump(False)
-                cell_state["status"] = "idle"
-                return
-                
-        # 4. Chegou EXATAMENTE na pose PLACE -> Desliga a bomba de sucção no PLACE
-        print("[INFO] Braço chegou na pose 'place' -> DESLIGANDO bomba de sucção no PLACE...")
-        node.set_pump(False)
-        time.sleep(0.5)
-        
-        # 5. Retorno limpo e elevação pós-entrega
-        for p in ["place_approach", "home", "scan"]:
-            if not node.goto_pose(p, velocity_scaling=0.10):
-                cell_state["status"] = "idle"
-                return
+            time.sleep(0.3)
 
         cell_state["status"] = "idle"
         print("[INFO] Trajetória de Playback concluída com sucesso!")
