@@ -217,3 +217,63 @@ apos undock podem se comportar diferente no robo real.
   mesmo frame `map`.
 - O mapa usado para navegacao e `turtlebot4_jazzy/maps/B002_map.yaml`.
 - Os waypoints usados pelas rotinas ficam em `turtlebot4_jazzy/params/waypoints.yaml`.
+
+---
+
+## 🎛️ Future Lab Control Center (Dashboard Web & Célula Robótica)
+
+A pasta `future_lab_control_center/` contém a interface web completa de supervisão, controle e calibração da célula robótica.
+
+### Arquitetura de Comunicação e Portas
+
+```text
+  [ Frontend Next.js (Porta 3000) ]
+                 │ (HTTP REST / Polling)
+                 ▼
+  [ Backend FastAPI (Porta 8000) ] ── (ROS 2 DDS / Docker) ──► [ MoveIt Planning (mycobot_ros2) ]
+                 │ (SSH ControlMaster / HTTP Micro-Bridge)
+                 ▼
+  [ Jetson Nano (192.168.0.250) ]
+     ├── HTTP Micro-Bridge (Porta 8088) -> Bomba, Soltar/Travar Motores, Direct Joints (<30ms)
+     └── Servidor Câmera MJPEG (Porta 8080) -> Stream ao vivo de visão computacional
+```
+
+---
+
+### 🚨 Documentação do Modo Pânico (Panic Mode) e Limitações de Hardware
+
+O botão **`🚨 BOTÃO DE PÂNICO`** no Dashboard executa uma parada master de segurança da célula robótica.
+
+#### Sequência de Execução do Pânico:
+1. **Trava Físico-Mecânica (`< 5ms`)**: Envia uma requisição HTTP prioritária para `http://192.168.0.250:8088/panic`, interrompendo o envio de novas posições seriais e forçando o travamento de torque em todas as 6 juntas no microcontrolador da base MyCobot.
+2. **Desligamento de Periféricos**: Desliga a bomba de sucção e mata o teste de visão YOLO.
+3. **Parada da Câmera**: Encerra o processo `nano_camera_server.py` na Jetson Nano.
+4. **Encerramento do Planejador MoveIt**: Executa `pkill -9` nos nós `move_group` e `rviz` dentro do container Docker `mycobot_ros2` no PC.
+5. **Encerramento da Ponte Nano**: Mata o nó `mycobot_bridge` na Jetson Nano (as juntas permanecem energizadas/travadas pela placa de controle do robô).
+6. **Panic Lockout**: Bloqueia o Dashboard em estado de segurança até que o usuário solicite a reinicialização.
+
+#### ⚠️ Más Otimizações Conhecidas, Gargalos e Cuidados Futuros:
+
+> [!WARNING]
+> **1. Contenção da Porta Serial (`/dev/ttyTHS1`) na Jetson Nano**:
+> Ao encerrar abruptamente o nó `mycobot_bridge` na Jetson Nano com `pkill -9`, o driver serial do kernel Linux pode demorar até **1 a 2 segundos** para liberar totalmente a porta `/dev/ttyTHS1`. Se a reinicialização for disparada antes dessa liberação, a comunicação serial pode falhar com o erro `device reports readiness to read but returned no data` ou a porta `8088` indicar `Address already in use`.
+
+> [!WARNING]
+> **2. Inércia de Buffer do Firmware Interno (MyCobot 280)**:
+> Se o Pânico for acionado enquanto o braço está em movimento de velocidade alta (ex: retorno para `HOME`), a ordem de pânico HTTP é enviada em `< 5ms`, mas o robô físico ainda pode deslocar de 1cm a 3cm devido aos pacotes já armazenados no buffer de recebimento do firmware interno da base antes que a ordem de trava de motores sobressaia.
+
+> [!IMPORTANT]
+> **3. Necessidade do Modal de Bloqueio Durante a Reinicialização (`RebootOverlayModal`)**:
+> Por conta dos tempos de estabilização do hardware (~5 a 8 segundos para reiniciar a porta serial, subir o servidor de vídeo e aquecer as ações do MoveIt ROS 2), a interface web exibe um **Popup Modal de Bloqueio em Tela Cheia** com barra de progresso e checklist dinâmico. O acesso a botões e comandos fica **100% desabilitado** até que todos os 5 passos do boot passem na verificação de saúde.
+
+---
+
+### 🔄 Como Inicializar o Control Center
+
+```bash
+cd /home/future-lab/B002_Future_Lab_Bots/future_lab_control_center
+docker compose down && docker compose up --build -d
+```
+
+Acesse no navegador: **`http://localhost:3000`** (Frontend) ou **`http://localhost:8000/docs`** (API REST Swagger).
+
