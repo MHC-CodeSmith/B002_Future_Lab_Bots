@@ -19,7 +19,7 @@ yolo_process: Optional[subprocess.Popen] = None
 yolo_test_active: bool = False
 
 def stop_yolo_test_process():
-    """Desativa e encerra o processo de teste isolado do YOLO e zera a memória de detecção de forma 100% não-bloqueante."""
+    """Desativa e encerra o processo de teste isolado do YOLO de forma direta e sem race condition."""
     global yolo_process, yolo_test_active
     yolo_test_active = False
     try:
@@ -32,19 +32,15 @@ def stop_yolo_test_process():
     if proc is not None:
         try:
             proc.kill()
+            proc.wait(timeout=0.5)
         except Exception:
             pass
-    def async_pkill():
-        try:
-            subprocess.run(["pkill", "-9", "-f", "cam_yolo_test.py"], timeout=2, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception:
-            pass
-    import threading
-    threading.Thread(target=async_pkill, daemon=True).start()
+
+_yolo_log_file = None
 
 def start_yolo_test_process(conf: float = 0.10):
     """Inicia o script de inspeção do YOLO em background com threshold base de 0.10 para captura bruta."""
-    global yolo_process, yolo_test_active
+    global yolo_process, yolo_test_active, _yolo_log_file
     stop_yolo_test_process()
     
     possible_scripts = [
@@ -60,13 +56,27 @@ def start_yolo_test_process(conf: float = 0.10):
             
     if target_script:
         try:
-            log_file = open("/tmp/yolo_test.log", "a")
+            if _yolo_log_file is not None:
+                try:
+                    _yolo_log_file.close()
+                except Exception:
+                    pass
+            _yolo_log_file = open("/tmp/yolo_test.log", "a")
+            env = os.environ.copy()
+            env["LD_LIBRARY_PATH"] = "/opt/ros/jazzy/lib:" + env.get("LD_LIBRARY_PATH", "")
+            env["PYTHONPATH"] = "/opt/ros/jazzy/lib/python3.12/site-packages:" + env.get("PYTHONPATH", "")
+            env["PYTHONUNBUFFERED"] = "1"
+            
             cmd = [
-                "bash", "-c",
-                f"source /opt/ros/jazzy/setup.bash && exec python3 {target_script} --headless --conf 0.10 --url http://192.168.0.250:8080/stream.mjpg"
+                "python3", "-u",
+                str(target_script),
+                "--headless",
+                "--conf", str(conf),
+                "--url", "http://192.168.0.250:8080/stream.mjpg"
             ]
-            yolo_process = subprocess.Popen(cmd, stdout=log_file, stderr=log_file)
+            yolo_process = subprocess.Popen(cmd, env=env, stdout=_yolo_log_file, stderr=_yolo_log_file)
             yolo_test_active = True
+            print(f"[INFO] Processo cam_yolo_test.py iniciado com SUCESSO (PID {yolo_process.pid})")
             return True
         except Exception as e:
             print(f"[WARN] Erro ao disparar cam_yolo_test.py: {e}")
