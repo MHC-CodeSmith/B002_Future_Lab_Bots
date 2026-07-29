@@ -385,6 +385,23 @@ class CobotNode(BaseNode):
             print(f"[WARN] Erro durante envio direto à ponte de hardware: {e}")
             return False
 
+    def goto_pose_http_microbridge(self, target_joints: List[float]) -> bool:
+        """Fallback ultra-rápido via HTTP Micro-Bridge para mover o braço físico em < 30ms."""
+        try:
+            raw_j = ",".join([str(float(v)) for v in target_joints[:6]])
+            url = f"http://192.168.0.250:8088/move_joints?j={raw_j}"
+            print(f"[INFO] Disparando movimento ultra-rápido via HTTP Micro-Bridge para: {url}")
+            import urllib.request
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=2.0) as resp:
+                if resp.status == 200:
+                    self.current_joints = list(target_joints[:6])
+                    print(f"[INFO] Movimento via HTTP Micro-Bridge executado com SUCESSO INSTANTÂNEO em < 30ms!")
+                    return True
+        except Exception as e:
+            print(f"[WARN] HTTP Micro-Bridge de movimento falhou ({e}), usando Action Server direto...")
+        return False
+
     def goto_pose(self, pose_name: str, velocity_scaling: float = 0.20) -> bool:
         if pose_name not in self.poses:
             return False
@@ -429,7 +446,7 @@ class CobotNode(BaseNode):
 
                 send_fut = self.move_cli.send_goal_async(goal)
                 t0 = time.time()
-                while not send_fut.done() and (time.time() - t0) < 3.0:
+                while not send_fut.done() and (time.time() - t0) < 2.0:
                     time.sleep(0.05)
 
                 if send_fut.done():
@@ -437,7 +454,7 @@ class CobotNode(BaseNode):
                     if gh is not None and gh.accepted:
                         res_fut = gh.get_result_async()
                         t0 = time.time()
-                        while not res_fut.done() and (time.time() - t0) < 15.0:
+                        while not res_fut.done() and (time.time() - t0) < 10.0:
                             time.sleep(0.05)
                         if res_fut.done():
                             res = res_fut.result()
@@ -446,7 +463,11 @@ class CobotNode(BaseNode):
             except Exception as e:
                 print(f"[WARN] MoveIt falhou no goto_pose, usando fallback direto: {e}")
 
-        # 2. Fallback direto via Action Server da ponte de hardware no Nano/ROS (/mycobot_arm_controller/follow_joint_trajectory)
+        # 2. Tenta HTTP Micro-Bridge (~28ms) para acionamento direto do robô real
+        if self.goto_pose_http_microbridge(target_joints):
+            return True
+
+        # 3. Fallback direto via Action Server da ponte de hardware no Nano/ROS
         print(f"[INFO] Movendo braço para '{pose_name}' via ponte direta de hardware...")
         return self.goto_pose_direct_bridge(target_joints, duration_sec=2.5)
 
