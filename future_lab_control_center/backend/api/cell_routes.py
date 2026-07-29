@@ -90,9 +90,10 @@ def emergency_stop():
 
 @router.post("/panic")
 def panic_stop():
-    """Botão de Pânico Master: interrompe TUDO no projeto (Bomba, Câmera, YOLO, Robô, Motores e Planejamento) e bloqueia a célula."""
+    """Botão de Pânico Master: interrompe TUDO no projeto (Bomba, Câmera, YOLO, Robô, Motores e Planejamento MoveIt) e bloqueia a célula."""
     from backend.api.cobot_routes import stop_yolo_test_process
     from backend.api.health_routes import stop_camera_stream
+    import subprocess
     
     # 1. Encerra o processo do teste YOLO e o servidor de câmera no Nano
     try:
@@ -105,16 +106,32 @@ def panic_stop():
     except Exception as e:
         print(f"[WARN] Erro ao desligar câmera no pânico: {e}")
     
-    # 2. Desliga a bomba de sucção e trava os servos do robô
+    # 2. Desliga a bomba de sucção e TRAVA os servos do robô no hardware físico
     node = get_cobot_node()
     try:
         node.set_pump(False)
         node.clear_yolo_state()
+        # Trava os servos imediatamente no robô real
         node.call_trigger_service(node.lock_cli, "Travar Servos (Pânico)")
     except Exception as e:
         print(f"[WARN] Erro ao desligar bomba/motores no Pânico: {e}")
+
+    # 3. Mata o planejador MoveIt (move_group + rviz) no container mycobot_ros2 no PC
+    try:
+        print("[INFO] Matando MoveIt Planning e RViz no container mycobot_ros2...")
+        subprocess.run('docker exec mycobot_ros2 bash -c "pkill -9 -f move_group 2>/dev/null || true; pkill -9 -f rviz 2>/dev/null || true"', shell=True, timeout=5)
+    except Exception as e:
+        print(f"[WARN] Erro ao matar MoveIt planning no pânico: {e}")
+
+    # 4. Encerra o nó mycobot_bridge na Jetson Nano (mantendo as juntas travadas pelo microcontrolador)
+    try:
+        print("[INFO] Matando ponte mycobot_bridge na Jetson Nano...")
+        cmd_kill_nano = "sshpass -p Elephant ssh -o StrictHostKeyChecking=no er@192.168.0.250 'pkill -9 -f mycobot_bridge 2>/dev/null || true; fuser -k 8088/tcp 2>/dev/null || true'"
+        subprocess.run(cmd_kill_nano, shell=True, timeout=5)
+    except Exception as e:
+        print(f"[WARN] Erro ao encerrar mycobot_bridge no Nano: {e}")
         
-    # 3. Trava persistentemente o estado da célula em PANIC_LOCKED
+    # 5. Trava persistentemente o estado da célula em PANIC_LOCKED
     cell_state["panic_locked"] = True
     cell_state["status"] = "panic_locked"
     cell_state["manual_authorized"] = False
@@ -122,25 +139,25 @@ def panic_stop():
     return {
         "status": "panic_triggered",
         "panic_locked": True,
-        "message": "PÂNICO ABSOLUTO: Todos os componentes do projeto (Câmera, Bomba, YOLO, Motores) foram desligados! O sistema está bloqueado até a reinicialização."
+        "message": "PÂNICO ABSOLUTO: Todos os componentes (Câmera, Bomba, YOLO, Motores, MoveIt Planning e Bridge Nano) foram PARADOS! As juntas do robô estão TRAVADAS. É necessário reiniciar."
     }
 
 @router.post("/reset_panic")
 def reset_panic():
-    """Desbloqueia o estado de Pânico e dispara a reinicialização da câmera e do hardware para restaurar o sistema."""
+    """Desbloqueia o estado de Pânico e dispara a reinicialização limpa do MoveIt, da Câmera e do Hardware Nano."""
     cell_state["panic_locked"] = False
     cell_state["status"] = "idle"
     cell_state["manual_authorized"] = False
     
-    from backend.api.health_routes import restart_camera_stream, restart_nano_hardware
+    from backend.api.health_routes import restart_nano_hardware
     try:
-        restart_camera_stream()
+        # restart_nano_hardware() mata os processos antigos e inicia um novo planejador MoveIt + Hardware + Câmera
         restart_nano_hardware()
     except Exception as e:
         print(f"[WARN] Erro ao reiniciar componentes no desbloqueio do pânico: {e}")
         
     return {
         "status": "success",
-        "message": "Pânico desbloqueado. Componentes de hardware e câmera estão sendo reiniciados..."
+        "message": "Pânico desbloqueado. O planejador MoveIt, o hardware da Nano e a câmera estão sendo reiniciados do zero..."
     }
 
