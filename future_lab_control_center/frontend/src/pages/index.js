@@ -249,10 +249,31 @@ export default function Dashboard() {
     refreshStatus();
   };
 
+  const handleMovePoseFail = (poseName) => {
+    setNotification({
+      type: 'warning',
+      title: '⚠️ MOVIMENTO IMPOSSÍVEL (POSE NÃO SALVA EM DISCO)',
+      message: `A pose "${poseName}" ainda não foi salva no disco! Pressione "GRAVAR (3)" na linha da pose e em seguida clique em "SALVAR NO DISCO (5)" para habilitar o movimento.`
+    });
+  };
+
   const handleMovePose = async (poseName) => {
+    const poseObj = poses?.poses?.find(p => p.name === poseName);
+    if (!poseObj?.recorded) {
+      handleMovePoseFail(poseName);
+      return;
+    }
+
     setOptimisticYoloTest(false);
     const apiBase = getApiBase();
-    await safeApiCall(`${apiBase}/cobot/move/${poseName}`, { method: 'POST' });
+    const { ok, data } = await safeApiCall(`${apiBase}/cobot/move/${poseName}`, { method: 'POST' }, '⚠️ ERRO AO MOVER PARA POSE');
+    if (ok) {
+      setNotification({
+        type: 'success',
+        title: '📍 MOVENDO PARA POSE',
+        message: data?.message || `Braço deslocando-se para a pose '${poseName}'.`
+      });
+    }
     refreshStatus();
   };
 
@@ -426,6 +447,8 @@ export default function Dashboard() {
           onPlayback={handlePlayback}
           onClear={handleClear}
           onRestore={handleRestore}
+          onMovePose={handleMovePose}
+          onMovePoseFail={handleMovePoseFail}
         />
       </div>
 

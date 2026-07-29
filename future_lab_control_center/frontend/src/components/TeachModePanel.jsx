@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { BookOpen, Unlock, Lock, Save, Play, Trash2, CheckCircle2, XCircle, Clock, RotateCcw } from 'lucide-react';
 
-export default function TeachModePanel({ posesData, onRelease, onLock, onRecord, onSave, onPlayback, onClear, onRestore }) {
+export default function TeachModePanel({ posesData, onRelease, onLock, onRecord, onSave, onPlayback, onClear, onRestore, onMovePose, onMovePoseFail }) {
   const [selectedPose, setSelectedPose] = useState('home');
   const [loading, setLoading] = useState(false);
 
@@ -68,7 +68,7 @@ export default function TeachModePanel({ posesData, onRelease, onLock, onRecord,
               <th className="p-3">Pose</th>
               <th className="p-3">Status</th>
               <th className="p-3">Juntas (Rad)</th>
-              <th className="p-3 text-right">Ação</th>
+              <th className="p-3 text-right">Ações</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
@@ -89,7 +89,27 @@ export default function TeachModePanel({ posesData, onRelease, onLock, onRecord,
                 <td className="p-3 font-mono text-xs text-slate-400">
                   {p.joints ? `[${p.joints.map(v => v.toFixed(2)).join(', ')}]` : '—'}
                 </td>
-                <td className="p-3 text-right">
+                <td className="p-3 text-right flex items-center justify-end gap-2">
+                  <button
+                    onClick={() => {
+                      if (!p.recorded) {
+                        if (onMovePoseFail) onMovePoseFail(p.name);
+                      } else {
+                        handleAction(onMovePose, p.name);
+                      }
+                    }}
+                    disabled={loading}
+                    className={`px-2.5 py-1 text-xs font-bold rounded-md flex items-center gap-1 transition-colors ${
+                      p.recorded
+                        ? 'bg-blue-600 hover:bg-blue-500 text-white btn-hover'
+                        : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
+                    }`}
+                    title={p.recorded ? `Mover robô para a pose '${p.name}'` : `Pose '${p.name}' pendente. Grave e salve no disco para habilitar.`}
+                  >
+                    <Play className="w-3 h-3 fill-current" />
+                    IR PARA
+                  </button>
+
                   <button
                     onClick={() => {
                       setSelectedPose(p.name);
