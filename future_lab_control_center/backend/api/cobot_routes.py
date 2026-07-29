@@ -280,11 +280,12 @@ def _playback_worker():
             "place_approach", "home", "scan"
         ]
         for p in trajectory:
+            print(f"[INFO] Trajetória Playback: Movendo para pose '{p}'...")
             if not node.goto_pose(p, velocity_scaling=0.10):
                 node.set_pump(False)
                 cell_state["status"] = "idle"
                 return
-            time.sleep(0.3)
+            time.sleep(0.5)
 
         cell_state["status"] = "idle"
         print("[INFO] Trajetória de Playback concluída com sucesso!")

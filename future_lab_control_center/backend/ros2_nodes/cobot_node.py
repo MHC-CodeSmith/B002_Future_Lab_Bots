@@ -475,13 +475,21 @@ class CobotNode(BaseNode):
 
         success = _execute_move()
         if success:
-            # Regra Mestre da Célula: Bomba LIGA no 'pick' e DESLIGA APENAS no 'place'
+            # Regra Mestre de Hardware:
+            # 1. Ligar a bomba APÓS alcançar a pose 'pick'
+            # 2. Desligar a bomba APÓS alcançar a pose 'place'
             if pose_name == "pick":
-                print("[INFO] Pose 'pick' atingida -> LIGANDO bomba de sucção...")
+                print("[INFO] Aguardando robô físico alcançar a pose 'pick'...")
+                time.sleep(2.0)  # Aguarda a estabilização do braço físico na posição de coleta
+                print("[INFO] Pose 'pick' ALCANÇADA -> LIGANDO bomba de sucção...")
                 self.set_pump(True)
+                time.sleep(0.5)  # Aguarda o selo de vácuo no objeto
             elif pose_name == "place":
-                print("[INFO] Pose 'place' atingida -> DESLIGANDO bomba de sucção...")
+                print("[INFO] Aguardando robô físico alcançar a pose 'place'...")
+                time.sleep(2.0)  # Aguarda a estabilização do braço físico na posição de soltura
+                print("[INFO] Pose 'place' ALCANÇADA -> DESLIGANDO bomba de sucção...")
                 self.set_pump(False)
+                time.sleep(0.5)  # Aguarda a despressurização e liberação do objeto
 
         return success
 
