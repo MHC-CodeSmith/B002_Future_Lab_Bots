@@ -4,6 +4,7 @@
 import os
 import time
 import signal
+import threading
 import subprocess
 from pathlib import Path
 from fastapi import APIRouter, HTTPException
@@ -18,7 +19,7 @@ yolo_process: Optional[subprocess.Popen] = None
 yolo_test_active: bool = False
 
 def stop_yolo_test_process():
-    """Desativa e encerra o processo de teste isolado do YOLO e zera a memória de detecção."""
+    """Desativa e encerra o processo de teste isolado do YOLO e zera a memória de detecção de forma 100% não-bloqueante."""
     global yolo_process, yolo_test_active
     yolo_test_active = False
     try:
@@ -26,20 +27,20 @@ def stop_yolo_test_process():
         get_cobot_node().clear_yolo_state()
     except Exception:
         pass
-    if yolo_process is not None:
+    proc = yolo_process
+    yolo_process = None
+    if proc is not None:
         try:
-            yolo_process.terminate()
-            yolo_process.wait(timeout=2)
+            proc.kill()
         except Exception:
-            try:
-                yolo_process.kill()
-            except Exception:
-                pass
-        yolo_process = None
-    try:
-        subprocess.run(["pkill", "-f", "cam_yolo_test.py"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception:
-        pass
+            pass
+    def async_pkill():
+        try:
+            subprocess.run(["pkill", "-9", "-f", "cam_yolo_test.py"], timeout=2, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+    import threading
+    threading.Thread(target=async_pkill, daemon=True).start()
 
 def start_yolo_test_process(conf: float = 0.10):
     """Inicia o script de inspeção do YOLO em background com threshold base de 0.10 para captura bruta."""

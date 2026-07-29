@@ -3,10 +3,10 @@ import { AlertTriangle, CheckCircle, Info, X, AlertOctagon, RefreshCw } from 'lu
 
 export default function NotificationToast({ notification, onClose }) {
   useEffect(() => {
-    if (notification && notification.type !== 'panic') {
+    if (notification) {
       const timer = setTimeout(() => {
         onClose();
-      }, 7000); // Autoclose após 7s se não for pânico
+      }, 30000); // Auto-dismiss após 30 segundos
       return () => clearTimeout(timer);
     }
   }, [notification, onClose]);
