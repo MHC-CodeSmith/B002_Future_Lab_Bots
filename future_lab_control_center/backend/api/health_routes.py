@@ -135,17 +135,30 @@ def stop_camera_stream():
 
 @router.post("/restart_nano_hardware")
 def restart_nano_hardware():
-    """Reinicia a ponte de comunicação de hardware (mycobot_hw) na Nano e o planejador MoveIt (galactic_demo.launch.py) no container."""
+    """Reinicia a ponte de comunicação de hardware (mycobot_hw), a câmera na Nano e o planejador MoveIt (galactic_demo.launch.py) no container."""
     def async_restart_hw():
         # 1. Reinicia a ponte de hardware na Jetson Nano
         try:
             print("[INFO] Reiniciando ponte de hardware na Jetson Nano via SSH...")
-            cmd_nano = "sshpass -p Elephant ssh -o StrictHostKeyChecking=no er@192.168.0.250 'bash -c \"source /opt/ros/galactic/setup.bash && source ~/custom_ws/install/setup.bash && pkill -9 -f mycobot_bridge 2>/dev/null || true; sleep 1; nohup ros2 launch mycobot_hw_interface mycobot_hw.launch.py mock:=False baud:=1000000 > /tmp/hw_bridge.log 2>&1 < /dev/null &\"'"
-            subprocess.run(cmd_nano, shell=True, timeout=10)
+            ssh_cmd = "sshpass -p Elephant ssh -o StrictHostKeyChecking=no er@192.168.0.250 'pkill -9 -f mycobot_bridge 2>/dev/null || true; fuser -k 8088/tcp 2>/dev/null || true'"
+            subprocess.run(ssh_cmd, shell=True, timeout=5)
+            time.sleep(1.0)
+            launch_cmd = "sshpass -p Elephant ssh -o StrictHostKeyChecking=no er@192.168.0.250 'nohup bash -c \"source /opt/ros/galactic/setup.bash && source ~/custom_ws/install/setup.bash && ros2 launch mycobot_hw_interface mycobot_hw.launch.py mock:=False baud:=1000000\" > /tmp/hw_bridge.log 2>&1 &'"
+            subprocess.run(launch_cmd, shell=True, timeout=8)
+            print("[INFO] Ponte de hardware relançada na Jetson Nano com sucesso!")
         except Exception as e:
             print(f"[WARN] Erro durante reinicialização de hardware do Nano: {e}")
 
-        # 2. Reinicia o MoveIt Planning e RViz dentro do container mycobot_ros2 no PC
+        # 2. Auto-inicia também a câmera se o script existir
+        try:
+            target_script = _find_nano_camera_script()
+            if target_script:
+                print(f"[INFO] Reiniciando também o stream da câmera via {target_script}...")
+                subprocess.run(["bash", str(target_script), "start"], timeout=20, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        except Exception as e:
+            print(f"[WARN] Erro ao auto-iniciar câmera no restart do hardware: {e}")
+
+        # 3. Reinicia o MoveIt Planning e RViz dentro do container mycobot_ros2 no PC
         try:
             print("[INFO] Reiniciando MoveIt Planning (galactic_demo.launch.py) no container mycobot_ros2...")
             cmd_moveit = 'docker exec -d mycobot_ros2 bash -c "pkill -9 -f move_group 2>/dev/null || true; pkill -9 -f rviz 2>/dev/null || true; sleep 1; source /opt/ros/galactic/setup.bash && source /root/custom_ws/install/setup.bash && nohup ros2 launch mycobot_280_jn_moveit_config galactic_demo.launch.py > /tmp/moveit.log 2>&1 &"'
@@ -159,7 +172,7 @@ def restart_nano_hardware():
 
     return {
         "status": "success",
-        "message": "Comando de reinicialização de hardware (Nano) e planejador MoveIt (PC) enviado com sucesso! Aguarde ~5 segundos."
+        "message": "Comando de reinicialização de hardware (Nano), câmera e planejador MoveIt (PC) enviado com sucesso! Aguarde ~5 segundos."
     }
 
 
