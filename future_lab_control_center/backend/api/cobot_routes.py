@@ -270,29 +270,38 @@ def _playback_worker():
     cell_state["status"] = "busy"
     node = get_cobot_node()
     try:
-        sequence_part1 = ["home", "scan", "pick_approach", "pick"]
-        for p in sequence_part1:
-            if not node.goto_pose(p, velocity_scaling=0.10):
-                cell_state["status"] = "idle"
-                return
-                
-        node.set_pump(True)
-        
-        sequence_part2 = ["pick_approach", "home", "place_approach", "place"]
-        for p in sequence_part2:
+        # 1. Movimento inicial até a pose PICK
+        for p in ["home", "scan", "pick_approach", "pick"]:
             if not node.goto_pose(p, velocity_scaling=0.10):
                 node.set_pump(False)
                 cell_state["status"] = "idle"
                 return
                 
-        node.set_pump(False)
+        # 2. Chegou EXATAMENTE no PICK -> Liga a bomba de sucção
+        print("[INFO] Braço chegou na pose 'pick' -> LIGANDO bomba de sucção...")
+        node.set_pump(True)
+        time.sleep(0.5)
         
-        sequence_part3 = ["place_approach", "home", "scan"]
-        for p in sequence_part3:
+        # 3. Elevação e transporte até a pose PLACE
+        for p in ["pick_approach", "home", "place_approach", "place"]:
+            if not node.goto_pose(p, velocity_scaling=0.10):
+                node.set_pump(False)
+                cell_state["status"] = "idle"
+                return
+                
+        # 4. Chegou EXATAMENTE na pose PLACE -> Desliga a bomba de sucção no PLACE
+        print("[INFO] Braço chegou na pose 'place' -> DESLIGANDO bomba de sucção no PLACE...")
+        node.set_pump(False)
+        time.sleep(0.5)
+        
+        # 5. Retorno limpo e elevação pós-entrega
+        for p in ["place_approach", "home", "scan"]:
             if not node.goto_pose(p, velocity_scaling=0.10):
                 cell_state["status"] = "idle"
                 return
+
         cell_state["status"] = "idle"
+        print("[INFO] Trajetória de Playback concluída com sucesso!")
     except Exception as e:
         print(f"[WARN] Erro durante worker de playback: {e}")
         node.set_pump(False)
