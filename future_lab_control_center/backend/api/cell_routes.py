@@ -94,7 +94,16 @@ def panic_stop():
     from backend.api.cobot_routes import stop_yolo_test_process
     from backend.api.health_routes import stop_camera_stream
     import subprocess
+    import urllib.request
     
+    # 0. Dispara PÂNICO em < 5ms via HTTP Micro-Bridge para CONGELAR IMEDIATAMENTE os motores do robô físico
+    try:
+        req = urllib.request.Request("http://192.168.0.250:8088/panic")
+        with urllib.request.urlopen(req, timeout=1.0) as resp:
+            print("[INFO] Pânico via HTTP Micro-Bridge enviado em < 5ms (Motores congelados no robô físico)")
+    except Exception as e:
+        print(f"[WARN] HTTP Micro-Bridge panic trigger indisponível: {e}")
+
     # 1. Encerra o processo do teste YOLO e o servidor de câmera no Nano
     try:
         stop_yolo_test_process()
@@ -106,12 +115,11 @@ def panic_stop():
     except Exception as e:
         print(f"[WARN] Erro ao desligar câmera no pânico: {e}")
     
-    # 2. Desliga a bomba de sucção e TRAVA os servos do robô no hardware físico
+    # 2. Desliga a bomba de sucção e TRAVA os servos do robô
     node = get_cobot_node()
     try:
         node.set_pump(False)
         node.clear_yolo_state()
-        # Trava os servos imediatamente no robô real
         node.call_trigger_service(node.lock_cli, "Travar Servos (Pânico)")
     except Exception as e:
         print(f"[WARN] Erro ao desligar bomba/motores no Pânico: {e}")

@@ -6,12 +6,14 @@ import TeachModePanel from '../components/TeachModePanel';
 import TurtleBotPanel from '../components/TurtleBotPanel';
 import NotificationToast from '../components/NotificationToast';
 import PanicOverlayModal from '../components/PanicOverlayModal';
+import RebootOverlayModal from '../components/RebootOverlayModal';
 
 export default function Dashboard() {
   const [health, setHealth] = useState(null);
   const [cellStatus, setCellStatus] = useState(null);
   const [poses, setPoses] = useState(null);
   const [notification, setNotification] = useState(null);
+  const [isRebooting, setIsRebooting] = useState(false);
 
   // Estados Otimistas para Resposta Instantânea (0ms) nos Botões
   const [optimisticPump, setOptimisticPump] = useState(null);
@@ -168,6 +170,7 @@ export default function Dashboard() {
   };
 
   const handleResetPanic = async () => {
+    setIsRebooting(true);
     const apiBase = getApiBase();
     const { ok, data } = await safeApiCall(`${apiBase}/cell/reset_panic`, { method: 'POST' }, '🔄 DESBLOQUEIO DE PÂNICO');
     if (ok) {
@@ -177,10 +180,10 @@ export default function Dashboard() {
         message: data?.message || 'Pânico desbloqueado. Componentes e ponte do Nano sendo reiniciados.'
       });
     }
-    refreshStatus();
   };
 
   const handleRestartNanoHardware = async () => {
+    setIsRebooting(true);
     const apiBase = getApiBase();
     const { ok, data } = await safeApiCall(`${apiBase}/health/restart_nano_hardware`, { method: 'POST' }, '🔄 REINICIAR NANO');
     if (ok) {
@@ -190,7 +193,6 @@ export default function Dashboard() {
         message: data.message || 'Comando enviado para a Jetson Nano via SSH.'
       });
     }
-    refreshStatus();
   };
 
   const handleTogglePump = async (on) => {
@@ -366,6 +368,15 @@ export default function Dashboard() {
 
   return (
     <main className="min-h-screen p-4 md:p-8 max-w-7xl mx-auto space-y-6 relative">
+      {/* Modal Popup de Reboot e Inicialização Centralizada */}
+      <RebootOverlayModal
+        isRebooting={isRebooting}
+        onRebootComplete={() => {
+          setIsRebooting(false);
+          refreshStatus();
+        }}
+      />
+
       {/* Modal Popup de Bloqueio de Pânico Absoluto */}
       <PanicOverlayModal
         isLocked={Boolean(cellStatus?.cell?.panic_locked)}
