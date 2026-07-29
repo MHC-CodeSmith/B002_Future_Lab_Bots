@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BookOpen, Unlock, Lock, Save, Play, Trash2, CheckCircle2, XCircle, Clock, RotateCcw } from 'lucide-react';
+import { BookOpen, Unlock, Lock, Save, Play, Pause, Trash2, CheckCircle2, XCircle, Clock, RotateCcw } from 'lucide-react';
 
 export default function TeachModePanel({ posesData, onRelease, onLock, onRecord, onSave, onPlayback, onClear, onRestore, onMovePose, onMovePoseFail }) {
   const [selectedPose, setSelectedPose] = useState('home');
@@ -15,6 +15,7 @@ export default function TeachModePanel({ posesData, onRelease, onLock, onRecord,
   ];
 
   const hasBackup = Boolean(posesData?.has_backup);
+  const playbackStatus = posesData?.playback_status || 'idle';
 
   const handleAction = async (actionFn, ...args) => {
     setLoading(true);
@@ -132,10 +133,30 @@ export default function TeachModePanel({ posesData, onRelease, onLock, onRecord,
         <button
           onClick={() => handleAction(onPlayback)}
           disabled={loading}
-          className="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 btn-hover"
+          className={`py-2.5 px-3 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all btn-hover ${
+            playbackStatus === 'running'
+              ? 'bg-amber-600 hover:bg-amber-500 text-white shadow-lg shadow-amber-900/30'
+              : playbackStatus === 'paused'
+              ? 'bg-emerald-600 hover:bg-emerald-500 text-white animate-pulse shadow-lg shadow-emerald-900/40'
+              : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+          }`}
         >
-          <Play className="w-4 h-4 fill-current" />
-          PLAYBACK TESTE (4)
+          {playbackStatus === 'running' ? (
+            <>
+              <Pause className="w-4 h-4 fill-current" />
+              PAUSAR PLAYBACK (4)
+            </>
+          ) : playbackStatus === 'paused' ? (
+            <>
+              <Play className="w-4 h-4 fill-current" />
+              RETOMAR PLAYBACK (4)
+            </>
+          ) : (
+            <>
+              <Play className="w-4 h-4 fill-current" />
+              PLAYBACK TESTE (4)
+            </>
+          )}
         </button>
 
         <button

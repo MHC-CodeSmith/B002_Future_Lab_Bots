@@ -339,29 +339,49 @@ export default function Dashboard() {
   };
 
   const handlePlayback = async () => {
-    // Validação de pré-requisitos no cliente para playback
-    const missing = (poses?.poses || [])
-      .filter(p => !p.recorded)
-      .map(p => p.name);
+    const currentPlaybackStatus = poses?.playback_status || 'idle';
 
-    if (missing.length > 0) {
-      setNotification({
-        type: 'warning',
-        title: '⚠️ PLAYBACK IMPOSSÍVEL (CALIBRAGEM INCOMPLETA)',
-        message: `Não há poses salvas no disco suficientes! Poses pendentes: [${missing.join(', ')}]. Grave e salve todas as 6 poses no disco antes de iniciar o playback.`
-      });
-      return;
+    // Se estiver IDLE, valida pré-requisitos de poses salvas
+    if (currentPlaybackStatus === 'idle') {
+      const missing = (poses?.poses || [])
+        .filter(p => !p.recorded)
+        .map(p => p.name);
+
+      if (missing.length > 0) {
+        setNotification({
+          type: 'warning',
+          title: '⚠️ PLAYBACK IMPOSSÍVEL (CALIBRAGEM INCOMPLETA)',
+          message: `Não há poses salvas no disco suficientes! Poses pendentes: [${missing.join(', ')}]. Grave e salve todas as 6 poses no disco antes de iniciar o playback.`
+        });
+        return;
+      }
     }
 
-    setOptimisticYoloTest(false);
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/cobot/teach/playback`, { method: 'POST' }, '⚠️ PLAYBACK IMPOSSÍVEL');
+    const { ok, data } = await safeApiCall(`${apiBase}/cobot/teach/playback`, { method: 'POST' }, '⚠️ ERRO NO PLAYBACK');
     if (ok) {
-      setNotification({
-        type: 'success',
-        title: '▶️ PLAYBACK INICIADO',
-        message: data.message || 'Trajetória em execução em segundo plano!'
-      });
+      const newStatus = data?.playback_status || (currentPlaybackStatus === 'running' ? 'paused' : 'running');
+      setPoses(prev => prev ? { ...prev, playback_status: newStatus } : prev);
+
+      if (data?.status === 'paused') {
+        setNotification({
+          type: 'warning',
+          title: '⏸️ PLAYBACK PAUSADO',
+          message: 'Movimentação pausada! Câmera e bomba mantidas no estado atual. Clique em "RETOMAR PLAYBACK" para continuar.'
+        });
+      } else if (data?.status === 'resumed') {
+        setNotification({
+          type: 'success',
+          title: '▶️ PLAYBACK RETOMADO',
+          message: 'Movimentação do robô retomada com sucesso!'
+        });
+      } else {
+        setNotification({
+          type: 'success',
+          title: '▶️ PLAYBACK INICIADO',
+          message: data?.message || 'Trajetória em execução em segundo plano!'
+        });
+      }
     }
     await refreshStatus();
   };

@@ -132,6 +132,7 @@ def get_poses_status():
         "last_saved": saved_at,
         "has_backup": node.has_backup_poses(),
         "required_poses": REQUIRED_POSES,
+        "playback_status": playback_control.get("status", "idle"),
         "poses": status_list
     }
 
@@ -265,53 +266,108 @@ def restore_recorded_poses():
         raise HTTPException(status_code=500, detail="Falha ao restaurar o backup de calibragem.")
     return {"status": "success", "message": "Última calibragem restaurada com sucesso!"}
 
+playback_control = {
+    "status": "idle",   # "idle", "running", "paused"
+    "paused": False,
+    "cancel": False
+}
+
 def _playback_worker():
     from backend.api.cell_routes import cell_state
     cell_state["status"] = "busy"
+    playback_control["status"] = "running"
+    playback_control["paused"] = False
+    playback_control["cancel"] = False
     node = get_cobot_node()
     try:
-        # Sequência completa de Playback:
-        # home -> scan -> pick_approach -> pick (bomba LIGA automaticamente ao chegar no pick)
-        # -> pick_approach -> home -> place_approach -> place (bomba DESLIGA automaticamente ao chegar no place)
-        # -> place_approach -> home -> scan
         trajectory = [
             "home", "scan", "pick_approach", "pick",
             "pick_approach", "home", "place_approach", "place",
             "place_approach", "home", "scan"
         ]
         for p in trajectory:
+            # Trava de pausa/cancelamento antes de iniciar a movimentação para a próxima pose
+            while playback_control["paused"]:
+                if playback_control["cancel"]:
+                    break
+                time.sleep(0.1)
+
+            if playback_control["cancel"]:
+                print("[INFO] Playback cancelado pelo usuário.")
+                break
+
             print(f"[INFO] Trajetória Playback: Movendo para pose '{p}'...")
             if not node.goto_pose(p, velocity_scaling=0.10):
                 node.set_pump(False)
-                cell_state["status"] = "idle"
-                return
+                break
+
+            # Trava de pausa/cancelamento após a chegada na pose
+            while playback_control["paused"]:
+                if playback_control["cancel"]:
+                    break
+                time.sleep(0.1)
+
+            if playback_control["cancel"]:
+                break
+
             time.sleep(0.5)
 
         cell_state["status"] = "idle"
-        print("[INFO] Trajetória de Playback concluída com sucesso!")
+        playback_control["status"] = "idle"
+        playback_control["paused"] = False
+        playback_control["cancel"] = False
+        print("[INFO] Trajetória de Playback finalizada.")
     except Exception as e:
         print(f"[WARN] Erro durante worker de playback: {e}")
         node.set_pump(False)
         cell_state["status"] = "idle"
+        playback_control["status"] = "idle"
+        playback_control["paused"] = False
+        playback_control["cancel"] = False
 
 @router.post("/teach/playback")
 def playback_trajectory():
-    """Executa o teste da trajetória de forma 100% assíncrona em segundo plano (resposta HTTP em 0ms)."""
-    stop_yolo_test_process()  # Trava de segurança: desativa o teste isolado do YOLO durante o movimento
+    """Inicia, Pausa ou Retoma o Playback da trajetória sem interferir na câmera nem na bomba."""
+    from backend.api.cell_routes import cell_state
+
+    # 1. Se estiver RODANDO -> PAUSA (sem tocar na bomba nem na câmera)
+    if playback_control["status"] == "running":
+        playback_control["paused"] = True
+        playback_control["status"] = "paused"
+        print("[INFO] PLAYBACK PAUSADO (Câmera e Bomba mantidas intactas).")
+        return {
+            "status": "paused",
+            "playback_status": "paused",
+            "message": "Playback pausado com sucesso!"
+        }
+
+    # 2. Se estiver PAUSADO -> RETOMA (continua o movimento)
+    if playback_control["status"] == "paused":
+        playback_control["paused"] = False
+        playback_control["status"] = "running"
+        print("[INFO] PLAYBACK RETOMADO.")
+        return {
+            "status": "resumed",
+            "playback_status": "running",
+            "message": "Playback retomado com sucesso!"
+        }
+
+    # 3. Se estiver IDLE -> INICIA UM NOVO PLAYBACK
     node = get_cobot_node()
     node.load_poses()  # Recarrega as poses salvas do disco antes de validar
     missing = [p for p in REQUIRED_POSES if p not in node.poses]
     if missing:
         raise HTTPException(status_code=400, detail=f"Gravação incompleta. Poses pendentes: {missing}")
 
-    from backend.api.cell_routes import cell_state
     if cell_state.get("status") == "busy":
         raise HTTPException(status_code=409, detail="A célula já está executando uma trajetória.")
 
+    # NOTA: Ao INICIAR novo playback, não desligamos a câmera se o usuário quiser mantê-la ativa
     thread = threading.Thread(target=_playback_worker, daemon=True)
     thread.start()
 
     return {
-        "status": "success",
-        "message": "Playback da trajetória iniciado em segundo plano com sucesso!"
+        "status": "started",
+        "playback_status": "running",
+        "message": "Playback da trajetória iniciado com sucesso!"
     }
