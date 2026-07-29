@@ -305,12 +305,21 @@ export default function Dashboard() {
 
   const handleRecord = async (poseName) => {
     const apiBase = getApiBase();
-    const { ok } = await safeApiCall(`${apiBase}/cobot/teach/record/${poseName}`, { method: 'POST' });
+    const { ok, data } = await safeApiCall(`${apiBase}/cobot/teach/record/${poseName}`, { method: 'POST' });
     if (ok) {
+      if (data?.joints) {
+        setPoses(prev => {
+          if (!prev || !prev.poses) return prev;
+          return {
+            ...prev,
+            poses: prev.poses.map(p => p.name === poseName ? { ...p, recorded: true, joints: data.joints } : p)
+          };
+        });
+      }
       setNotification({
         type: 'success',
         title: '📍 POSE GRAVADA EM MEMÓRIA',
-        message: `Pose "${poseName}" capturada! Lembre-se de clicar em "SALVAR POSES NO DISCO (5)".`
+        message: `Pose "${poseName}" capturada com sucesso! [${data?.joints?.map(v => v.toFixed(2)).join(', ')}]. Lembre-se de clicar em "SALVAR POSES NO DISCO (5)".`
       });
     }
     await refreshStatus();
