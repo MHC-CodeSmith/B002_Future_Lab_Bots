@@ -19,7 +19,7 @@ yolo_process: Optional[subprocess.Popen] = None
 yolo_test_active: bool = False
 
 def stop_yolo_test_process():
-    """Desativa e encerra o processo de teste isolado do YOLO de forma direta e sem race condition."""
+    """Desativa e encerra o processo de teste isolado do YOLO de forma direta e sem race condition, fechando a janela gráfica."""
     global yolo_process, yolo_test_active
     yolo_test_active = False
     try:
@@ -35,17 +35,24 @@ def stop_yolo_test_process():
             proc.wait(timeout=0.5)
         except Exception:
             pass
+    try:
+        subprocess.run("docker exec mycobot_ros2 pkill -9 -f cam_yolo_test 2>/dev/null || true", shell=True, timeout=2)
+        subprocess.run("pkill -9 -f cam_yolo_test 2>/dev/null || true", shell=True, timeout=2)
+    except Exception:
+        pass
 
 _yolo_log_file = None
 
-def start_yolo_test_process(conf: float = 0.10):
-    """Inicia o script de inspeção do YOLO em background com threshold base de 0.10 para captura bruta."""
+def start_yolo_test_process(conf: float = 0.60, headless: bool = True) -> bool:
+    """Dispara o processo cam_yolo_test.py em background enviando o log para /tmp/yolo_test.log."""
     global yolo_process, yolo_test_active, _yolo_log_file
-    stop_yolo_test_process()
+    stop_yolo_test_process()  # Garante limpo
     
     possible_scripts = [
         Path("/cobot/mycobot_docker/custom_ws/scripts/cam_yolo_test.py"),
-        Path("/home/future-lab/B002_Future_Lab_Bots/cobot/mycobot_docker/custom_ws/scripts/cam_yolo_test.py")
+        Path("/home/future-lab/B002_Future_Lab_Bots/cobot/mycobot_docker/custom_ws/scripts/cam_yolo_test.py"),
+        Path("/app/cobot/cam_yolo_test.py"),
+        Path(__file__).resolve().parent.parent.parent.parent / "cobot" / "cam_yolo_test.py"
     ]
     
     target_script = None
@@ -67,16 +74,19 @@ def start_yolo_test_process(conf: float = 0.10):
             env["PYTHONPATH"] = "/opt/ros/jazzy/lib/python3.12/site-packages:" + env.get("PYTHONPATH", "")
             env["PYTHONUNBUFFERED"] = "1"
             
+            from backend.config.settings import get_settings
+            stream_url = get_settings().CAMERA_STREAM_URL
+
             cmd = [
                 "python3", "-u",
                 str(target_script),
                 "--headless",
                 "--conf", str(conf),
-                "--url", "http://192.168.0.250:8080/stream.mjpg"
+                "--url", stream_url
             ]
             yolo_process = subprocess.Popen(cmd, env=env, stdout=_yolo_log_file, stderr=_yolo_log_file)
             yolo_test_active = True
-            print(f"[INFO] Processo cam_yolo_test.py iniciado com SUCESSO (PID {yolo_process.pid})")
+            print(f"[INFO] Processo cam_yolo_test.py iniciado com SUCESSO (PID {yolo_process.pid}) na URL {stream_url}")
             return True
         except Exception as e:
             print(f"[WARN] Erro ao disparar cam_yolo_test.py: {e}")
@@ -152,13 +162,18 @@ def move_to_pose(pose_name: str, payload: Optional[MovePoseSchema] = None):
     from backend.api.cell_routes import cell_state
     if cell_state.get("panic_locked"):
         raise HTTPException(status_code=423, detail="Célula bloqueada em modo de Pânico. É necessário reiniciar o sistema.")
+    if cell_state.get("auto_running"):
+        raise HTTPException(status_code=400, detail="Movimentação de calibragem bloqueada enquanto o Modo Automático estiver em execução!")
+
     stop_yolo_test_process()
     node = get_cobot_node()
-    vel = payload.velocity_scaling if payload else 0.20
+    default_vel = float(cell_state.get("arm_speed", 0.15))
+    vel = payload.velocity_scaling if (payload and payload.velocity_scaling is not None) else default_vel
+    vel = max(0.01, min(0.15, vel))
     ok = node.goto_pose(pose_name, velocity_scaling=vel)
     if not ok:
         raise HTTPException(status_code=500, detail=f"Falha ao mover robô para a pose '{pose_name}'.")
-    return {"status": "success", "message": f"Chegou na pose '{pose_name}'."}
+    return {"status": "success", "message": f"Chegou na pose '{pose_name}' com velocidade {vel*100:.0f}%."}
 
 @router.post("/pump")
 def control_pump(payload: PumpControlSchema):
@@ -197,6 +212,9 @@ def get_yolo_test_status():
 @router.post("/teach/release")
 def release_servos():
     """Liberar os torques dos motores para ensino manual (SEGURE O BRAÇO!)."""
+    from backend.api.cell_routes import cell_state
+    if cell_state.get("auto_running"):
+        raise HTTPException(status_code=400, detail="Operação de calibragem bloqueada enquanto o Modo Automático estiver em execução!")
     node = get_cobot_node()
     ok = node.call_trigger_service(node.release_cli, "Liberar Servos")
     if not ok:
@@ -206,6 +224,9 @@ def release_servos():
 @router.post("/teach/lock")
 def lock_servos():
     """Travar os torques dos motores na posição atual."""
+    from backend.api.cell_routes import cell_state
+    if cell_state.get("auto_running"):
+        raise HTTPException(status_code=400, detail="Operação de calibragem bloqueada enquanto o Modo Automático estiver em execução!")
     node = get_cobot_node()
     ok = node.call_trigger_service(node.lock_cli, "Travar Servos")
     if not ok:
@@ -224,7 +245,9 @@ def record_current_pose(pose_name: str):
     try:
         import urllib.request
         import json
-        req = urllib.request.Request("http://192.168.0.250:8088/get_angles")
+        from backend.config.settings import get_settings
+        nano_ip = get_settings().JETSON_NANO_IP
+        req = urllib.request.Request(f"http://{nano_ip}:8088/get_angles")
         with urllib.request.urlopen(req, timeout=1.5) as resp:
             if resp.status == 200:
                 data = json.loads(resp.read().decode())
@@ -381,3 +404,25 @@ def playback_trajectory():
         "playback_status": "running",
         "message": "Playback da trajetória iniciado com sucesso!"
     }
+
+@router.post("/launch_yolo_window")
+def launch_yolo_window():
+    """Abre uma janela gráfica nativa OpenCV no monitor do PC Host com visões YOLO, bounding boxes e FPS ao vivo."""
+    from backend.api.cell_routes import cell_state
+    from backend.config.settings import get_settings
+    from backend.api.health_routes import _launch_gui_in_pty
+    conf = float(cell_state.get("yolo_conf", 0.60))
+    nano_ip = get_settings().JETSON_NANO_IP
+    try:
+        print(f"[INFO] Disparando janela gráfica nativa OpenCV (cam_yolo_test.py) no monitor do PC Host (DISPLAY=:0 via PTY, Nano IP {nano_ip})...")
+        subprocess.run("docker cp /home/future-lab/.Xauthority mycobot_ros2:/root/.Xauthority 2>/dev/null || true", shell=True, timeout=3)
+        subprocess.run("xhost +local:root 2>/dev/null || xhost + 2>/dev/null || true", shell=True, timeout=3)
+        cmd_yolo_gui = f'docker exec -t mycobot_ros2 bash -c "export DISPLAY=:0; export XAUTHORITY=/root/.Xauthority; pkill -9 -f cam_yolo_test 2>/dev/null || true; sleep 0.5; python3 /root/custom_ws/scripts/cam_yolo_test.py --url http://{nano_ip}:8080/stream.mjpg --conf {conf}"'
+        _launch_gui_in_pty(cmd_yolo_gui)
+        return {
+            "status": "success",
+            "message": "Janela gráfica OpenCV do YOLO disparada no monitor do PC Host com sucesso!"
+        }
+    except Exception as e:
+        print(f"[WARN] Erro ao disparar janela OpenCV do YOLO: {e}")
+        raise HTTPException(status_code=500, detail=f"Falha ao abrir janela OpenCV: {e}")

@@ -32,18 +32,57 @@ def get_auto_ip() -> str:
     except Exception:
         return "127.0.0.1"
 
+import time
+
+_cached_active_ip = None
+_last_ip_check_time = 0
+
+def resolve_active_nano_ip() -> str:
+    """Detecta automaticamente qual IP da Jetson Nano está respondendo na rede (Wi-Fi 192.168.0.62 ou Cabo 192.168.0.250)."""
+    global _cached_active_ip, _last_ip_check_time
+    now = time.time()
+    if _cached_active_ip and (now - _last_ip_check_time) < 5.0:
+        return _cached_active_ip
+
+    env_ip = os.getenv("JETSON_NANO_IP", "192.168.0.62")
+    candidates = [env_ip, "192.168.0.62", "192.168.0.250"]
+    seen = set()
+    ordered_candidates = []
+    for ip in candidates:
+        if ip and ip not in seen:
+            seen.add(ip)
+            ordered_candidates.append(ip)
+
+    import subprocess
+    active_found = None
+    for candidate_ip in ordered_candidates:
+        try:
+            cmd = ["ping", "-c", "1", "-W", "1", candidate_ip]
+            res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if res.returncode == 0:
+                active_found = candidate_ip
+                break
+        except Exception:
+            pass
+
+    _cached_active_ip = active_found or env_ip
+    _last_ip_check_time = now
+    return _cached_active_ip
+
 @dataclass
 class Settings:
     ROS_DOMAIN_ID: int = int(os.getenv("ROS_DOMAIN_ID", 42))
     RMW_IMPLEMENTATION: str = os.getenv("RMW_IMPLEMENTATION", "rmw_cyclonedds_cpp")
     
-    HOST_PC_IP: str = os.getenv("HOST_PC_IP", get_auto_ip())
-    JETSON_NANO_IP: str = os.getenv("JETSON_NANO_IP", "192.168.0.250")
+    # 2. Endereços IP dos Robôs e Dispositivos na Rede
+    HOST_PC_IP: str = os.getenv("HOST_PC_IP", "192.168.0.204")
+    JETSON_NANO_IP: str = resolve_active_nano_ip()
     TURTLEBOT_IP: str = os.getenv("TURTLEBOT_IP", "192.168.0.251")
-    
+
+    # 3. Portas e Streams
     BACKEND_PORT: int = int(os.getenv("BACKEND_PORT", 8000))
     FRONTEND_PORT: int = int(os.getenv("FRONTEND_PORT", 3000))
-    CAMERA_STREAM_URL: str = os.getenv("CAMERA_STREAM_URL", "http://192.168.0.250:8080/stream.mjpg")
+    CAMERA_STREAM_URL: str = os.getenv("CAMERA_STREAM_URL", f"http://{resolve_active_nano_ip()}:8080/stream.mjpg")
     
     DEFAULT_COOLDOWN_SEC: float = float(os.getenv("DEFAULT_COOLDOWN_SEC", 5.0))
     DEFAULT_YOLO_CONF: float = float(os.getenv("DEFAULT_YOLO_CONF", 0.60))

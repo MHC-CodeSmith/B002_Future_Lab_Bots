@@ -6,7 +6,7 @@ export default function NotificationToast({ notification, onClose }) {
     if (notification) {
       const timer = setTimeout(() => {
         onClose();
-      }, 30000); // Auto-dismiss após 30 segundos
+      }, 15000); // Auto-dismiss após 15 segundos
       return () => clearTimeout(timer);
     }
   }, [notification, onClose]);

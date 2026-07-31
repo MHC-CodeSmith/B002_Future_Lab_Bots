@@ -1,10 +1,15 @@
 import React, { useState } from 'react';
-import { Play, Pause, AlertOctagon, RefreshCw, Sliders, CheckCircle, Flame, Cpu, Loader2 } from 'lucide-react';
+import { Play, Pause, AlertOctagon, RefreshCw, Sliders, CheckCircle, Flame, Cpu, Loader2, PauseCircle, Check, X } from 'lucide-react';
 
 export default function CellControlPanel({
   cellState,
   onUpdateMode,
-  onAuthorizeScan,
+  onAutoStart,
+  onAutoStop,
+  onManualStartScan,
+  onManualAuthorizePick,
+  onManualAuthorizePlace,
+  onInterrupt,
   onEmergencyStop,
   onPanicStop,
   onRestartNanoHardware
@@ -12,24 +17,33 @@ export default function CellControlPanel({
   const [mode, setMode] = useState(cellState?.mode || 'auto');
   const [cooldown, setCooldown] = useState(cellState?.cooldown_sec || 5.0);
   const [conf, setConf] = useState((cellState?.yolo_conf || 0.60) * 100);
-  const [authorized, setAuthorized] = useState(false);
+  const [speedPct, setSpeedPct] = useState(Math.round((cellState?.arm_speed || 0.15) * 100));
   const [restartingHw, setRestartingHw] = useState(false);
+
+  React.useEffect(() => {
+    if (cellState?.mode) {
+      setMode(cellState.mode);
+    }
+    if (cellState?.arm_speed !== undefined) {
+      setSpeedPct(Math.round(cellState.arm_speed * 100));
+    }
+  }, [cellState?.mode, cellState?.arm_speed]);
 
   const handleModeChange = (newMode) => {
     setMode(newMode);
-    onUpdateMode({ mode: newMode, cooldown_sec: cooldown, yolo_conf: conf / 100 });
+    onUpdateMode({ mode: newMode, cooldown_sec: cooldown, yolo_conf: conf / 100, arm_speed: speedPct / 100 });
   };
 
-  const handleSliderChange = (newCooldown, newConf) => {
+  const handleAutoClick = () => {
+    handleModeChange('auto');
+    if (onAutoStart) onAutoStart();
+  };
+
+  const handleSliderChange = (newCooldown, newConf, newSpeedPct) => {
     setCooldown(newCooldown);
     setConf(newConf);
-    onUpdateMode({ mode, cooldown_sec: newCooldown, yolo_conf: newConf / 100 });
-  };
-
-  const handleAuthorize = () => {
-    setAuthorized(true);
-    onAuthorizeScan();
-    setTimeout(() => setAuthorized(false), 3000);
+    setSpeedPct(newSpeedPct);
+    onUpdateMode({ mode, cooldown_sec: newCooldown, yolo_conf: newConf / 100, arm_speed: newSpeedPct / 100 });
   };
 
   const handleRestartHw = async () => {
@@ -41,8 +55,16 @@ export default function CellControlPanel({
     }
   };
 
+  const status = cellState?.status || 'idle';
+  const detectedItem = cellState?.yolo_detected_item;
+
+  // Lógica dinâmica: Se o modo manual estiver ATIVO (ou se um ciclo estiver rodando), o botão vira "INTERROMPER"
+  const isManualActive = mode === 'manual';
+  const isCycleRunning = status !== 'idle' && status !== 'stopped' && status !== 'panic_locked';
+  const isAutoRunning = mode === 'auto' && isCycleRunning;
+
   return (
-    <div className="glass-card p-5 rounded-xl space-y-6">
+    <div className="glass-card p-5 rounded-xl space-y-6 relative">
       <div className="flex items-center justify-between border-b border-slate-700 pb-3">
         <h2 className="text-lg font-bold flex items-center gap-2">
           <Sliders className="w-5 h-5 text-blue-400" />
@@ -52,77 +74,139 @@ export default function CellControlPanel({
           <button
             onClick={handleRestartHw}
             disabled={restartingHw}
-            className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors"
-            title="Reiniciar a ponte de comunicação ROS 2 hardware (mycobot_hw) na Jetson Nano"
+            className="px-3 py-1 bg-red-600 hover:bg-red-500 text-white border border-red-500 text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors shadow-md shadow-red-950/60"
+            title="Reiniciar hardware (mycobot_hw), travar servos, desligar bomba/câmera e reinicializar a Jetson Nano e ROS 2"
           >
-            {restartingHw ? <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-400" /> : <Cpu className="w-3.5 h-3.5 text-blue-400" />}
-            {restartingHw ? 'REINICIANDO NANO...' : 'REINICIAR NANO (HW)'}
+            {restartingHw ? <Loader2 className="w-3.5 h-3.5 animate-spin text-white" /> : <Flame className="w-3.5 h-3.5 text-white fill-current" />}
+            {restartingHw ? 'REINICIANDO NANO...' : '🚨 REINICIAR NANO (HW)'}
           </button>
 
-          <span className={`px-3 py-1 text-xs font-bold rounded-full ${mode === 'auto' ? 'bg-blue-500/20 text-blue-400' : 'bg-amber-500/20 text-amber-400'}`}>
+          <span className={`px-3 py-1 text-xs font-bold rounded-full ${mode === 'auto' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'}`}>
             MODO: {mode.toUpperCase()}
           </span>
         </div>
       </div>
 
-      {/* Botões Mestre de Operação */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+      {/* Botões Mestre de Operação (3 Botões) */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        {/* Botão Modo Auto */}
         <button
-          onClick={() => handleModeChange('auto')}
-          className="flex items-center justify-center gap-2 py-3 px-3 bg-emerald-600 hover:bg-emerald-500 font-bold rounded-xl btn-hover shadow-lg shadow-emerald-900/30 text-xs md:text-sm"
+          onClick={handleAutoClick}
+          className={`flex items-center justify-center gap-2 py-3.5 px-3 font-bold rounded-xl btn-hover text-xs md:text-sm ${mode === 'auto' ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/40 ring-2 ring-blue-400' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}
+          title="Inicia o ciclo contínuo do Modo Automático"
         >
-          <Play className="w-4 h-4 fill-current" />
-          MODO AUTOMÁTICO
+          {isAutoRunning ? <Loader2 className="w-4 h-4 animate-spin text-white" /> : <Play className="w-4 h-4 fill-current" />}
+          {isAutoRunning ? 'AUTOMÁTICO EM EXECUÇÃO' : 'INICIAR MODO AUTOMÁTICO'}
         </button>
 
-        <button
-          onClick={() => handleModeChange('manual')}
-          className="flex items-center justify-center gap-2 py-3 px-3 bg-amber-600 hover:bg-amber-500 font-bold rounded-xl btn-hover shadow-lg shadow-amber-900/30 text-xs md:text-sm"
-        >
-          <Pause className="w-4 h-4 fill-current" />
-          MODO MANUAL
-        </button>
+        {/* Botão Dinâmico Modo Manual / Interromper */}
+        {isManualActive || isCycleRunning ? (
+          <button
+            onClick={onInterrupt}
+            className="flex items-center justify-center gap-2 py-3.5 px-3 bg-orange-600 hover:bg-orange-500 text-white font-bold rounded-xl btn-hover shadow-lg shadow-orange-900/50 animate-pulse text-xs md:text-sm ring-2 ring-orange-400"
+            title="Interrompe e trava o robô no local atual. Abre o popup para abortar (soltando a lata) ou continuar de onde parou."
+          >
+            <PauseCircle className="w-4.5 h-4.5" />
+            ⏸️ INTERROMPER OPERAÇÃO
+          </button>
+        ) : (
+          <button
+            onClick={() => handleModeChange('manual')}
+            className="flex items-center justify-center gap-2 py-3.5 px-3 bg-lime-500 hover:bg-lime-400 text-slate-950 font-black rounded-xl btn-hover shadow-lg shadow-lime-950/50 text-xs md:text-sm border border-lime-400/40"
+            title="Ativa o Modo Manual com controle de aprovação passo-a-passo"
+          >
+            <Pause className="w-4 h-4 fill-current" />
+            MODO MANUAL
+          </button>
+        )}
 
+        {/* Botão Emergência Home */}
         <button
           onClick={onEmergencyStop}
-          className="flex items-center justify-center gap-2 py-3 px-3 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl btn-hover shadow-lg shadow-amber-900/40 text-xs md:text-sm"
+          className="flex items-center justify-center gap-2 py-3.5 px-3 bg-amber-700 hover:bg-amber-600 text-white font-bold rounded-xl btn-hover shadow-lg shadow-amber-900/40 text-xs md:text-sm"
           title="Parada de emergência suave: Desliga bomba e retorna robô para HOME"
         >
           <AlertOctagon className="w-4 h-4" />
           EMERGÊNCIA (HOME)
         </button>
-
-        <button
-          onClick={onPanicStop}
-          className="flex items-center justify-center gap-2 py-3 px-3 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl btn-hover shadow-lg shadow-red-900/50 animate-pulse text-xs md:text-sm"
-          title="PÂNICO ABSOLUTO: Interrompe todos os processos, cancela o planejamento, desliga a bomba e TRAVA OS MOTORES"
-        >
-          <Flame className="w-4 h-4" />
-          🚨 BOTÃO DE PÂNICO
-        </button>
       </div>
 
-      {/* Botão de Liberação do Scan no Modo Manual */}
-      {mode === 'manual' && (
-        <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-amber-300">
-              👉 Modo Manual Ativo: O robô aguarda autorização para o próximo scan.
+      {/* Painel do Modo Manual Passo-a-Passo */}
+      {isManualActive && (
+        <div className="p-4 bg-slate-900/80 border border-amber-500/30 rounded-xl space-y-4 shadow-inner">
+          <div className="flex items-center justify-between border-b border-amber-500/20 pb-2">
+            <span className="text-xs font-bold text-amber-400 flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 text-amber-400" />
+              FLUXO DE APROVAÇÃO PASSO-A-PASSO (MODO MANUAL)
             </span>
-            <button
-              onClick={handleAuthorize}
-              disabled={authorized}
-              className={`px-4 py-2 text-xs font-bold rounded-lg flex items-center gap-2 ${authorized ? 'bg-emerald-600 text-white' : 'bg-amber-500 hover:bg-amber-400 text-slate-950 btn-hover'}`}
-            >
-              {authorized ? <CheckCircle className="w-4 h-4" /> : <RefreshCw className="w-4 h-4" />}
-              {authorized ? 'SCAN AUTORIZADO!' : 'AUTORIZAR PRÓXIMO SCAN'}
-            </button>
+            <span className="text-xs text-slate-400">
+              STATUS: <strong className="text-white uppercase">{status}</strong>
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {/* Passo 1: Ir para SCAN */}
+            <div className="p-3 bg-slate-800/80 border border-slate-700 rounded-lg space-y-2">
+              <span className="text-xs font-bold text-slate-300 block">PASSO 1: INSPEÇÃO</span>
+              <button
+                onClick={onManualStartScan}
+                disabled={status !== 'idle'}
+                className={`w-full py-2.5 px-3 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${status === 'idle' ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 btn-hover shadow-md' : 'bg-slate-700/50 text-slate-500 cursor-not-allowed'}`}
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${status === 'moving_scan' ? 'animate-spin' : ''}`} />
+                {status === 'moving_scan' ? 'INDO PARA SCAN...' : '1. IR PARA SCAN E LIGAR YOLO'}
+              </button>
+            </div>
+
+            {/* Passo 2: Autorizar PICK */}
+            <div className="p-3 bg-slate-800/80 border border-slate-700 rounded-lg space-y-2">
+              <span className="text-xs font-bold text-slate-300 block">PASSO 2: AUTORIZAR COLETA</span>
+              {status === 'at_scan_inspecting' && detectedItem ? (
+                <button
+                  onClick={onManualAuthorizePick}
+                  className="w-full py-2.5 px-3 text-xs font-bold rounded-lg flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 btn-hover shadow-lg shadow-emerald-900/40 animate-pulse"
+                >
+                  <Check className="w-4 h-4" />
+                  2. AUTORIZAR COLETA: {detectedItem.class} ({(detectedItem.confidence * 100).toFixed(0)}%)
+                </button>
+              ) : (
+                <button
+                  disabled
+                  className="w-full py-2.5 px-3 text-xs font-bold rounded-lg flex items-center justify-center gap-2 bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed"
+                >
+                  {status === 'at_scan_inspecting' ? <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" /> : <X className="w-3.5 h-3.5" />}
+                  {status === 'at_scan_inspecting' ? 'Aguardando detecção YOLO...' : '2. AUTORIZAR COLETA (PICK)'}
+                </button>
+              )}
+            </div>
+
+            {/* Passo 3: Autorizar PLACE */}
+            <div className="p-3 bg-slate-800/80 border border-slate-700 rounded-lg space-y-2">
+              <span className="text-xs font-bold text-slate-300 block">PASSO 3: AUTORIZAR SOLTURA</span>
+              {status === 'at_place_approach_waiting' ? (
+                <button
+                  onClick={onManualAuthorizePlace}
+                  className="w-full py-2.5 px-3 text-xs font-bold rounded-lg flex items-center justify-center gap-2 bg-blue-500 hover:bg-blue-400 text-white btn-hover shadow-lg shadow-blue-900/40 animate-pulse"
+                >
+                  <Check className="w-4 h-4" />
+                  3. AUTORIZAR SOLTURA DA LATA (PLACE)
+                </button>
+              ) : (
+                <button
+                  disabled
+                  className="w-full py-2.5 px-3 text-xs font-bold rounded-lg flex items-center justify-center gap-2 bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  3. AUTORIZAR SOLTURA DA LATA
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
 
-      {/* Sliders Dinâmicos de Parâmetros */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+      {/* Sliders Dinâmicos de Parâmetros (3 Sliders) */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
         {/* Slider de Cooldown */}
         <div className="space-y-2 bg-slate-800/50 p-4 rounded-xl border border-slate-700/50">
           <div className="flex justify-between text-sm">
@@ -135,10 +219,10 @@ export default function CellControlPanel({
             max="10.0"
             step="0.5"
             value={cooldown}
-            onChange={(e) => handleSliderChange(parseFloat(e.target.value), conf)}
+            onChange={(e) => handleSliderChange(parseFloat(e.target.value), conf, speedPct)}
             className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
           />
-          <p className="text-xs text-slate-400">Tempo de pausa entre entregas no modo automático para evitar acúmulo.</p>
+          <p className="text-xs text-slate-400">Pausa entre entregas no modo automático.</p>
         </div>
 
         {/* Slider de Confiança YOLO */}
@@ -153,10 +237,33 @@ export default function CellControlPanel({
             max="90"
             step="5"
             value={conf}
-            onChange={(e) => handleSliderChange(cooldown, parseFloat(e.target.value))}
+            onChange={(e) => handleSliderChange(cooldown, parseFloat(e.target.value), speedPct)}
             className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500"
           />
-          <p className="text-xs text-slate-400">Limiar mínimo para validar detecção de latas (Recomendado: 60%).</p>
+          <p className="text-xs text-slate-400">Limiar para validar latas (Recomendado: 60%).</p>
+        </div>
+
+        {/* Slider de Velocidade do Braço (Nano) */}
+        <div className="space-y-2 bg-slate-800/50 p-4 rounded-xl border border-slate-700/50">
+          <div className="flex justify-between items-center text-sm">
+            <div className="flex items-center gap-2">
+              <span className="text-slate-300 font-medium">Velocidade do Braço (Nano)</span>
+              <span className="text-[10px] font-bold text-amber-400 bg-amber-950/80 px-1.5 py-0.5 rounded border border-amber-700/60 uppercase tracking-wider">
+                Em construção
+              </span>
+            </div>
+            <span className="font-bold text-amber-400">{speedPct}%</span>
+          </div>
+          <input
+            type="range"
+            min="1"
+            max="15"
+            step="1"
+            value={speedPct}
+            onChange={(e) => handleSliderChange(cooldown, conf, parseInt(e.target.value, 10))}
+            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-amber-400"
+          />
+          <p className="text-xs text-amber-400/80 font-medium">🛠️ Funcionalidade em construção (recurso em testes).</p>
         </div>
       </div>
     </div>

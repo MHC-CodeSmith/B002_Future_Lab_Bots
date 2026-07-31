@@ -11,7 +11,8 @@ export default function CameraVisionPanel({
   onTogglePump,
   onToggleYoloTest,
   onRestartCamera,
-  onStopCamera
+  onStopCamera,
+  onLaunchYoloWindow
 }) {
   const [streamError, setStreamError] = useState(false);
   const [streamKey, setStreamKey] = useState(Date.now());
@@ -19,15 +20,9 @@ export default function CameraVisionPanel({
   const [stopping, setStopping] = useState(false);
   const retryTimers = useRef([]);
 
-  const rawUrl = streamUrl || "http://192.168.0.250:8080/stream.mjpg";
+  const defaultHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+  const rawUrl = streamUrl || `http://${defaultHost}:8080/stream.mjpg`;
   const liveUrl = `${rawUrl}${rawUrl.includes('?') ? '&' : '?'}t=${streamKey}`;
-
-  // Tick do relógio a cada 150ms para re-avaliação instantânea da tela
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => setTick(k => k + 1), 150);
-    return () => clearInterval(t);
-  }, []);
 
   // Considera recente se a mensagem chegou nos últimos 1.5 segundos
   const isFresh = lastYolo && lastYolo.timestamp && Math.abs(Date.now() / 1000 - lastYolo.timestamp) < 1.5;
@@ -37,18 +32,20 @@ export default function CameraVisionPanel({
   useEffect(() => {
     if (streamError && !restarting && !stopping && cameraOnline) {
       const interval = setInterval(() => {
-        setStreamError(false);
         setStreamKey(Date.now());
       }, 3000);
       return () => clearInterval(interval);
     }
   }, [streamError, restarting, stopping, cameraOnline]);
 
-  const handleStartOrRestart = async () => {
-    // Limpa timers anteriores
-    retryTimers.current.forEach(t => clearTimeout(t));
-    retryTimers.current = [];
+  // Limpa timers no desmonte
+  useEffect(() => {
+    return () => {
+      retryTimers.current.forEach(clearTimeout);
+    };
+  }, []);
 
+  const handleStartOrRestart = async () => {
     setRestarting(true);
     setStopping(false);
     setStreamError(false);
@@ -234,6 +231,27 @@ export default function CameraVisionPanel({
             <Power className="w-3.5 h-3.5" />
             {pumpActive ? 'DESLIGAR BOMBA' : 'LIGAR BOMBA'}
           </button>
+
+          {/* Developer Tools: Janela OpenCV e Stream Bruto */}
+          {onLaunchYoloWindow && (
+            <button
+              onClick={onLaunchYoloWindow}
+              className="px-3 py-1.5 bg-purple-600/30 hover:bg-purple-600 text-purple-200 border border-purple-500/40 text-xs font-bold rounded-lg flex items-center gap-1.5 btn-hover"
+              title="Abre a janela gráfica OpenCV com bounding boxes no monitor do PC Host"
+            >
+              👁️ JANELA OPENCV (GUI)
+            </button>
+          )}
+
+          <a
+            href={rawUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-600 text-xs font-bold rounded-lg flex items-center gap-1.5 btn-hover"
+            title="Abre o stream MJPEG direto na porta :8080 em nova aba"
+          >
+            🔗 STREAM BRUTO (:8080)
+          </a>
         </div>
       </div>
 

@@ -135,17 +135,51 @@ def stop_camera_stream():
 
 @router.post("/restart_nano_hardware")
 def restart_nano_hardware():
-    """Reinicia a ponte de comunicação de hardware (mycobot_hw), a câmera na Nano e o planejador MoveIt (galactic_demo.launch.py) no container."""
-    def async_restart_hw():
-        # 1. Reinicia a ponte de hardware na Jetson Nano
+    """Reinicia a ponte de comunicação de hardware (mycobot_hw), trava juntas pra não cair, desliga bomba e câmera, e reinicia o sistema."""
+    # 0. Interrompe processos ativos, trava servos para o braço não cair, desliga bomba e limpa YOLO
+    try:
+        from backend.api.cell_routes import _reset_cell_panic_lock, cell_state
+        from backend.api.cobot_routes import stop_yolo_test_process
+        from backend.ros2_nodes.cobot_node import get_cobot_node
+        import urllib.request
+        from backend.config.settings import get_settings
+
+        _reset_cell_panic_lock()
+        stop_yolo_test_process()
+
+        # Desliga bomba
+        node = get_cobot_node()
         try:
-            print("[INFO] Reiniciando ponte de hardware na Jetson Nano via SSH...")
-            ssh_cmd = "sshpass -p Elephant ssh -o StrictHostKeyChecking=no er@192.168.0.250 'pkill -9 -f mycobot_bridge 2>/dev/null || true; fuser -k 8088/tcp 2>/dev/null || true'"
-            subprocess.run(ssh_cmd, shell=True, timeout=5)
-            time.sleep(1.0)
-            launch_cmd = "sshpass -p Elephant ssh -o StrictHostKeyChecking=no er@192.168.0.250 'nohup bash -c \"source /opt/ros/galactic/setup.bash && source ~/custom_ws/install/setup.bash && ros2 launch mycobot_hw_interface mycobot_hw.launch.py mock:=False baud:=1000000\" > /tmp/hw_bridge.log 2>&1 &'"
+            node.set_pump(False)
+        except Exception:
+            pass
+
+        # Trava os servos imediatamente via HTTP Micro-Bridge para o braço não cair
+        nano_ip = get_settings().JETSON_NANO_IP
+        try:
+            req = urllib.request.Request(f"http://{nano_ip}:8088/servos/lock")
+            with urllib.request.urlopen(req, timeout=0.5) as resp:
+                print(f"[INFO] Servos travados para segurança no restart/pânico via HTTP ({nano_ip})")
+        except Exception as e:
+            print(f"[WARN] HTTP Micro-Bridge servos/lock indisponível: {e}")
+
+    except Exception as e:
+        print(f"[WARN] Erro durante preparação pré-restart: {e}")
+
+    def async_restart_hw():
+        # 1. Reinicia a ponte de hardware na Jetson Nano (liberação de porta serial /dev/ttyTHS1 + start_bridge.sh)
+        try:
+            from backend.config.settings import get_settings
+            nano_ip = get_settings().JETSON_NANO_IP
+            print(f"[INFO] Reiniciando ponte de hardware na Jetson Nano ({nano_ip}) via SSH (start_bridge.sh)...")
+            ssh_flags = "-o ConnectTimeout=4 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+            kill_cmd = f"sshpass -p Elephant ssh {ssh_flags} er@{nano_ip} 'echo Elephant | sudo -S fuser -k /dev/ttyTHS1 2>/dev/null || true; pkill -9 -f mycobot_bridge 2>/dev/null || true; fuser -k 8088/tcp 2>/dev/null || true; truncate -s 0 /tmp/bridge.log'"
+            subprocess.run(kill_cmd, shell=True, timeout=6)
+            time.sleep(2.5)
+
+            launch_cmd = f"sshpass -p Elephant ssh {ssh_flags} er@{nano_ip} 'bash -c \"nohup bash ~/start_bridge.sh >/tmp/bridge.log 2>&1 </dev/null &\" </dev/null >/dev/null 2>/dev/null'"
             subprocess.run(launch_cmd, shell=True, timeout=8)
-            print("[INFO] Ponte de hardware relançada na Jetson Nano com sucesso!")
+            print(f"[INFO] Ponte de hardware (start_bridge.sh) relançada na Jetson Nano ({nano_ip}) com sucesso!")
         except Exception as e:
             print(f"[WARN] Erro durante reinicialização de hardware do Nano: {e}")
 
@@ -158,12 +192,12 @@ def restart_nano_hardware():
         except Exception as e:
             print(f"[WARN] Erro ao auto-iniciar câmera no restart do hardware: {e}")
 
-        # 3. Reinicia o MoveIt Planning e RViz dentro do container mycobot_ros2 no PC
+        # 3. Reinicia o MoveIt Planning (fecha janelas gráficas antigas do RViz e YOLO)
         try:
-            print("[INFO] Reiniciando MoveIt Planning (galactic_demo.launch.py) no container mycobot_ros2...")
-            cmd_moveit = 'docker exec -d mycobot_ros2 bash -c "pkill -9 -f move_group 2>/dev/null || true; pkill -9 -f rviz 2>/dev/null || true; sleep 1; source /opt/ros/galactic/setup.bash && source /root/custom_ws/install/setup.bash && nohup ros2 launch mycobot_280_jn_moveit_config galactic_demo.launch.py > /tmp/moveit.log 2>&1 &"'
+            print("[INFO] Encerrando janelas gráficas (RViz, YOLO) e reiniciando MoveIt Planning no container mycobot_ros2...")
+            cmd_moveit = 'docker exec -d mycobot_ros2 bash -c "pkill -9 -f move_group 2>/dev/null || true; pkill -9 -f rviz 2>/dev/null || true; pkill -9 -f cam_yolo_test 2>/dev/null || true; sleep 1; source /opt/ros/galactic/setup.bash && source /root/custom_ws/install/setup.bash && export ROS_DOMAIN_ID=42 && export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp && nohup ros2 launch mycobot_280_jn_moveit_config galactic_demo.launch.py > /tmp/moveit.log 2>&1 &"'
             subprocess.run(cmd_moveit, shell=True, timeout=10)
-            print("[INFO] MoveIt Planning e RViz reiniciados com sucesso!")
+            print("[INFO] Janelas gráficas antigas encerradas e MoveIt Planning reiniciado com sucesso!")
         except Exception as e:
             print(f"[WARN] Erro ao reiniciar MoveIt planning no container: {e}")
 
@@ -172,7 +206,58 @@ def restart_nano_hardware():
 
     return {
         "status": "success",
-        "message": "Comando de reinicialização de hardware (Nano), câmera e planejador MoveIt (PC) enviado com sucesso! Aguarde ~5 segundos."
+        "message": "Célula desbloqueada e comando de reinicialização de hardware (Nano), câmera e planejador MoveIt (PC) enviado com sucesso! Aguarde ~5 segundos."
     }
+
+def _launch_gui_in_pty(cmd_str: str):
+    """Dispara um comando com alocação PTY (Pseudo-Terminal -t) mantendo o PTY mestre ativo para que o Qt/RViz/OpenCV exiba a janela no monitor do PC Host."""
+    def _worker():
+        try:
+            import pty
+            master, slave = pty.openpty()
+            proc = subprocess.Popen(
+                cmd_str,
+                shell=True,
+                stdin=slave,
+                stdout=slave,
+                stderr=slave,
+                close_fds=True
+            )
+            os.close(slave)
+            # Mantém o PTY mestre vivo para evitar SIGHUP no docker exec -t
+            while proc.poll() is None:
+                try:
+                    data = os.read(master, 1024)
+                    if not data:
+                        break
+                except Exception:
+                    break
+            try:
+                os.close(master)
+            except Exception:
+                pass
+        except Exception as e:
+            print(f"[WARN] Erro ao disparar GUI via PTY: {e}")
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+
+@router.post("/launch_rviz")
+def launch_rviz():
+    """Abre a janela gráfica completa do MoveIt 2 + RViz (galactic_demo.launch.py) na tela do PC Host."""
+    try:
+        print("[INFO] Lançando interface gráfica completa do MoveIt 2 / RViz (galactic_demo.launch.py) no PC Host (DISPLAY=:0 via PTY)...")
+        # Garante a permissão X11 e copia a chave .Xauthority para o container mycobot_ros2
+        subprocess.run("docker cp /home/future-lab/.Xauthority mycobot_ros2:/root/.Xauthority 2>/dev/null || true", shell=True, timeout=3)
+        subprocess.run("xhost +local:root 2>/dev/null || xhost + 2>/dev/null || true", shell=True, timeout=3)
+        cmd_moveit_gui = 'docker exec -t mycobot_ros2 bash -c "export DISPLAY=:0; export XAUTHORITY=/root/.Xauthority; source /opt/ros/galactic/setup.bash && source /root/custom_ws/install/setup.bash && export ROS_DOMAIN_ID=42 && export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp && pkill -9 -f rviz 2>/dev/null || true; pkill -9 -f move_group 2>/dev/null || true; sleep 0.5; ros2 launch mycobot_280_jn_moveit_config galactic_demo.launch.py"'
+        _launch_gui_in_pty(cmd_moveit_gui)
+        return {
+            "status": "success",
+            "message": "Janela completa do MoveIt 2 / RViz 2 (galactic_demo.launch.py) disparada na tela do PC Host com sucesso!"
+        }
+    except Exception as e:
+        print(f"[WARN] Erro ao disparar MoveIt 2 RViz GUI: {e}")
+        raise HTTPException(status_code=500, detail=f"Falha ao abrir RViz 2: {e}")
 
 

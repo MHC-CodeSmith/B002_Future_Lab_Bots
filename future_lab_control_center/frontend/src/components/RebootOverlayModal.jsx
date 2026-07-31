@@ -6,11 +6,11 @@ export default function RebootOverlayModal({ isRebooting, onRebootComplete }) {
   const [progress, setProgress] = useState(0);
 
   const steps = [
-    { id: 1, title: 'Parando processos antigos da Jetson Nano e MoveIt...', duration: 1500 },
-    { id: 2, title: 'Iniciando ponte de comunicação de hardware (mycobot_hw) na Nano...', duration: 2500 },
-    { id: 3, title: 'Subindo servidor de transmissão de vídeo da Câmera MJPEG...', duration: 2000 },
-    { id: 4, title: 'Inicializando planejador MoveIt (galactic_demo) e RViz no PC...', duration: 2500 },
-    { id: 5, title: 'Validando conexão da rede e telemetria das juntas...', duration: 1500 },
+    { id: 1, title: 'Parando processos antigos da Jetson Nano e MoveIt...', duration: 2000 },
+    { id: 2, title: 'Iniciando ponte de comunicação de hardware (mycobot_hw) na Nano...', duration: 3500 },
+    { id: 3, title: 'Subindo servidor de transmissão de vídeo da Câmera MJPEG...', duration: 2500 },
+    { id: 4, title: 'Inicializando planejador MoveIt (galactic_demo) e RViz no PC...', duration: 3500 },
+    { id: 5, title: 'Validando conexão da rede e telemetria das juntas...', duration: 2500 },
   ];
 
   useEffect(() => {

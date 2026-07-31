@@ -3,15 +3,19 @@ import NetworkStatusHeader from '../components/NetworkStatusHeader';
 import CellControlPanel from '../components/CellControlPanel';
 import CameraVisionPanel from '../components/CameraVisionPanel';
 import TeachModePanel from '../components/TeachModePanel';
-import TurtleBotPanel from '../components/TurtleBotPanel';
+import TurtleBotDashboardTab from '../components/TurtleBotDashboardTab';
 import NotificationToast from '../components/NotificationToast';
 import PanicOverlayModal from '../components/PanicOverlayModal';
 import RebootOverlayModal from '../components/RebootOverlayModal';
+import InterruptOverlayModal from '../components/InterruptOverlayModal';
+import { Bot, Cpu } from 'lucide-react';
 
 export default function Dashboard() {
+  const [activeTab, setActiveTab] = useState('cobot'); // 'cobot' | 'turtlebot'
   const [health, setHealth] = useState(null);
   const [cellStatus, setCellStatus] = useState(null);
   const [poses, setPoses] = useState(null);
+  const [tbStatus, setTbStatus] = useState(null);
   const [notification, setNotification] = useState(null);
   const [isRebooting, setIsRebooting] = useState(false);
 
@@ -53,337 +57,206 @@ export default function Dashboard() {
     }
   };
 
-  const fetchCellStatus = async () => {
+  const refreshStatus = async () => {
     const apiBase = getApiBase();
     try {
-      const resCell = await fetch(`${apiBase}/cell/status`).then(r => r.json());
-      setCellStatus(resCell);
-      setOptimisticPump(prev => (prev !== null && Boolean(resCell?.pump_active) === prev ? null : prev));
-      setOptimisticYoloTest(prev => (prev !== null && Boolean(resCell?.yolo_test_active) === prev ? null : prev));
-    } catch (e) {
-      console.warn("API de célula conectando...", e);
-    }
-  };
-
-  const fetchSlowStatus = async () => {
-    const apiBase = getApiBase();
-    try {
-      const [resHealth, resPoses] = await Promise.all([
-        fetch(`${apiBase}/health`).then(r => r.json()),
-        fetch(`${apiBase}/cobot/poses`).then(r => r.json())
+      const [hRes, cRes, pRes, tbRes] = await Promise.all([
+        fetch(`${apiBase}/health/`).catch(() => null),
+        fetch(`${apiBase}/cell/status`).catch(() => null),
+        fetch(`${apiBase}/cobot/poses`).catch(() => null),
+        fetch(`${apiBase}/turtlebot/status`).catch(() => null)
       ]);
-      setHealth(resHealth);
-      setPoses(resPoses);
-    } catch (e) {
-      console.warn("API de saúde conectando...", e);
+
+      if (hRes && hRes.ok) setHealth(await hRes.json());
+      if (cRes && cRes.ok) {
+        const cData = await cRes.json();
+        setCellStatus(cData);
+        setOptimisticPump(null);
+        setOptimisticYoloTest(null);
+      }
+      if (pRes && pRes.ok) setPoses(await pRes.json());
+      if (tbRes && tbRes.ok) setTbStatus(await tbRes.json());
+    } catch (err) {
+      console.error("Erro ao atualizar status:", err);
     }
   };
 
   useEffect(() => {
-    // Por padrão: Sempre que a página for carregada/recarregada no navegador:
-    // 1. O modo de teste do YOLO é desligado
-    // 2. A câmera é reiniciada no Nano
-    const initOnPageLoad = async () => {
-      const apiBase = getApiBase();
-      try {
-        await Promise.all([
-          fetch(`${apiBase}/cobot/yolo_test`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ active: false })
-          }),
-          fetch(`${apiBase}/health/restart_camera`, { method: 'POST' })
-        ]);
-      } catch (e) {
-        console.warn("Falha ao reinicializar estado na carga da página:", e);
-      }
-      fetchCellStatus();
-      fetchSlowStatus();
-    };
-
-    initOnPageLoad();
-
-    // Polling ultrarrápido de 250ms APENAS para o status da célula (sem congestionar HTTP)
-    const fastInterval = setInterval(fetchCellStatus, 250);
-    // Polling lento de 3000ms para saúde de rede e arquivo de poses
-    const slowInterval = setInterval(fetchSlowStatus, 3000);
-
-    return () => {
-      clearInterval(fastInterval);
-      clearInterval(slowInterval);
-    };
+    refreshStatus();
+    const interval = setInterval(refreshStatus, 2000);
+    return () => clearInterval(interval);
   }, []);
 
+  // Handlers Célula & Cobot
   const handleUpdateMode = async (payload) => {
     const apiBase = getApiBase();
+    const modeObj = typeof payload === 'string' 
+      ? { mode: payload, cooldown_sec: 5.0, yolo_conf: 0.60 } 
+      : payload;
     await safeApiCall(`${apiBase}/cell/mode`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    fetchCellStatus();
+      body: JSON.stringify(modeObj)
+    }, '⚙️ CONFIGURAÇÃO DE MODO');
+    refreshStatus();
   };
 
-  const handleAuthorizeScan = async () => {
+  const handleAutoStart = async () => {
     const apiBase = getApiBase();
-    await safeApiCall(`${apiBase}/cell/authorize_scan`, { method: 'POST' });
-    fetchCellStatus();
+    await safeApiCall(`${apiBase}/cell/auto/start`, { method: 'POST' });
+    refreshStatus();
+  };
+
+  const handleAutoStop = async () => {
+    const apiBase = getApiBase();
+    await safeApiCall(`${apiBase}/cell/auto/stop`, { method: 'POST' });
+    refreshStatus();
+  };
+
+  const handleManualStartScan = async () => {
+    const apiBase = getApiBase();
+    await safeApiCall(`${apiBase}/cell/manual/start_scan`, { method: 'POST' }, '🔍 MODO MANUAL: MOVER PARA SCAN');
+    refreshStatus();
+  };
+
+  const handleManualAuthorizePick = async () => {
+    const apiBase = getApiBase();
+    await safeApiCall(`${apiBase}/cell/manual/authorize_pick`, { method: 'POST' });
+    refreshStatus();
+  };
+
+  const handleManualAuthorizePlace = async () => {
+    const apiBase = getApiBase();
+    await safeApiCall(`${apiBase}/cell/manual/authorize_place`, { method: 'POST' });
+    refreshStatus();
+  };
+
+  const handleInterrupt = async () => {
+    const apiBase = getApiBase();
+    await safeApiCall(`${apiBase}/cell/interrupt`, { method: 'POST' });
+    refreshStatus();
+  };
+
+  const handleConfirmInterrupt = async (shouldAbort) => {
+    const apiBase = getApiBase();
+    await safeApiCall(`${apiBase}/cell/interrupt/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ abort: Boolean(shouldAbort) })
+    }, '⏸️ INTERRUPÇÃO DA CÉLULA');
+    refreshStatus();
   };
 
   const handleEmergencyStop = async () => {
-    // Validação preventiva no cliente: checa se a pose home foi gravada
-    const homeRecorded = poses?.poses?.find(p => p.name === 'home')?.recorded;
-    if (!homeRecorded) {
-      setNotification({
-        type: 'warning',
-        title: '⚠️ EMERGÊNCIA (HOME) IMPOSSÍVEL',
-        message: 'A pose "home" ainda não foi salva no disco! Grave e salve a pose "home" antes de acionar o retorno de emergência.'
-      });
-      return;
-    }
-
-    setOptimisticPump(false);
-    setOptimisticYoloTest(false);
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/cell/stop`, { method: 'POST' }, '⚠️ EMERGÊNCIA (HOME) BLOQUEADA');
-    if (ok) {
-      setNotification({
-        type: 'success',
-        title: '🛑 EMERGÊNCIA ACIONADA',
-        message: data.message || 'Parada de emergência acionada. Retornando o robô para HOME.'
-      });
-    }
-    fetchCellStatus();
+    await safeApiCall(`${apiBase}/cell/stop`, { method: 'POST' }, '🛑 PARADA DE EMERGÊNCIA');
+    refreshStatus();
   };
 
   const handlePanicStop = async () => {
-    setOptimisticPump(false);
-    setOptimisticYoloTest(false);
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/cell/panic`, { method: 'POST' }, '🚨 PÂNICO ACIONADO');
-    setNotification({
-      type: 'panic',
-      title: '🚨 PÂNICO GERAL ATIVADO',
-      message: data?.message || 'Todos os componentes do projeto foram desligados! O sistema requer reinicialização.'
-    });
-    fetchCellStatus();
+    await safeApiCall(`${apiBase}/cell/panic`, { method: 'POST' });
+    refreshStatus();
   };
 
   const handleResetPanic = async () => {
-    setIsRebooting(true);
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/cell/reset_panic`, { method: 'POST' }, '🔄 DESBLOQUEIO DE PÂNICO');
-    if (ok) {
-      setNotification({
-        type: 'success',
-        title: '🔄 SISTEMA REINICIADO',
-        message: data?.message || 'Pânico desbloqueado. Componentes e ponte do Nano sendo reiniciados.'
-      });
-    }
+    await safeApiCall(`${apiBase}/cell/reset_panic`, { method: 'POST' });
+    refreshStatus();
   };
 
   const handleRestartNanoHardware = async () => {
     setIsRebooting(true);
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/health/restart_nano_hardware`, { method: 'POST' }, '🔄 REINICIAR NANO');
-    if (ok) {
-      setNotification({
-        type: 'success',
-        title: '🔄 REINICIANDO PONTE NANO (HARDWARE)',
-        message: data.message || 'Comando enviado para a Jetson Nano via SSH.'
-      });
-    }
+    await safeApiCall(`${apiBase}/health/restart_nano_hardware`, { method: 'POST' }, '🔄 REINICIANDO NANO');
   };
 
-  const handleTogglePump = async (on) => {
-    setOptimisticPump(on);
+  const handleTogglePump = async () => {
+    const targetState = !Boolean(cellStatus?.pump_active);
+    setOptimisticPump(targetState);
     const apiBase = getApiBase();
-    const { ok } = await safeApiCall(`${apiBase}/cobot/pump`, {
+    await safeApiCall(`${apiBase}/cobot/pump`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ on })
-    });
-    if (!ok) setOptimisticPump(null);
-    fetchCellStatus();
+      body: JSON.stringify({ on: targetState })
+    }, '💨 BOMBA DE SUCÇÃO');
+    refreshStatus();
   };
 
-  const handleToggleYoloTest = async (active) => {
-    setOptimisticYoloTest(active);
+  const handleToggleYoloTest = async () => {
+    const targetState = !Boolean(cellStatus?.yolo_test_active);
+    setOptimisticYoloTest(targetState);
     const apiBase = getApiBase();
-    const { ok } = await safeApiCall(`${apiBase}/cobot/yolo_test`, {
+    await safeApiCall(`${apiBase}/cobot/yolo_test`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ active })
+      body: JSON.stringify({ active: targetState, conf: cellStatus?.cell?.yolo_conf ?? 0.60 })
     });
-    if (!ok) setOptimisticYoloTest(null);
-    fetchCellStatus();
-  };
-
-  const refreshStatus = async () => {
-    await Promise.all([fetchCellStatus(), fetchSlowStatus()]);
+    refreshStatus();
   };
 
   const handleRestartCamera = async () => {
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/health/restart_camera`, { method: 'POST' });
-    if (ok) {
-      setNotification({
-        type: 'success',
-        title: '📷 REINICIANDO CÂMERA',
-        message: data.message || 'Comando de reinicialização da câmera disparado.'
-      });
-    }
+    await safeApiCall(`${apiBase}/health/restart_camera`, { method: 'POST' });
     refreshStatus();
   };
 
   const handleStopCamera = async () => {
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/health/stop_camera`, { method: 'POST' });
-    if (ok) {
-      setNotification({
-        type: 'info',
-        title: '📷 CÂMERA DESLIGADA',
-        message: data.message || 'Servidor de câmera encerrado no Nano.'
-      });
-    }
+    await safeApiCall(`${apiBase}/health/stop_camera`, { method: 'POST' });
     refreshStatus();
   };
 
-  const handleMovePoseFail = (poseName) => {
-    setNotification({
-      type: 'warning',
-      title: '⚠️ MOVIMENTO IMPOSSÍVEL (POSE NÃO SALVA EM DISCO)',
-      message: `A pose "${poseName}" ainda não foi salva no disco! Pressione "GRAVAR (3)" na linha da pose e em seguida clique em "SALVAR NO DISCO (5)" para habilitar o movimento.`
+  const handleRelease = async (joint_id = null) => {
+    const apiBase = getApiBase();
+    await safeApiCall(`${apiBase}/cobot/teach/release`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ joint_id })
     });
-  };
-
-  const handleMovePose = async (poseName) => {
-    const poseObj = poses?.poses?.find(p => p.name === poseName);
-    if (!poseObj?.recorded) {
-      handleMovePoseFail(poseName);
-      return;
-    }
-
-    setOptimisticYoloTest(false);
-    const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/cobot/move/${poseName}`, { method: 'POST' }, '⚠️ ERRO AO MOVER PARA POSE');
-    if (ok) {
-      setNotification({
-        type: 'success',
-        title: '📍 MOVENDO PARA POSE',
-        message: data?.message || `Braço deslocando-se para a pose '${poseName}'.`
-      });
-    }
-    refreshStatus();
-  };
-
-  const handleRelease = async () => {
-    const apiBase = getApiBase();
-    const { ok } = await safeApiCall(`${apiBase}/cobot/teach/release`, { method: 'POST' });
-    if (ok) {
-      setNotification({
-        type: 'warning',
-        title: '🔓 MOTORES LIBERADOS',
-        message: 'Torques soltos. SEGURE O BRAÇO DO ROBÔ manualmente!'
-      });
-    }
     refreshStatus();
   };
 
   const handleLock = async () => {
     const apiBase = getApiBase();
-    const { ok } = await safeApiCall(`${apiBase}/cobot/teach/lock`, { method: 'POST' });
+    await safeApiCall(`${apiBase}/cobot/teach/lock`, { method: 'POST' });
+    refreshStatus();
+  };
+
+  const handleRecord = async (name) => {
+    const apiBase = getApiBase();
+    const { ok, data } = await safeApiCall(`${apiBase}/cobot/teach/record/${name}`, { method: 'POST' }, `🔴 GRAVAR POSE ${name ? name.toUpperCase() : ''}`);
     if (ok) {
       setNotification({
         type: 'success',
-        title: '🔒 MOTORES TRAVADOS',
-        message: 'Motores fixados na posição angular atual.'
+        title: `🔴 POSE '${name ? name.toUpperCase() : ''}' GRAVADA`,
+        message: `Ângulos gravados em memória com sucesso!`
       });
     }
     refreshStatus();
   };
 
-  const handleRecord = async (poseName) => {
-    const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/cobot/teach/record/${poseName}`, { method: 'POST' });
-    if (ok) {
-      if (data?.joints) {
-        setPoses(prev => {
-          if (!prev || !prev.poses) return prev;
-          return {
-            ...prev,
-            poses: prev.poses.map(p => p.name === poseName ? { ...p, recorded: true, joints: data.joints } : p)
-          };
-        });
-      }
-      setNotification({
-        type: 'success',
-        title: '📍 POSE GRAVADA EM MEMÓRIA',
-        message: `Pose "${poseName}" capturada com sucesso! [${data?.joints?.map(v => v.toFixed(2)).join(', ')}]. Lembre-se de clicar em "SALVAR POSES NO DISCO (5)".`
-      });
-    }
-    await refreshStatus();
-  };
-
   const handleSave = async () => {
     const apiBase = getApiBase();
-    const { ok } = await safeApiCall(`${apiBase}/cobot/teach/save`, { method: 'POST' });
+    const { ok, data } = await safeApiCall(`${apiBase}/cobot/teach/save`, { method: 'POST' }, '💾 SALVAR CALIBRAGEM');
     if (ok) {
       setNotification({
         type: 'success',
-        title: '💾 POSES SALVAS NO DISCO',
-        message: 'Arquivo de calibragem atualizado com sucesso!'
+        title: '💾 CALIBRAGEM SALVA NO DISCO',
+        message: data.message || 'Todas as poses salvas no arquivo YAML do robô!'
       });
     }
-    await refreshStatus();
+    refreshStatus();
   };
 
-  const handlePlayback = async () => {
-    const currentPlaybackStatus = poses?.playback_status || 'idle';
-
-    // Se estiver IDLE, valida pré-requisitos de poses salvas
-    if (currentPlaybackStatus === 'idle') {
-      const missing = (poses?.poses || [])
-        .filter(p => !p.recorded)
-        .map(p => p.name);
-
-      if (missing.length > 0) {
-        setNotification({
-          type: 'warning',
-          title: '⚠️ PLAYBACK IMPOSSÍVEL (CALIBRAGEM INCOMPLETA)',
-          message: `Não há poses salvas no disco suficientes! Poses pendentes: [${missing.join(', ')}]. Grave e salve todas as 6 poses no disco antes de iniciar o playback.`
-        });
-        return;
-      }
-    }
-
+  const handlePlayback = async (filename) => {
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/cobot/teach/playback`, { method: 'POST' }, '⚠️ ERRO NO PLAYBACK');
-    if (ok) {
-      const newStatus = data?.playback_status || (currentPlaybackStatus === 'running' ? 'paused' : 'running');
-      setPoses(prev => prev ? { ...prev, playback_status: newStatus } : prev);
-
-      if (data?.status === 'paused') {
-        setNotification({
-          type: 'warning',
-          title: '⏸️ PLAYBACK PAUSADO',
-          message: 'Movimentação pausada! Câmera e bomba mantidas no estado atual. Clique em "RETOMAR PLAYBACK" para continuar.'
-        });
-      } else if (data?.status === 'resumed') {
-        setNotification({
-          type: 'success',
-          title: '▶️ PLAYBACK RETOMADO',
-          message: 'Movimentação do robô retomada com sucesso!'
-        });
-      } else {
-        setNotification({
-          type: 'success',
-          title: '▶️ PLAYBACK INICIADO',
-          message: data?.message || 'Trajetória em execução em segundo plano!'
-        });
-      }
-    }
-    await refreshStatus();
+    await safeApiCall(`${apiBase}/cobot/teach/playback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename })
+    });
+    refreshStatus();
   };
 
   const handleClear = async () => {
@@ -401,15 +274,126 @@ export default function Dashboard() {
 
   const handleRestore = async () => {
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/cobot/teach/restore`, { method: 'POST' }, '⏪ RESTAURAÇÃO DE CALIBRAGEM');
+    const { ok, data } = await safeApiCall(`${apiBase}/cobot/teach/restore`, { method: 'POST' }, '⏪ RESTAURAR BACKUP');
     if (ok) {
       setNotification({
         type: 'success',
-        title: '⏪ CALIBRAGEM RESTAURADA',
-        message: data.message || 'Todas as poses da calibragem anterior foram recuperadas com sucesso!'
+        title: '⏪ BACKUP RESTAURADO',
+        message: data?.message || 'Última calibragem restaurada com sucesso!'
       });
     }
     await refreshStatus();
+  };
+
+  const handleMovePose = async (name) => {
+    const apiBase = getApiBase();
+    await safeApiCall(`${apiBase}/cobot/move/${name}`, { method: 'POST' }, `🤖 MOVER PARA ${name.toUpperCase()}`);
+    refreshStatus();
+  };
+
+  const handleMovePoseFail = async (name) => {
+    const apiBase = getApiBase();
+    await safeApiCall(`${apiBase}/cobot/move/${name}`, { method: 'POST' }, `🤖 MOVER PARA ${name.toUpperCase()}`);
+    refreshStatus();
+  };
+
+  const handleLaunchRviz = async () => {
+    const apiBase = getApiBase();
+    const { ok, data } = await safeApiCall(`${apiBase}/health/launch_rviz`, { method: 'POST' }, '🖥️ RVIZ 2 (3D)');
+    if (ok) {
+      setNotification({
+        type: 'info',
+        title: '🖥️ RVIZ 2 (3D MOVES) INICIADO',
+        message: data.message || 'Janela gráfica 3D do RViz 2 disparada no monitor do PC Host!'
+      });
+    }
+  };
+
+  const handleLaunchYoloWindow = async () => {
+    const apiBase = getApiBase();
+    const { ok, data } = await safeApiCall(`${apiBase}/cobot/launch_yolo_window`, { method: 'POST' }, '👁️ OPENCV YOLO');
+    if (ok) {
+      setNotification({
+        type: 'info',
+        title: '👁️ JANELA OPENCV DISPARADA',
+        message: data.message || 'Janela gráfica OpenCV com bounding boxes iniciada no PC Host!'
+      });
+    }
+  };
+
+  // Handlers TurtleBot 4
+  const handleTbDock = async () => {
+    const apiBase = getApiBase();
+    await safeApiCall(`${apiBase}/turtlebot/dock`, { method: 'POST' }, '⚡ TURTLEBOT DOCK');
+    refreshStatus();
+  };
+
+  const handleTbUndock = async () => {
+    const apiBase = getApiBase();
+    await safeApiCall(`${apiBase}/turtlebot/undock`, { method: 'POST' }, '🚀 TURTLEBOT UNDOCK');
+    refreshStatus();
+  };
+
+  const handleTbLaunchLocalization = async () => {
+    const apiBase = getApiBase();
+    await safeApiCall(`${apiBase}/turtlebot/launch_localization`, { method: 'POST' }, '📍 LOCALIZAÇÃO NAV2');
+    refreshStatus();
+  };
+
+  const handleTbLaunchNav2 = async () => {
+    const apiBase = getApiBase();
+    await safeApiCall(`${apiBase}/turtlebot/launch_nav2`, { method: 'POST' }, '🧭 NAV2 STACK');
+    refreshStatus();
+  };
+
+  const handleTbLaunchViz = async () => {
+    const apiBase = getApiBase();
+    await safeApiCall(`${apiBase}/turtlebot/launch_viz`, { method: 'POST' }, '🖥️ RVIZ NAV2');
+  };
+
+  const handleTbLaunchMissionManager = async () => {
+    const apiBase = getApiBase();
+    await safeApiCall(`${apiBase}/turtlebot/launch_mission_manager`, { method: 'POST' }, '📦 MISSION MANAGER');
+    refreshStatus();
+  };
+
+  const handleTbTriggerDelivery = async () => {
+    const apiBase = getApiBase();
+    await safeApiCall(`${apiBase}/turtlebot/trigger_delivery`, { method: 'POST' }, '🚚 START DELIVERY');
+    refreshStatus();
+  };
+
+  const handleTbTriggerRestock = async () => {
+    const apiBase = getApiBase();
+    await safeApiCall(`${apiBase}/turtlebot/trigger_restock`, { method: 'POST' }, '📦 START RESTOCK');
+    refreshStatus();
+  };
+
+  const handleTbTriggerPatrol = async () => {
+    const apiBase = getApiBase();
+    await safeApiCall(`${apiBase}/turtlebot/trigger_patrol`, { method: 'POST' }, '🔄 START PATROL');
+    refreshStatus();
+  };
+
+  const handleTbLaunchIntegrated3D = async () => {
+    const apiBase = getApiBase();
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/launch_integrated_3d`, { method: 'POST' }, '🌐 VISÃO 3D INTEGRADA');
+    if (ok) {
+      setNotification({
+        type: 'info',
+        title: '🌐 VISÃO 3D INTEGRADA INICIADA',
+        message: data.message || 'Cena 3D Integrada (Cobot + TurtleBot 4) iniciada!'
+      });
+    }
+  };
+
+  const handleTbTeleop = async (linear_x, angular_z) => {
+    const apiBase = getApiBase();
+    await safeApiCall(`${apiBase}/turtlebot/teleop`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ linear_x, angular_z })
+    });
   };
 
   // Valores Finais (Considera o Estado Otimista Instantâneo se Presente)
@@ -433,6 +417,12 @@ export default function Dashboard() {
         onResetPanic={handleResetPanic}
       />
 
+      {/* Modal Popup de Confirmação de Interrupção (SIM, ABORTAR / NÃO, CONTINUAR) */}
+      <InterruptOverlayModal
+        isInterrupted={cellStatus?.cell?.status === 'interrupted_paused'}
+        onConfirmInterrupt={handleConfirmInterrupt}
+      />
+
       {/* Toast de Notificação Dinâmica */}
       <NotificationToast
         notification={notification}
@@ -442,48 +432,101 @@ export default function Dashboard() {
       {/* Topbar de Conectividade de Rede */}
       <NetworkStatusHeader healthData={health} />
 
-      {/* Painel Mestre da Célula */}
-      <CellControlPanel
-        cellState={cellStatus?.cell}
-        onUpdateMode={handleUpdateMode}
-        onAuthorizeScan={handleAuthorizeScan}
-        onEmergencyStop={handleEmergencyStop}
-        onPanicStop={handlePanicStop}
-        onRestartNanoHardware={handleRestartNanoHardware}
-      />
+      {/* Barra de Navegação por Abas (Tab Bar Switcher) */}
+      <div className="flex items-center gap-3 p-1.5 bg-slate-900/80 rounded-2xl border border-slate-700/60 backdrop-blur-md">
+        <button
+          onClick={() => setActiveTab('cobot')}
+          className={`flex-1 py-3 px-5 rounded-xl font-extrabold text-sm flex items-center justify-center gap-2.5 transition-all ${
+            activeTab === 'cobot'
+              ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/20 border border-blue-400/30'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+          }`}
+        >
+          <Cpu className="w-5 h-5" />
+          <span>🦾 Célula Robótica (MyCobot 280 & Visão)</span>
+        </button>
 
-      {/* Grid Principal: Visão YOLO + Modo Ensino */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <CameraVisionPanel
-          streamUrl={health?.devices?.jetson_nano?.camera_stream_url}
-          cameraOnline={Boolean(health?.devices?.jetson_nano?.camera_stream_online)}
-          lastYolo={cellStatus?.last_yolo}
-          yoloConfThreshold={cellStatus?.cell?.yolo_conf ?? 0.60}
-          pumpActive={currentPumpActive}
-          yoloTestActive={currentYoloTestActive}
-          onTogglePump={handleTogglePump}
-          onToggleYoloTest={handleToggleYoloTest}
-          onRestartCamera={handleRestartCamera}
-          onStopCamera={handleStopCamera}
-        />
-
-        <TeachModePanel
-          posesData={poses}
-          onRelease={handleRelease}
-          onLock={handleLock}
-          onRecord={handleRecord}
-          onSave={handleSave}
-          onPlayback={handlePlayback}
-          onClear={handleClear}
-          onRestore={handleRestore}
-          onMovePose={handleMovePose}
-          onMovePoseFail={handleMovePoseFail}
-        />
+        <button
+          onClick={() => setActiveTab('turtlebot')}
+          className={`flex-1 py-3 px-5 rounded-xl font-extrabold text-sm flex items-center justify-center gap-2.5 transition-all ${
+            activeTab === 'turtlebot'
+              ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg shadow-purple-500/20 border border-purple-400/30'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+          }`}
+        >
+          <Bot className="w-5 h-5" />
+          <span>🐢 TurtleBot 4 (AMR & Visão 3D Integrada)</span>
+        </button>
       </div>
 
-      {/* Status do TurtleBot 4 */}
-      <TurtleBotPanel tbStatus={null} />
+      {/* Conteúdo da Aba 1: Célula Robótica */}
+      {activeTab === 'cobot' && (
+        <div className="space-y-6">
+          <CellControlPanel
+            cellState={cellStatus?.cell}
+            onUpdateMode={handleUpdateMode}
+            onAutoStart={handleAutoStart}
+            onAutoStop={handleAutoStop}
+            onManualStartScan={handleManualStartScan}
+            onManualAuthorizePick={handleManualAuthorizePick}
+            onManualAuthorizePlace={handleManualAuthorizePlace}
+            onInterrupt={handleInterrupt}
+            onConfirmInterrupt={handleConfirmInterrupt}
+            onEmergencyStop={handleEmergencyStop}
+            onPanicStop={handlePanicStop}
+            onRestartNanoHardware={handleRestartNanoHardware}
+          />
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <CameraVisionPanel
+              streamUrl={health?.devices?.jetson_nano?.camera_stream_url}
+              cameraOnline={Boolean(health?.devices?.jetson_nano?.camera_stream_online)}
+              lastYolo={cellStatus?.last_yolo}
+              yoloConfThreshold={cellStatus?.cell?.yolo_conf ?? 0.60}
+              pumpActive={currentPumpActive}
+              yoloTestActive={currentYoloTestActive}
+              onTogglePump={handleTogglePump}
+              onToggleYoloTest={handleToggleYoloTest}
+              onRestartCamera={handleRestartCamera}
+              onStopCamera={handleStopCamera}
+              onLaunchYoloWindow={handleLaunchYoloWindow}
+            />
+
+            <TeachModePanel
+              cellState={cellStatus?.cell}
+              posesData={poses}
+              onRelease={handleRelease}
+              onLock={handleLock}
+              onRecord={handleRecord}
+              onSave={handleSave}
+              onPlayback={handlePlayback}
+              onClear={handleClear}
+              onRestore={handleRestore}
+              onMovePose={handleMovePose}
+              onMovePoseFail={handleMovePoseFail}
+              onLaunchRviz={handleLaunchRviz}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Conteúdo da Aba 2: TurtleBot 4 (AMR) */}
+      {activeTab === 'turtlebot' && (
+        <TurtleBotDashboardTab
+          tbStatus={tbStatus}
+          onDock={handleTbDock}
+          onUndock={handleTbUndock}
+          onLaunchLocalization={handleTbLaunchLocalization}
+          onLaunchNav2={handleTbLaunchNav2}
+          onLaunchViz={handleTbLaunchViz}
+          onLaunchMissionManager={handleTbLaunchMissionManager}
+          onTriggerDelivery={handleTbTriggerDelivery}
+          onTriggerRestock={handleTbTriggerRestock}
+          onTriggerPatrol={handleTbTriggerPatrol}
+          onLaunchIntegrated3D={handleTbLaunchIntegrated3D}
+          onTeleop={handleTbTeleop}
+        />
+      )}
     </main>
   );
 }
-

@@ -89,6 +89,7 @@ class CobotNode(BaseNode):
                 self.pump_off_cli = self.create_client(Trigger, "/pump_off")
                 self.release_cli = self.create_client(Trigger, "/release_servos")
                 self.lock_cli = self.create_client(Trigger, "/lock_servos")
+                self.cmd_pub = self.create_publisher(JointState, "/joint_states_commands", 10)
                 
                 self.create_subscription(JointState, "/joint_states", self._js_cb, 10)
                 self.create_subscription(JointState, "/joint_states_raw", self._js_cb, 10)
@@ -266,7 +267,9 @@ class CobotNode(BaseNode):
             return False
 
         try:
-            url = f"http://192.168.0.250:8088{endpoint}"
+            from backend.config.settings import get_settings
+            nano_ip = get_settings().JETSON_NANO_IP
+            url = f"http://{nano_ip}:8088{endpoint}"
             import urllib.request
             req = urllib.request.Request(url)
             with urllib.request.urlopen(req, timeout=1.5) as resp:
@@ -294,9 +297,19 @@ class CobotNode(BaseNode):
             return False
 
         try:
-            print(f"[INFO] Disparando serviço '{srv_name}' via fallback SSH na Jetson Nano...")
-            cmd = f"sshpass -p Elephant ssh -o StrictHostKeyChecking=no -o ControlMaster=auto -o ControlPath=/tmp/ssh_nano_socket -o ControlPersist=60m er@192.168.0.250 'bash -c \"source /opt/ros/galactic/setup.bash && source ~/custom_ws/install/setup.bash && ros2 service call {srv_name} std_srvs/srv/Trigger\"'"
-            res = subprocess.run(cmd, shell=True, timeout=5, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            from backend.config.settings import get_settings
+            nano_ip = get_settings().JETSON_NANO_IP
+            print(f"[INFO] Disparando serviço '{srv_name}' via fallback SSH na Jetson Nano ({nano_ip})...")
+            # Remove socket obsoleto de pânico anterior se existir
+            import glob
+            for s in glob.glob("/tmp/ssh_nano_socket*"):
+                try:
+                    os.remove(s)
+                except Exception:
+                    pass
+
+            cmd = f"sshpass -p Elephant ssh -o ConnectTimeout=4 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null er@{nano_ip} 'bash -c \"export ROS_DOMAIN_ID=42 && export RMW_IMPLEMENTATION=rmw_fastrtps_cpp && source /opt/ros/galactic/setup.bash && source ~/custom_ws/install/setup.bash && ros2 service call {srv_name} std_srvs/srv/Trigger\"'"
+            res = subprocess.run(cmd, shell=True, timeout=6, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             output = (res.stdout or "") + (res.stderr or "")
             if "success=True" in output or "success=true" in output or "success: true" in output or "Servos soltos" in output or "Servos travados" in output or "Pump" in output:
                 print(f"[INFO] Fallback SSH do serviço '{label}' executado com SUCESSO!")
@@ -340,66 +353,43 @@ class CobotNode(BaseNode):
         return ok
 
     def goto_pose_direct_bridge(self, target_joints: List[float], duration_sec: float = 3.0) -> bool:
-        """Fallback direto: envia trajetórias angulares diretamente para a Action Server da ponte de hardware no Nano/ROS."""
-        if not self.is_ros_active or not hasattr(self, 'follow_jt_cli'):
-            return False
-            
-        if not self.follow_jt_cli.wait_for_server(timeout_sec=2.0):
-            print("[WARN] Action Server /mycobot_arm_controller/follow_joint_trajectory não respondeu no timeout.")
+        """Envia posições angulares via ROS 2 DDS Topic (/joint_states_commands) de forma instantânea e não-bloqueante."""
+        if not self.is_ros_active or not hasattr(self, 'cmd_pub'):
             return False
 
         try:
-            goal = FollowJointTrajectory.Goal()
-            goal.trajectory.joint_names = [
-                "cobot_joint_1", "cobot_joint_2", "cobot_joint_3",
-                "cobot_joint_4", "cobot_joint_5", "cobot_joint_6"
-            ]
-
-            p = JointTrajectoryPoint()
-            p.positions = [float(v) for v in target_joints[:6]]
-            p.time_from_start.sec = int(duration_sec)
-            p.time_from_start.nanosec = int((duration_sec - int(duration_sec)) * 1e9)
-            goal.trajectory.points = [p]
-
-            send_fut = self.follow_jt_cli.send_goal_async(goal)
-            t0 = time.time()
-            while not send_fut.done() and (time.time() - t0) < 3.0:
-                time.sleep(0.05)
-            if not send_fut.done():
-                return False
-
-            gh = send_fut.result()
-            if gh is None or not gh.accepted:
-                return False
-
-            res_fut = gh.get_result_async()
-            t0 = time.time()
-            while not res_fut.done() and (time.time() - t0) < (duration_sec + 4.0):
-                time.sleep(0.05)
-            if not res_fut.done():
-                return False
-
+            msg = JointState()
+            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.name = list(JOINT_NAMES)
+            msg.position = [float(v) for v in target_joints[:6]]
+            
+            for _ in range(3):
+                self.cmd_pub.publish(msg)
+                time.sleep(0.01)
+                
             self.current_joints = list(target_joints[:6])
             return True
         except Exception as e:
-            print(f"[WARN] Erro durante envio direto à ponte de hardware: {e}")
+            print(f"[WARN] Erro ao enviar movimento via ROS 2 Topic: {e}")
             return False
 
-    def goto_pose_http_microbridge(self, target_joints: List[float]) -> bool:
-        """Fallback ultra-rápido via HTTP Micro-Bridge para mover o braço físico em < 30ms."""
+    def goto_pose_http_microbridge(self, target_joints: List[float], speed: int = 15) -> bool:
+        """Fallback ultra-rápido via HTTP Micro-Bridge para mover o braço físico com a velocidade configurada (1% a 15%)."""
         try:
+            from backend.config.settings import get_settings
+            nano_ip = get_settings().JETSON_NANO_IP
             raw_j = ",".join([str(float(v)) for v in target_joints[:6]])
-            url = f"http://192.168.0.250:8088/move_joints?j={raw_j}"
-            print(f"[INFO] Disparando movimento ultra-rápido via HTTP Micro-Bridge para: {url}")
+            speed_val = max(1, min(15, int(speed)))
+            url = f"http://{nano_ip}:8088/move_joints?j={raw_j}&speed={speed_val}"
             import urllib.request
             req = urllib.request.Request(url)
-            with urllib.request.urlopen(req, timeout=2.0) as resp:
+            with urllib.request.urlopen(req, timeout=0.3) as resp:
                 if resp.status == 200:
                     self.current_joints = list(target_joints[:6])
-                    print(f"[INFO] Movimento via HTTP Micro-Bridge executado com SUCESSO INSTANTÂNEO em < 30ms!")
+                    print(f"[INFO] Movimento via HTTP Micro-Bridge executado com velocidade {speed_val}%!")
                     return True
-        except Exception as e:
-            print(f"[WARN] HTTP Micro-Bridge de movimento falhou ({e}), usando Action Server direto...")
+        except Exception:
+            pass
         return False
 
     def goto_pose(self, pose_name: str, velocity_scaling: float = 0.20) -> bool:
@@ -412,11 +402,12 @@ class CobotNode(BaseNode):
             return True
 
         target_joints = self.poses[pose_name]
+        speed_val = max(1, min(15, int(velocity_scaling * 100)))
 
         # Helper de execução do movimento
         def _execute_move() -> bool:
             # 1. Tenta mover via MoveIt (/move_action) se o MoveIt estiver no ar
-            if self.move_cli.wait_for_server(timeout_sec=1.5):
+            if self.move_cli.wait_for_server(timeout_sec=4.0):
                 try:
                     mpr = MotionPlanRequest()
                     mpr.group_name = GROUP
@@ -448,7 +439,7 @@ class CobotNode(BaseNode):
 
                     send_fut = self.move_cli.send_goal_async(goal)
                     t0 = time.time()
-                    while not send_fut.done() and (time.time() - t0) < 2.0:
+                    while not send_fut.done() and (time.time() - t0) < 3.0:
                         time.sleep(0.05)
 
                     if send_fut.done():
@@ -465,13 +456,14 @@ class CobotNode(BaseNode):
                 except Exception as e:
                     print(f"[WARN] MoveIt falhou no goto_pose, usando fallback direto: {e}")
 
-            # 2. Tenta HTTP Micro-Bridge (~28ms) para acionamento direto do robô real
-            if self.goto_pose_http_microbridge(target_joints):
+            # 2. Tenta HTTP Micro-Bridge (~28ms) se disponível
+            if self.goto_pose_http_microbridge(target_joints, speed=speed_val):
                 return True
 
             # 3. Fallback direto via Action Server da ponte de hardware no Nano/ROS
-            print(f"[INFO] Movendo braço para '{pose_name}' via ponte direta de hardware...")
-            return self.goto_pose_direct_bridge(target_joints, duration_sec=2.5)
+            duration = max(2.0, min(12.0, 2.5 * (0.15 / max(0.01, velocity_scaling))))
+            print(f"[INFO] Movendo braço para '{pose_name}' via ponte direta (velocidade: {speed_val}%, duração: {duration:.1f}s)...")
+            return self.goto_pose_direct_bridge(target_joints, duration_sec=duration)
 
         success = _execute_move()
         if success:

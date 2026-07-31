@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { BookOpen, Unlock, Lock, Save, Play, Pause, Trash2, CheckCircle2, XCircle, Clock, RotateCcw } from 'lucide-react';
 
-export default function TeachModePanel({ posesData, onRelease, onLock, onRecord, onSave, onPlayback, onClear, onRestore, onMovePose, onMovePoseFail }) {
+export default function TeachModePanel({ cellState, posesData, onRelease, onLock, onRecord, onSave, onPlayback, onClear, onRestore, onMovePose, onMovePoseFail, onLaunchRviz }) {
   const [selectedPose, setSelectedPose] = useState('home');
   const [loading, setLoading] = useState(false);
+
+  const isAutoRunning = Boolean(cellState?.auto_running);
 
   const posesList = posesData?.poses || [
     { name: 'home', recorded: false },
@@ -18,6 +20,7 @@ export default function TeachModePanel({ posesData, onRelease, onLock, onRecord,
   const playbackStatus = posesData?.playback_status || 'idle';
 
   const handleAction = async (actionFn, ...args) => {
+    if (isAutoRunning) return;
     setLoading(true);
     try {
       await actionFn(...args);
@@ -27,7 +30,19 @@ export default function TeachModePanel({ posesData, onRelease, onLock, onRecord,
   };
 
   return (
-    <div className="glass-card p-5 rounded-xl space-y-5">
+    <div className={`glass-card p-5 rounded-xl space-y-5 relative ${isAutoRunning ? 'opacity-70 pointer-events-none select-none' : ''}`}>
+      {isAutoRunning && (
+        <div className="bg-amber-500/20 border border-amber-500/40 text-amber-300 p-3 rounded-lg flex items-center justify-between text-xs font-bold shadow-lg">
+          <span className="flex items-center gap-2">
+            <Lock className="w-4 h-4 text-amber-400" />
+            🔒 MODO AUTOMÁTICO EM EXECUÇÃO — Painel de Ensino e Calibragem de Poses Bloqueado.
+          </span>
+          <span className="text-[10px] bg-amber-900/60 px-2 py-0.5 rounded text-amber-200 uppercase font-mono">
+            Desligue o modo auto para liberar
+          </span>
+        </div>
+      )}
+
       <div className="flex items-center justify-between border-b border-slate-700 pb-3">
         <div>
           <h2 className="text-lg font-bold flex items-center gap-2">
@@ -40,20 +55,31 @@ export default function TeachModePanel({ posesData, onRelease, onLock, onRecord,
           </p>
         </div>
         
-        {/* Controles de Torque dos Motores */}
-        <div className="flex items-center gap-2">
+        {/* Controles de Torque dos Motores e Launcher RViz 2 */}
+        <div className="flex flex-wrap items-center gap-2">
+          {onLaunchRviz && (
+            <button
+              onClick={() => handleAction(onLaunchRviz)}
+              disabled={loading || isAutoRunning}
+              className="px-3 py-1.5 bg-indigo-600/30 hover:bg-indigo-600 text-indigo-200 border border-indigo-500/40 text-xs font-bold rounded-lg flex items-center gap-1.5 btn-hover disabled:opacity-50"
+              title="Abre a janela visual do RViz 2 (3D MoveIt) no monitor do PC Host sem parar a execução em background"
+            >
+              🖥️ ABRIR RVIZ 2 (3D)
+            </button>
+          )}
+
           <button
             onClick={() => handleAction(onRelease)}
-            disabled={loading}
-            className="px-3 py-1.5 bg-amber-600/30 hover:bg-amber-600 text-amber-300 border border-amber-500/40 text-xs font-bold rounded-lg flex items-center gap-1.5 btn-hover"
+            disabled={loading || isAutoRunning}
+            className="px-3 py-1.5 bg-amber-600/30 hover:bg-amber-600 text-amber-300 border border-amber-500/40 text-xs font-bold rounded-lg flex items-center gap-1.5 btn-hover disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Unlock className="w-4 h-4" />
             SOLTAR MOTORES (1)
           </button>
           <button
             onClick={() => handleAction(onLock)}
-            disabled={loading}
-            className="px-3 py-1.5 bg-blue-600/30 hover:bg-blue-600 text-blue-300 border border-blue-500/40 text-xs font-bold rounded-lg flex items-center gap-1.5 btn-hover"
+            disabled={loading || isAutoRunning}
+            className="px-3 py-1.5 bg-blue-600/30 hover:bg-blue-600 text-blue-300 border border-blue-500/40 text-xs font-bold rounded-lg flex items-center gap-1.5 btn-hover disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Lock className="w-4 h-4" />
             TRAVAR MOTORES (2)
