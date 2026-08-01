@@ -23,7 +23,7 @@ export default function TurtleBotDashboardTab({
   onLaunchIntegrated3D,
   onTeleop
 }) {
-  const isOnline = tbStatus?.status === 'ready';
+  const isOnline = (tbStatus?.status === 'ready') || Boolean(tbDiag?.ping_ok) || Boolean(tbDiag?.topics_count > 0);
   const batteryPct = tbStatus?.battery_percentage || 100;
   const isDocked = tbStatus?.is_docked !== false;
   const pose = tbStatus?.current_pose || { x: 0.0, y: 0.0, yaw: 0.0 };

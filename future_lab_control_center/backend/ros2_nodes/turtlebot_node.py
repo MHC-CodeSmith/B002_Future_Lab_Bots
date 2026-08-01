@@ -28,9 +28,11 @@ class TurtleBotNode(Node):
         self.battery_percentage: float = 100.0
         self.is_docked: bool = True
         self.current_pose: Dict[str, float] = {"x": 0.0, "y": 0.0, "yaw": 0.0}
+        self.last_msg_time: float = time.time()
 
     def _battery_callback(self, msg):
         try:
+            self.last_msg_time = time.time()
             if hasattr(msg, 'percentage'):
                 self.battery_percentage = round(float(msg.percentage) * (100.0 if msg.percentage <= 1.0 else 1.0), 1)
         except Exception:
@@ -38,6 +40,7 @@ class TurtleBotNode(Node):
 
     def _odom_callback(self, msg):
         try:
+            self.last_msg_time = time.time()
             pos = msg.pose.pose.position
             self.current_pose["x"] = round(float(pos.x), 2)
             self.current_pose["y"] = round(float(pos.y), 2)
