@@ -14,9 +14,13 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - /tmp/.X11-unix:/tmp/.X11-unix
       - /home/future-lab/.Xauthority:/root/.Xauthority:ro
+    devices:
+      - /dev/dri:/dev/dri
     environment:
       - DISPLAY=${DISPLAY:-:0}
       - XAUTHORITY=/root/.Xauthority
+      - LIBGL_ALWAYS_SOFTWARE=1
+      - QT_X11_NO_MITSHM=1
     env_file:
       - .env
     restart: unless-stopped
