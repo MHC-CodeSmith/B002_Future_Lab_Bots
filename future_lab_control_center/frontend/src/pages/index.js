@@ -316,7 +316,12 @@ export default function Dashboard() {
       setNotification({
         type: 'info',
         title: '👁️ JANELA OPENCV DISPARADA',
-        message: d  // Handlers TurtleBot 4
+        message: data.message || 'Janela gráfica OpenCV com bounding boxes iniciada no PC Host!'
+      });
+    }
+  };
+
+  // Handlers TurtleBot 4
   const handleTbDock = async () => {
     const apiBase = getApiBase();
     const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/dock`, { method: 'POST' }, '⚡ TURTLEBOT DOCK');
@@ -469,15 +474,6 @@ export default function Dashboard() {
         type: 'success',
         title: '🌐 CENA 3D INTEGRADA DISPARADA',
         message: data.message || 'Janela 3D com Cobot + TurtleBot 4 + Mapa B002 aberta no PC Host!'
-      });
-    }
-  };e();
-    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/launch_integrated_3d`, { method: 'POST' }, '🌐 VISÃO 3D INTEGRADA');
-    if (ok) {
-      setNotification({
-        type: 'info',
-        title: '🌐 VISÃO 3D INTEGRADA INICIADA',
-        message: data.message || 'Cena 3D Integrada (Cobot + TurtleBot 4) iniciada!'
       });
     }
   };
