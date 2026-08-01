@@ -15,6 +15,12 @@ except ImportError:
     HAS_RCLPY = False
     Node = object
 
+try:
+    from irobot_create_msgs.msg import DockStatus
+    HAS_CREATE_MSGS = True
+except ImportError:
+    HAS_CREATE_MSGS = False
+
 class TurtleBotNode(Node):
     def __init__(self):
         if HAS_RCLPY:
@@ -22,6 +28,8 @@ class TurtleBotNode(Node):
             self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel", 10)
             self.create_subscription(BatteryState, "/battery_state", self._battery_callback, 10)
             self.create_subscription(Odometry, "/odom", self._odom_callback, 10)
+            if HAS_CREATE_MSGS:
+                self.create_subscription(DockStatus, "/dock_status", self._dock_status_callback, 10)
         else:
             self.cmd_vel_pub = None
 
@@ -44,6 +52,14 @@ class TurtleBotNode(Node):
             pos = msg.pose.pose.position
             self.current_pose["x"] = round(float(pos.x), 2)
             self.current_pose["y"] = round(float(pos.y), 2)
+        except Exception:
+            pass
+
+    def _dock_status_callback(self, msg):
+        try:
+            self.last_msg_time = time.time()
+            if hasattr(msg, 'is_docked'):
+                self.is_docked = bool(msg.is_docked)
         except Exception:
             pass
 

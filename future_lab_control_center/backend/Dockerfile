@@ -33,7 +33,7 @@ RUN pip install --no-cache-dir --break-system-packages --ignore-installed -r /ap
 
 COPY . /app/backend
 
-ENV PYTHONPATH=/app
+ENV PYTHONPATH=/app:/opt/ros/jazzy/lib/python3.12/site-packages
 ENV ROS_DOMAIN_ID=42
 ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 
