@@ -44,11 +44,51 @@ class TeleopPayload(BaseModel):
     linear_x: float = 0.0
     angular_z: float = 0.0
 
+from backend.api.health_routes import ping_host
+
 @router.get("/status")
 def get_turtlebot_status():
     """Retorna o status do TurtleBot 4 (bateria, posição, docking)."""
     node = get_turtlebot_node()
     return node.get_status()
+
+@router.get("/diagnose")
+def diagnose_turtlebot_network():
+    """Executa um teste completo de rede (ping) e auditoria de tópicos ROS 2 no Discovery Server do TurtleBot 4."""
+    tb_ip = "192.168.0.129"
+    ping_ok = ping_host(tb_ip, timeout_sec=2)
+    
+    topics = []
+    key_topics_status = {
+        "/scan": False,
+        "/odom": False,
+        "/cmd_vel": False,
+        "/battery_state": False,
+        "/tf": False,
+        "/robot_description": False
+    }
+    
+    if ping_ok:
+        try:
+            cmd = f'{JAZZY_ENV_CMD} && ros2 topic list'
+            res = subprocess.run(cmd, shell=True, executable="/bin/bash", capture_output=True, text=True, timeout=5)
+            if res.returncode == 0:
+                raw_lines = [line.strip() for line in res.stdout.splitlines() if line.strip()]
+                topics = raw_lines
+                for k in key_topics_status.keys():
+                    key_topics_status[k] = (k in raw_lines)
+        except Exception as e:
+            print(f"[WARN] Erro ao listar tópicos ROS 2 do TurtleBot: {e}")
+            
+    return {
+        "ping_ok": ping_ok,
+        "ip": tb_ip,
+        "discovery_server": "192.168.0.129:11811;",
+        "domain_id": 0,
+        "topics_count": len(topics),
+        "key_topics": key_topics_status,
+        "raw_topics": topics[:25]
+    }
 
 @router.post("/teleop")
 def send_teleop(payload: TeleopPayload):

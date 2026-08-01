@@ -2,11 +2,14 @@ import React, { useState } from 'react';
 import { 
   Bot, Battery, Anchor, Navigation, MapPin, Play, Square, 
   ArrowUp, ArrowDown, ArrowLeft, ArrowRight, ShieldAlert,
-  Box, Truck, RefreshCw, Eye, Layers, Compass
+  Box, Truck, RefreshCw, Eye, Layers, Compass, Search, Wifi,
+  CheckCircle2, XCircle, Activity
 } from 'lucide-react';
 
 export default function TurtleBotDashboardTab({ 
   tbStatus, 
+  tbDiag,
+  onDiagnose,
   onDock, 
   onUndock, 
   onLaunchLocalization, 
@@ -24,6 +27,15 @@ export default function TurtleBotDashboardTab({
   const batteryPct = tbStatus?.battery_percentage || 100;
   const isDocked = tbStatus?.is_docked !== false;
   const pose = tbStatus?.current_pose || { x: 0.0, y: 0.0, yaw: 0.0 };
+  const [loadingDiag, setLoadingDiag] = useState(false);
+
+  const handleRunDiagnose = async () => {
+    setLoadingDiag(true);
+    if (onDiagnose) {
+      await onDiagnose();
+    }
+    setLoadingDiag(false);
+  };
 
   const handleSendTeleop = (lx, az) => {
     if (onTeleop) {
@@ -95,6 +107,64 @@ export default function TurtleBotDashboardTab({
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Card de Diagnóstico de Rede e Tópicos ROS 2 */}
+      <div className="glass-card p-5 rounded-xl border border-slate-700/60 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-700/60 pb-3">
+          <div className="flex items-center gap-2.5">
+            <Wifi className="w-5 h-5 text-blue-400" />
+            <div>
+              <h3 className="text-base font-bold text-slate-100">Diagnóstico de Rede & Tópicos ROS 2</h3>
+              <p className="text-xs text-slate-400">Verifica se a Raspberry Pi responde ao Ping e audita os tópicos visíveis no Discovery Server.</p>
+            </div>
+          </div>
+          <button
+            onClick={handleRunDiagnose}
+            disabled={loadingDiag}
+            className="py-2.5 px-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 text-xs self-start sm:self-auto"
+          >
+            <Search className={`w-4 h-4 ${loadingDiag ? 'animate-spin' : ''}`} />
+            {loadingDiag ? 'TESTANDO CONEXÃO...' : '🔍 AUDITAR CONEXÃO & TÓPICOS'}
+          </button>
+        </div>
+
+        {tbDiag && (
+          <div className="space-y-3 pt-1">
+            <div className="flex flex-wrap items-center gap-3 text-xs">
+              <span className={`px-3 py-1 rounded-full font-bold flex items-center gap-1.5 ${tbDiag.ping_ok ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-red-500/20 text-red-300 border border-red-500/30'}`}>
+                {tbDiag.ping_ok ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> : <XCircle className="w-3.5 h-3.5 text-red-400" />}
+                PING IP 192.168.0.129: {tbDiag.ping_ok ? 'ATIVO' : 'SEM RESPOSTA'}
+              </span>
+
+              <span className="px-3 py-1 bg-slate-800 text-slate-300 border border-slate-700 rounded-full font-mono text-[11px]">
+                Discovery Server: {tbDiag.discovery_server} (Domain {tbDiag.domain_id})
+              </span>
+
+              <span className="px-3 py-1 bg-purple-500/20 text-purple-300 border border-purple-500/30 rounded-full font-bold text-xs flex items-center gap-1">
+                <Activity className="w-3.5 h-3.5 text-purple-400" />
+                {tbDiag.topics_count} Tópicos ROS 2 Encontrados
+              </span>
+            </div>
+
+            {/* Grid de Tópicos Chave */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 pt-2">
+              {Object.entries(tbDiag.key_topics || {}).map(([topicName, isPresent]) => (
+                <div 
+                  key={topicName} 
+                  className={`p-2.5 rounded-lg border text-center font-mono text-xs flex items-center justify-between gap-1 ${
+                    isPresent 
+                      ? 'bg-emerald-950/40 text-emerald-300 border-emerald-500/40' 
+                      : 'bg-red-950/30 text-red-400 border-red-500/30'
+                  }`}
+                >
+                  <span className="truncate font-bold">{topicName}</span>
+                  {isPresent ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> : <XCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Painel de Controle de Ações de Carga & Visão 3D Integrada */}

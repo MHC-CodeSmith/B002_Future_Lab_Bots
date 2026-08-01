@@ -369,10 +369,20 @@ export default function Dashboard() {
     refreshStatus();
   };
 
+  const [tbDiag, setTbDiag] = useState(null);
+
   const handleTbTriggerFailure = async () => {
     const apiBase = getApiBase();
     await safeApiCall(`${apiBase}/turtlebot/trigger_failure`, { method: 'POST' }, '⚠️ START FAILURE ROUTINE');
     refreshStatus();
+  };
+
+  const handleTbDiagnose = async () => {
+    const apiBase = getApiBase();
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/diagnose`, { method: 'GET' }, '🔍 DIAGNÓSTICO TURTLEBOT');
+    if (ok) {
+      setTbDiag(data);
+    }
   };
 
   const handleTbTriggerPatrol = async () => {
@@ -520,6 +530,8 @@ export default function Dashboard() {
       {activeTab === 'turtlebot' && (
         <TurtleBotDashboardTab
           tbStatus={tbStatus}
+          tbDiag={tbDiag}
+          onDiagnose={handleTbDiagnose}
           onDock={handleTbDock}
           onUndock={handleTbUndock}
           onLaunchLocalization={handleTbLaunchLocalization}
