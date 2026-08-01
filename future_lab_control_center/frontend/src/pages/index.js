@@ -316,56 +316,107 @@ export default function Dashboard() {
       setNotification({
         type: 'info',
         title: '👁️ JANELA OPENCV DISPARADA',
-        message: data.message || 'Janela gráfica OpenCV com bounding boxes iniciada no PC Host!'
-      });
-    }
-  };
-
-  // Handlers TurtleBot 4
+        message: d  // Handlers TurtleBot 4
   const handleTbDock = async () => {
     const apiBase = getApiBase();
-    await safeApiCall(`${apiBase}/turtlebot/dock`, { method: 'POST' }, '⚡ TURTLEBOT DOCK');
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/dock`, { method: 'POST' }, '⚡ TURTLEBOT DOCK');
+    if (ok) {
+      setNotification({
+        type: 'success',
+        title: '⚡ COMANDO DOCK ENVIADO',
+        message: data.message || 'TurtleBot 4 retornando para a Estação de Carregamento!'
+      });
+    }
     refreshStatus();
   };
 
   const handleTbUndock = async () => {
     const apiBase = getApiBase();
-    await safeApiCall(`${apiBase}/turtlebot/undock`, { method: 'POST' }, '🚀 TURTLEBOT UNDOCK');
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/undock`, { method: 'POST' }, '🚀 TURTLEBOT UNDOCK');
+    if (ok) {
+      setNotification({
+        type: 'success',
+        title: '🚀 COMANDO UNDOCK ENVIADO',
+        message: data.message || 'TurtleBot 4 saindo da Estação de Carregamento!'
+      });
+    }
     refreshStatus();
   };
 
   const handleTbLaunchLocalization = async () => {
     const apiBase = getApiBase();
-    await safeApiCall(`${apiBase}/turtlebot/launch_localization`, { method: 'POST' }, '📍 LOCALIZAÇÃO NAV2');
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/launch_localization`, { method: 'POST' }, '📍 LOCALIZAÇÃO NAV2');
+    if (ok) {
+      setNotification({
+        type: 'success',
+        title: '📍 LOCALIZAÇÃO NAV2 INICIADA',
+        message: data.message || 'Localização Nav2 (B002_map.yaml) disparada com sucesso! Use 2D Pose Estimate no RViz.'
+      });
+    }
     refreshStatus();
   };
 
   const handleTbLaunchNav2 = async () => {
     const apiBase = getApiBase();
-    await safeApiCall(`${apiBase}/turtlebot/launch_nav2`, { method: 'POST' }, '🧭 NAV2 STACK');
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/launch_nav2`, { method: 'POST' }, '🧭 NAV2 STACK');
+    if (ok) {
+      setNotification({
+        type: 'success',
+        title: '🧭 STACK NAV2 INICIADO',
+        message: data.message || 'Stack de navegação autônoma Nav2 iniciado com os parâmetros customizados!'
+      });
+    }
     refreshStatus();
   };
 
   const handleTbLaunchViz = async () => {
     const apiBase = getApiBase();
-    await safeApiCall(`${apiBase}/turtlebot/launch_viz`, { method: 'POST' }, '🖥️ RVIZ NAV2');
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/launch_viz`, { method: 'POST' }, '🖥️ RVIZ NAV2');
+    if (ok) {
+      setNotification({
+        type: 'success',
+        title: '🖥️ RVIZ NAV2 DISPARADO',
+        message: data.message || 'Janela gráfica do RViz2 para navegação disparada na tela do PC Host!'
+      });
+    }
   };
 
   const handleTbLaunchMissionManager = async () => {
     const apiBase = getApiBase();
-    await safeApiCall(`${apiBase}/turtlebot/launch_mission_manager`, { method: 'POST' }, '📦 MISSION MANAGER');
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/launch_mission_manager`, { method: 'POST' }, '📦 MISSION MANAGER');
+    if (ok) {
+      setNotification({
+        type: 'success',
+        title: '📦 GERENCIADOR DE MISSÕES ATIVO',
+        message: data.message || 'Node mission_manager.py inicializado! Câmera OAK-D e rotinas prontas.'
+      });
+    }
     refreshStatus();
   };
 
   const handleTbTriggerDelivery = async () => {
     const apiBase = getApiBase();
-    await safeApiCall(`${apiBase}/turtlebot/trigger_delivery`, { method: 'POST' }, '🚚 START DELIVERY');
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/trigger_delivery`, { method: 'POST' }, '🚚 START DELIVERY');
+    if (ok) {
+      setNotification({
+        type: 'success',
+        title: '🚚 MISSÃO DE ENTREGA ACIONADA',
+        message: data.message || 'Rotina autônoma de entrega (/start_delivery) disparada com sucesso!'
+      });
+    }
     refreshStatus();
   };
 
   const handleTbTriggerRestock = async () => {
     const apiBase = getApiBase();
-    await safeApiCall(`${apiBase}/turtlebot/trigger_restock`, { method: 'POST' }, '📦 START RESTOCK');
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/trigger_restock`, { method: 'POST' }, '📦 START RESTOCK');
+    if (ok) {
+      setNotification({
+        type: 'success',
+        title: '📦 MISSÃO DE REABASTECIMENTO ACIONADA',
+        message: data.message || 'Rotina autônoma de reabastecimento (/start_restock) disparada com sucesso!'
+      });
+    }
     refreshStatus();
   };
 
@@ -373,7 +424,14 @@ export default function Dashboard() {
 
   const handleTbTriggerFailure = async () => {
     const apiBase = getApiBase();
-    await safeApiCall(`${apiBase}/turtlebot/trigger_failure`, { method: 'POST' }, '⚠️ START FAILURE ROUTINE');
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/trigger_failure`, { method: 'POST' }, '⚠️ START FAILURE ROUTINE');
+    if (ok) {
+      setNotification({
+        type: 'success',
+        title: '⚠️ MISSÃO DE DESCARTE ACIONADA',
+        message: data.message || 'Rotina de descarte de peça com defeito (/start_failure) disparada com sucesso!'
+      });
+    }
     refreshStatus();
   };
 
@@ -382,17 +440,38 @@ export default function Dashboard() {
     const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/diagnose`, { method: 'GET' }, '🔍 DIAGNÓSTICO TURTLEBOT');
     if (ok) {
       setTbDiag(data);
+      setNotification({
+        type: 'success',
+        title: '🔍 DIAGNÓSTICO CONCLUÍDO',
+        message: `Rede IP 192.168.0.129: ${data.ping_ok ? 'ONLINE' : 'SEM PING'}. ${data.topics_count} tópicos ROS 2 visíveis!`
+      });
     }
   };
 
   const handleTbTriggerPatrol = async () => {
     const apiBase = getApiBase();
-    await safeApiCall(`${apiBase}/turtlebot/trigger_patrol`, { method: 'POST' }, '🔄 START PATROL');
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/trigger_patrol`, { method: 'POST' }, '🔄 START PATROL');
+    if (ok) {
+      setNotification({
+        type: 'success',
+        title: '🔄 PATRULHA INICIADA',
+        message: data.message || 'Rotina autônoma de patrulha (/start_patrol) pelos waypoints iniciada!'
+      });
+    }
     refreshStatus();
   };
 
   const handleTbLaunchIntegrated3D = async () => {
     const apiBase = getApiBase();
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/launch_integrated_3d`, { method: 'POST' }, '🌐 VISÃO 3D INTEGRADA');
+    if (ok) {
+      setNotification({
+        type: 'success',
+        title: '🌐 CENA 3D INTEGRADA DISPARADA',
+        message: data.message || 'Janela 3D com Cobot + TurtleBot 4 + Mapa B002 aberta no PC Host!'
+      });
+    }
+  };e();
     const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/launch_integrated_3d`, { method: 'POST' }, '🌐 VISÃO 3D INTEGRADA');
     if (ok) {
       setNotification({
