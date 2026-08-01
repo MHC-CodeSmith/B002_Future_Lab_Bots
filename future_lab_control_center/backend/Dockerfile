@@ -16,11 +16,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     x11-xserver-utils \
     libgl1 \
     libglib2.0-0 \
+    libqt5widgets5 \
+    libqt5gui5 \
     ros-jazzy-cyclonedds \
     ros-jazzy-rmw-cyclonedds-cpp \
     ros-jazzy-rmw-fastrtps-cpp \
     ros-jazzy-moveit-msgs \
     ros-jazzy-control-msgs \
+    ros-jazzy-rviz2 \
+    ros-jazzy-turtlebot4-viz \
+    ros-jazzy-turtlebot4-navigation \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /app/requirements.txt

@@ -19,7 +19,7 @@ JAZZY_ENV_CMD = (
     "export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET && "
     "export RMW_IMPLEMENTATION=rmw_fastrtps_cpp && "
     "export ROS_SUPER_CLIENT=True && "
-    "export ROS_DISCOVERY_SERVER=\"192.168.0.129:11811;\""
+    "export ROS_DISCOVERY_SERVER=192.168.0.129:11811"
 )
 
 from pathlib import Path
@@ -83,7 +83,7 @@ def diagnose_turtlebot_network():
     return {
         "ping_ok": ping_ok,
         "ip": tb_ip,
-        "discovery_server": "192.168.0.129:11811;",
+        "discovery_server": "192.168.0.129:11811",
         "domain_id": 0,
         "topics_count": len(topics),
         "key_topics": key_topics_status,
@@ -130,7 +130,8 @@ def launch_localization():
     try:
         tb4_ws = get_tb4_workspace()
         map_path = os.path.join(tb4_ws, "maps/B002_map.yaml")
-        cmd = f'cd {tb4_ws} && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_navigation localization.launch.py map:={map_path}'
+        subprocess.run("xhost +local:root 2>/dev/null || xhost + 2>/dev/null || true", shell=True, timeout=3)
+        cmd = f'cd {tb4_ws} && export DISPLAY=:0 && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_navigation localization.launch.py map:={map_path}'
         subprocess.Popen(cmd, shell=True, executable="/bin/bash")
         return {"status": "success", "message": "Localização Nav2 (B002_map.yaml) iniciada!"}
     except Exception as e:
@@ -142,7 +143,8 @@ def launch_nav2():
     try:
         tb4_ws = get_tb4_workspace()
         params_path = os.path.join(tb4_ws, "config/nav2_custom.yaml")
-        cmd = f'cd {tb4_ws} && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_navigation nav2.launch.py params_file:={params_path}'
+        subprocess.run("xhost +local:root 2>/dev/null || xhost + 2>/dev/null || true", shell=True, timeout=3)
+        cmd = f'cd {tb4_ws} && export DISPLAY=:0 && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_navigation nav2.launch.py params_file:={params_path}'
         subprocess.Popen(cmd, shell=True, executable="/bin/bash")
         return {"status": "success", "message": "Stack Nav2 (nav2_custom.yaml) iniciado com sucesso!"}
     except Exception as e:
@@ -154,8 +156,8 @@ def launch_viz():
     try:
         tb4_ws = get_tb4_workspace()
         subprocess.run("xhost +local:root 2>/dev/null || xhost + 2>/dev/null || true", shell=True, timeout=3)
-        cmd_viz = f'cd {tb4_ws} && export DISPLAY=:0; {JAZZY_ENV_CMD} && ros2 launch turtlebot4_viz view_navigation.launch.py'
-        _launch_gui_in_pty(cmd_viz)
+        cmd_viz = f'cd {tb4_ws} && export DISPLAY=:0 && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_viz view_navigation.launch.py'
+        subprocess.Popen(cmd_viz, shell=True, executable="/bin/bash")
         return {"status": "success", "message": "Janela do RViz Nav2 disparada no monitor do PC Host!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Falha ao abrir RViz Nav2: {e}")
@@ -217,8 +219,8 @@ def launch_integrated_3d():
     try:
         integration_ws = get_integration_workspace()
         subprocess.run("xhost +local:root 2>/dev/null || xhost + 2>/dev/null || true", shell=True, timeout=3)
-        cmd_3d = f'cd {integration_ws} && export DISPLAY=:0; ./scripts/run_3d_view.sh'
-        _launch_gui_in_pty(cmd_3d)
+        cmd_3d = f'cd {integration_ws} && export DISPLAY=:0 && {JAZZY_ENV_CMD} && bash ./scripts/run_3d_view.sh'
+        subprocess.Popen(cmd_3d, shell=True, executable="/bin/bash")
         return {"status": "success", "message": "Janela 3D Integrada (Cobot + TurtleBot 4) disparada no monitor do PC Host!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Falha ao abrir Visão 3D Integrada: {e}")
