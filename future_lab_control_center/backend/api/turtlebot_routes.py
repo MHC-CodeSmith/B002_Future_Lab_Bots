@@ -141,6 +141,16 @@ def trigger_delivery():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Falha ao acionar rotina de entrega: {e}")
 
+@router.post("/trigger_failure")
+def trigger_failure():
+    """Aciona o serviço ROS 2 de recolhimento de peça com defeito / descarte (/start_failure)."""
+    try:
+        cmd = f'{JAZZY_ENV_CMD} && ros2 service call /start_failure std_srvs/srv/Trigger {{}}'
+        subprocess.Popen(cmd, shell=True, executable="/bin/bash")
+        return {"status": "success", "message": "Rotina de Falha/Descarte (/start_failure) acionada!"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Falha ao acionar rotina de falha: {e}")
+
 @router.post("/trigger_restock")
 def trigger_restock():
     """Aciona o serviço ROS 2 de reabastecimento de matéria-prima (/start_restock)."""

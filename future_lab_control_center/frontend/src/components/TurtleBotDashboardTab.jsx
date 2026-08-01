@@ -14,6 +14,7 @@ export default function TurtleBotDashboardTab({
   onLaunchViz, 
   onLaunchMissionManager, 
   onTriggerDelivery, 
+  onTriggerFailure,
   onTriggerRestock, 
   onTriggerPatrol, 
   onLaunchIntegrated3D,
@@ -192,47 +193,70 @@ export default function TurtleBotDashboardTab({
 
         {/* Gerenciador de Missões (Mission Manager) */}
         <div className="glass-card p-5 rounded-xl border border-slate-700/60 space-y-4">
-          <h3 className="text-base font-bold text-slate-200 flex items-center gap-2">
-            <Truck className="w-5 h-5 text-emerald-400" />
-            Gerenciador de Missões (Mission Manager)
-          </h3>
-          <p className="text-xs text-slate-400">Dispare rotinas autónomas de entrega, reabastecimento e patrulha.</p>
+          <div className="flex items-center justify-between">
+            <h3 className="text-base font-bold text-slate-200 flex items-center gap-2">
+              <Truck className="w-5 h-5 text-emerald-400" />
+              Gerenciador Mestre de Missões
+            </h3>
+            <span className="text-[10px] px-2.5 py-1 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-full font-mono font-bold">
+              mission_manager.py
+            </span>
+          </div>
+          <p className="text-xs text-slate-400">
+            Inicia o nó principal em background (conecta câmera OAK-D + IA de visão) e aguarda o disparo das rotinas autônomas.
+          </p>
 
           <button
             onClick={onLaunchMissionManager}
-            className="w-full py-2.5 px-4 bg-emerald-600/30 hover:bg-emerald-600/40 text-emerald-300 border border-emerald-500/40 font-bold rounded-xl flex items-center justify-center gap-2 transition-all mb-3 text-sm"
+            className="w-full py-3 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 text-sm"
           >
-            <Play className="w-4 h-4" />
-            Inicializar Node Mission Manager (waypoints.yaml)
+            <Play className="w-4.5 h-4.5 fill-current" />
+            1. INICIAR NODE GERENCIADOR (waypoints.yaml + OAK-D)
           </button>
 
-          <div className="grid grid-cols-3 gap-2">
-            <button
-              onClick={onTriggerDelivery}
-              className="py-3 px-2 bg-slate-800 hover:bg-slate-700 text-slate-100 font-bold rounded-xl border border-slate-700 flex flex-col items-center justify-center gap-1 transition-all text-xs"
-            >
-              <Truck className="w-5 h-5 text-blue-400" />
-              <span>/start_delivery</span>
-              <span className="text-[10px] text-slate-400 font-normal">Entrega</span>
-            </button>
+          <div className="border-t border-slate-700/60 pt-3">
+            <p className="text-xs font-bold text-slate-300 mb-2">2. Disparar Rotina Autônoma:</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <button
+                onClick={onTriggerDelivery}
+                className="py-3 px-2 bg-slate-800 hover:bg-blue-900/40 hover:border-blue-500/50 text-slate-100 font-bold rounded-xl border border-slate-700 flex flex-col items-center justify-center gap-1 transition-all text-xs"
+                title="Undock -> Coleta em pickup_point -> Entrega -> Retorna ao Dock"
+              >
+                <Truck className="w-5 h-5 text-blue-400" />
+                <span>/start_delivery</span>
+                <span className="text-[10px] text-slate-400 font-normal">Entrega</span>
+              </button>
 
-            <button
-              onClick={onTriggerRestock}
-              className="py-3 px-2 bg-slate-800 hover:bg-slate-700 text-slate-100 font-bold rounded-xl border border-slate-700 flex flex-col items-center justify-center gap-1 transition-all text-xs"
-            >
-              <Box className="w-5 h-5 text-amber-400" />
-              <span>/start_restock</span>
-              <span className="text-[10px] text-slate-400 font-normal">Reabastece</span>
-            </button>
+              <button
+                onClick={onTriggerFailure}
+                className="py-3 px-2 bg-slate-800 hover:bg-red-900/40 hover:border-red-500/50 text-slate-100 font-bold rounded-xl border border-slate-700 flex flex-col items-center justify-center gap-1 transition-all text-xs"
+                title="Undock -> Coleta em failure_pickup -> Zonas de Descarte -> Retorna ao Dock"
+              >
+                <ShieldAlert className="w-5 h-5 text-red-400" />
+                <span>/start_failure</span>
+                <span className="text-[10px] text-slate-400 font-normal">Descarte (Falha)</span>
+              </button>
 
-            <button
-              onClick={onTriggerPatrol}
-              className="py-3 px-2 bg-slate-800 hover:bg-slate-700 text-slate-100 font-bold rounded-xl border border-slate-700 flex flex-col items-center justify-center gap-1 transition-all text-xs"
-            >
-              <RefreshCw className="w-5 h-5 text-purple-400" />
-              <span>/start_patrol</span>
-              <span className="text-[10px] text-slate-400 font-normal">Patrulha</span>
-            </button>
+              <button
+                onClick={onTriggerRestock}
+                className="py-3 px-2 bg-slate-800 hover:bg-amber-900/40 hover:border-amber-500/50 text-slate-100 font-bold rounded-xl border border-slate-700 flex flex-col items-center justify-center gap-1 transition-all text-xs"
+                title="Undock -> Coleta em restock_pickup -> Zonas de Reabastecimento -> Retorna ao Dock"
+              >
+                <Box className="w-5 h-5 text-amber-400" />
+                <span>/start_restock</span>
+                <span className="text-[10px] text-slate-400 font-normal">Reabastecimento</span>
+              </button>
+
+              <button
+                onClick={onTriggerPatrol}
+                className="py-3 px-2 bg-slate-800 hover:bg-purple-900/40 hover:border-purple-500/50 text-slate-100 font-bold rounded-xl border border-slate-700 flex flex-col items-center justify-center gap-1 transition-all text-xs"
+                title="Ronda contínua pelos waypoints do laboratório B002"
+              >
+                <RefreshCw className="w-5 h-5 text-purple-400" />
+                <span>/start_patrol</span>
+                <span className="text-[10px] text-slate-400 font-normal">Patrulha / Ronda</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>

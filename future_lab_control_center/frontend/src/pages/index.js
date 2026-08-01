@@ -369,6 +369,12 @@ export default function Dashboard() {
     refreshStatus();
   };
 
+  const handleTbTriggerFailure = async () => {
+    const apiBase = getApiBase();
+    await safeApiCall(`${apiBase}/turtlebot/trigger_failure`, { method: 'POST' }, '⚠️ START FAILURE ROUTINE');
+    refreshStatus();
+  };
+
   const handleTbTriggerPatrol = async () => {
     const apiBase = getApiBase();
     await safeApiCall(`${apiBase}/turtlebot/trigger_patrol`, { method: 'POST' }, '🔄 START PATROL');
@@ -521,6 +527,7 @@ export default function Dashboard() {
           onLaunchViz={handleTbLaunchViz}
           onLaunchMissionManager={handleTbLaunchMissionManager}
           onTriggerDelivery={handleTbTriggerDelivery}
+          onTriggerFailure={handleTbTriggerFailure}
           onTriggerRestock={handleTbTriggerRestock}
           onTriggerPatrol={handleTbTriggerPatrol}
           onLaunchIntegrated3D={handleTbLaunchIntegrated3D}
