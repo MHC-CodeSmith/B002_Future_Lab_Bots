@@ -129,14 +129,14 @@ def trigger_undock():
 
 @router.post("/launch_localization")
 def launch_localization():
-    """Lança o módulo de Localização Nav2 com o mapa B002."""
+    """Lança o módulo de Localização Nav2 com o mapa B002 e bond_timeout=10.0."""
     try:
         tb4_ws = get_tb4_workspace()
         map_path = os.path.join(tb4_ws, "maps/B002_map.yaml")
         subprocess.run("xhost +local:root 2>/dev/null || xhost + 2>/dev/null || true", shell=True, timeout=3)
-        cmd = f'cd {tb4_ws} && export DISPLAY=:0 && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_navigation localization.launch.py map:={map_path}'
+        cmd = f'cd {tb4_ws} && export DISPLAY=:0 && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_navigation localization.launch.py map:={map_path} bond_timeout:=10.0'
         subprocess.Popen(cmd, shell=True, executable="/bin/bash")
-        return {"status": "success", "message": "Localização Nav2 (B002_map.yaml) iniciada!"}
+        return {"status": "success", "message": "Localização Nav2 (B002_map.yaml) iniciada com sucesso!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Falha ao iniciar Localização: {e}")
 
