@@ -410,15 +410,32 @@ def launch_yolo_window():
     """Abre uma janela gráfica nativa OpenCV no monitor do PC Host com visões YOLO, bounding boxes e FPS ao vivo."""
     from backend.api.cell_routes import cell_state
     from backend.config.settings import get_settings
-    from backend.api.health_routes import _launch_gui_in_pty
+    import os
+    from pathlib import Path
     conf = float(cell_state.get("yolo_conf", 0.60))
     nano_ip = get_settings().JETSON_NANO_IP
     try:
-        print(f"[INFO] Disparando janela gráfica nativa OpenCV (cam_yolo_test.py) no monitor do PC Host (DISPLAY=:0 via PTY, Nano IP {nano_ip})...")
-        subprocess.run("docker cp /home/future-lab/.Xauthority mycobot_ros2:/root/.Xauthority 2>/dev/null || true", shell=True, timeout=3)
-        subprocess.run("xhost +local:root 2>/dev/null || xhost + 2>/dev/null || true", shell=True, timeout=3)
-        cmd_yolo_gui = f'docker exec -t mycobot_ros2 bash -c "export DISPLAY=:0; export XAUTHORITY=/root/.Xauthority; pkill -9 -f cam_yolo_test 2>/dev/null || true; sleep 0.5; python3 /root/custom_ws/scripts/cam_yolo_test.py --url http://{nano_ip}:8080/stream.mjpg --conf {conf}"'
-        _launch_gui_in_pty(cmd_yolo_gui)
+        candidate_paths = [
+            Path("/cobot/mycobot_docker/RUN_CAMERA_TEST.sh"),
+            Path("/app/cobot/mycobot_docker/RUN_CAMERA_TEST.sh"),
+            Path("/home/future-lab/B002_Future_Lab_Bots/cobot/mycobot_docker/RUN_CAMERA_TEST.sh")
+        ]
+        script_path = next((p for p in candidate_paths if p.exists()), candidate_paths[0])
+        print(f"[INFO] Disparando janela OpenCV GUI ({script_path} --nano --gui --conf {conf})...")
+        
+        def _run_gui():
+            try:
+                subprocess.run("xhost +local:root 2>/dev/null || xhost + 2>/dev/null || true", shell=True, timeout=3)
+                env = os.environ.copy()
+                env["JETSON_NANO_IP"] = nano_ip
+                env["DISPLAY"] = env.get("DISPLAY", ":0")
+                subprocess.run(f"bash {script_path} --nano --gui --conf {conf}", shell=True, env=env)
+            except Exception as ex:
+                print(f"[WARN] Erro no worker OpenCV GUI: {ex}")
+                
+        t = threading.Thread(target=_run_gui, daemon=True)
+        t.start()
+        
         return {
             "status": "success",
             "message": "Janela gráfica OpenCV do YOLO disparada no monitor do PC Host com sucesso!"

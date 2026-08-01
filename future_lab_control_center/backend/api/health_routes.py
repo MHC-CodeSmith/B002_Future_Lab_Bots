@@ -1,6 +1,7 @@
 # ============================================================
 # health_routes.py — API Router para Diagnóstico de Rede & Pings
 # ============================================================
+import os
 import time
 import threading
 import subprocess
@@ -244,20 +245,32 @@ def _launch_gui_in_pty(cmd_str: str):
 
 @router.post("/launch_rviz")
 def launch_rviz():
-    """Abre a janela gráfica completa do MoveIt 2 + RViz (galactic_demo.launch.py) na tela do PC Host."""
+    """Abre a janela gráfica completa do MoveIt 2 + RViz executando diretamente o script RUN_PLANNING_PC.sh."""
     try:
-        print("[INFO] Lançando interface gráfica completa do MoveIt 2 / RViz (galactic_demo.launch.py) no PC Host (DISPLAY=:0 via PTY)...")
-        # Garante a permissão X11 e copia a chave .Xauthority para o container mycobot_ros2
-        subprocess.run("docker cp /home/future-lab/.Xauthority mycobot_ros2:/root/.Xauthority 2>/dev/null || true", shell=True, timeout=3)
-        subprocess.run("xhost +local:root 2>/dev/null || xhost + 2>/dev/null || true", shell=True, timeout=3)
-        cmd_moveit_gui = 'docker exec -t mycobot_ros2 bash -c "export DISPLAY=:0; export XAUTHORITY=/root/.Xauthority; source /opt/ros/galactic/setup.bash && source /root/custom_ws/install/setup.bash && export ROS_DOMAIN_ID=42 && export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp && pkill -9 -f rviz 2>/dev/null || true; pkill -9 -f move_group 2>/dev/null || true; sleep 0.5; ros2 launch mycobot_280_jn_moveit_config galactic_demo.launch.py"'
-        _launch_gui_in_pty(cmd_moveit_gui)
+        candidate_paths = [
+            Path("/cobot/mycobot_docker/RUN_PLANNING_PC.sh"),
+            Path("/app/cobot/mycobot_docker/RUN_PLANNING_PC.sh"),
+            Path("/home/future-lab/B002_Future_Lab_Bots/cobot/mycobot_docker/RUN_PLANNING_PC.sh")
+        ]
+        script_path = next((p for p in candidate_paths if p.exists()), candidate_paths[0])
+        print(f"[INFO] Executando script mestre {script_path} para lançar RViz 2 / MoveIt no PC Host...")
+        
+        def _run_script():
+            try:
+                res = subprocess.run(f"bash {script_path}", shell=True, capture_output=True, text=True, timeout=40)
+                print(f"[INFO] RUN_PLANNING_PC.sh resultado: returncode={res.returncode}\nstdout={res.stdout}\nstderr={res.stderr}")
+            except Exception as ex:
+                print(f"[WARN] Erro ao executar RUN_PLANNING_PC.sh: {ex}")
+                
+        t = threading.Thread(target=_run_script, daemon=True)
+        t.start()
+        
         return {
             "status": "success",
-            "message": "Janela completa do MoveIt 2 / RViz 2 (galactic_demo.launch.py) disparada na tela do PC Host com sucesso!"
+            "message": "Script RUN_PLANNING_PC.sh disparado! O RViz 2 e o MoveIt serão abertos na tela do PC Host."
         }
     except Exception as e:
-        print(f"[WARN] Erro ao disparar MoveIt 2 RViz GUI: {e}")
+        print(f"[WARN] Erro ao disparar RUN_PLANNING_PC.sh: {e}")
         raise HTTPException(status_code=500, detail=f"Falha ao abrir RViz 2: {e}")
 
 
