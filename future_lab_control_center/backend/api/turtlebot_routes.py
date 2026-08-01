@@ -22,8 +22,23 @@ JAZZY_ENV_CMD = (
     "export ROS_DISCOVERY_SERVER=\"192.168.0.129:11811;\""
 )
 
-TB4_WORKSPACE = "/home/future-lab/B002_Future_Lab_Bots/turtlebot4_jazzy"
-INTEGRATION_WORKSPACE = "/home/future-lab/B002_Future_Lab_Bots/integration_cobot_tb4"
+from pathlib import Path
+
+def get_tb4_workspace() -> str:
+    candidates = [
+        Path("/app/turtlebot4_jazzy"),
+        Path("/home/future-lab/B002_Future_Lab_Bots/turtlebot4_jazzy")
+    ]
+    p = next((c for c in candidates if c.exists()), candidates[0])
+    return str(p)
+
+def get_integration_workspace() -> str:
+    candidates = [
+        Path("/app/integration_cobot_tb4"),
+        Path("/home/future-lab/B002_Future_Lab_Bots/integration_cobot_tb4")
+    ]
+    p = next((c for c in candidates if c.exists()), candidates[0])
+    return str(p)
 
 class TeleopPayload(BaseModel):
     linear_x: float = 0.0
@@ -73,8 +88,9 @@ def trigger_undock():
 def launch_localization():
     """Lança o módulo de Localização Nav2 com o mapa B002."""
     try:
-        map_path = os.path.join(TB4_WORKSPACE, "maps/B002_map.yaml")
-        cmd = f'cd {TB4_WORKSPACE} && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_navigation localization.launch.py map:={map_path}'
+        tb4_ws = get_tb4_workspace()
+        map_path = os.path.join(tb4_ws, "maps/B002_map.yaml")
+        cmd = f'cd {tb4_ws} && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_navigation localization.launch.py map:={map_path}'
         subprocess.Popen(cmd, shell=True, executable="/bin/bash")
         return {"status": "success", "message": "Localização Nav2 (B002_map.yaml) iniciada!"}
     except Exception as e:
@@ -84,8 +100,9 @@ def launch_localization():
 def launch_nav2():
     """Lança o Stack de Navegação Nav2 com as configurações do projeto."""
     try:
-        params_path = os.path.join(TB4_WORKSPACE, "config/nav2_custom.yaml")
-        cmd = f'cd {TB4_WORKSPACE} && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_navigation nav2.launch.py params_file:={params_path}'
+        tb4_ws = get_tb4_workspace()
+        params_path = os.path.join(tb4_ws, "config/nav2_custom.yaml")
+        cmd = f'cd {tb4_ws} && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_navigation nav2.launch.py params_file:={params_path}'
         subprocess.Popen(cmd, shell=True, executable="/bin/bash")
         return {"status": "success", "message": "Stack Nav2 (nav2_custom.yaml) iniciado com sucesso!"}
     except Exception as e:
@@ -95,8 +112,9 @@ def launch_nav2():
 def launch_viz():
     """Abre a visualização de navegação do Nav2 (view_navigation.launch.py) no monitor do PC Host."""
     try:
+        tb4_ws = get_tb4_workspace()
         subprocess.run("xhost +local:root 2>/dev/null || xhost + 2>/dev/null || true", shell=True, timeout=3)
-        cmd_viz = f'cd {TB4_WORKSPACE} && export DISPLAY=:0; export XAUTHORITY=/root/.Xauthority; {JAZZY_ENV_CMD} && ros2 launch turtlebot4_viz view_navigation.launch.py'
+        cmd_viz = f'cd {tb4_ws} && export DISPLAY=:0; {JAZZY_ENV_CMD} && ros2 launch turtlebot4_viz view_navigation.launch.py'
         _launch_gui_in_pty(cmd_viz)
         return {"status": "success", "message": "Janela do RViz Nav2 disparada no monitor do PC Host!"}
     except Exception as e:
@@ -106,7 +124,8 @@ def launch_viz():
 def launch_mission_manager():
     """Inicializa o Gerenciador de Missões (mission_manager.py)."""
     try:
-        cmd = f'cd {TB4_WORKSPACE} && {JAZZY_ENV_CMD} && python3 scripts/mission_manager.py --ros-args --params-file params/waypoints.yaml'
+        tb4_ws = get_tb4_workspace()
+        cmd = f'cd {tb4_ws} && {JAZZY_ENV_CMD} && python3 scripts/mission_manager.py --ros-args --params-file params/waypoints.yaml'
         subprocess.Popen(cmd, shell=True, executable="/bin/bash")
         return {"status": "success", "message": "Gerenciador de Missões (mission_manager.py) iniciado com sucesso!"}
     except Exception as e:
@@ -146,8 +165,9 @@ def trigger_patrol():
 def launch_integrated_3d():
     """Abre a cena gráfica 3D integrada (MyCobot 280 + TurtleBot 4 + Mapa B002) no monitor do PC Host."""
     try:
+        integration_ws = get_integration_workspace()
         subprocess.run("xhost +local:root 2>/dev/null || xhost + 2>/dev/null || true", shell=True, timeout=3)
-        cmd_3d = f'cd {INTEGRATION_WORKSPACE} && export DISPLAY=:0; export XAUTHORITY=/root/.Xauthority; ./scripts/run_3d_view.sh'
+        cmd_3d = f'cd {integration_ws} && export DISPLAY=:0; ./scripts/run_3d_view.sh'
         _launch_gui_in_pty(cmd_3d)
         return {"status": "success", "message": "Janela 3D Integrada (Cobot + TurtleBot 4) disparada no monitor do PC Host!"}
     except Exception as e:
