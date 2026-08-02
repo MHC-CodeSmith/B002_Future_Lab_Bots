@@ -23,9 +23,9 @@ export default function TurtleBotDashboardTab({
   onLaunchIntegrated3D,
   onTeleop
 }) {
-  const isOnline = (tbStatus?.status === 'ready') || Boolean(tbDiag?.ping_ok) || Boolean(tbDiag?.topics_count > 0);
-  const batteryPct = tbStatus?.battery_percentage || 100;
-  const isDocked = tbStatus?.is_docked !== false;
+  const isOnline = tbStatus?.status === 'ready' && tbStatus?.ping_ok !== false;
+  const batteryPct = isOnline && tbStatus?.battery_percentage != null ? tbStatus.battery_percentage : null;
+  const isDocked = tbStatus?.is_docked;
   const pose = tbStatus?.current_pose || { x: 0.0, y: 0.0, yaw: 0.0 };
   const [loadingDiag, setLoadingDiag] = useState(false);
 
@@ -58,9 +58,9 @@ export default function TurtleBotDashboardTab({
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <span className={`text-xs px-3 py-1.5 rounded-full font-extrabold flex items-center gap-1.5 ${isOnline ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-slate-700 text-slate-400'}`}>
-              <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`}></span>
-              {isOnline ? 'ONLINE (DDS Domain 0)' : 'AGUARDANDO CONEXÃO'}
+            <span className={`text-xs px-3 py-1.5 rounded-full font-extrabold flex items-center gap-1.5 ${isOnline ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-red-500/20 text-red-300 border border-red-500/40'}`}>
+              <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-red-500'}`}></span>
+              {isOnline ? 'ONLINE (DDS Domain 0)' : '🔴 DESCONECTADO / SEM BATERIA (192.168.0.129)'}
             </span>
           </div>
         </div>
@@ -68,42 +68,50 @@ export default function TurtleBotDashboardTab({
         {/* Cards de Métricas */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-5">
           <div className="p-4 bg-slate-800/80 rounded-xl border border-slate-700/60 flex items-center gap-3">
-            <div className="p-3 bg-emerald-500/20 text-emerald-400 rounded-lg">
+            <div className={`p-3 rounded-lg ${isOnline ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
               <Battery className="w-6 h-6" />
             </div>
             <div>
-              <p className="text-xs text-slate-400">Bateria</p>
-              <p className="text-lg font-black text-slate-100">{batteryPct}%</p>
+              <p className="text-xs text-slate-400">Bateria (Create 3)</p>
+              <p className={`text-base font-extrabold ${isOnline ? 'text-emerald-400' : 'text-red-400'}`}>
+                {isOnline && batteryPct !== null ? `${batteryPct}%` : '🔴 DESCONECTADO (0%)'}
+              </p>
             </div>
           </div>
 
           <div className="p-4 bg-slate-800/80 rounded-xl border border-slate-700/60 flex items-center gap-3">
-            <div className="p-3 bg-blue-500/20 text-blue-400 rounded-lg">
+            <div className={`p-3 rounded-lg ${isOnline ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-700 text-slate-400'}`}>
               <Anchor className="w-6 h-6" />
             </div>
             <div>
               <p className="text-xs text-slate-400">Estação de Carga</p>
-              <p className="text-lg font-black text-slate-100">{isDocked ? 'Docked (Recarregando)' : 'Em Campo (Undocked)'}</p>
+              <p className={`text-sm font-bold ${isOnline ? 'text-slate-100' : 'text-slate-400'}`}>
+                {isOnline ? (isDocked ? 'Docked (Recarregando)' : 'Em Campo (Undocked)') : '🔴 SEM TELEMETRIA'}
+              </p>
             </div>
           </div>
 
           <div className="p-4 bg-slate-800/80 rounded-xl border border-slate-700/60 flex items-center gap-3">
-            <div className="p-3 bg-purple-500/20 text-purple-400 rounded-lg">
+            <div className={`p-3 rounded-lg ${isOnline ? 'bg-purple-500/20 text-purple-400' : 'bg-slate-700 text-slate-400'}`}>
               <MapPin className="w-6 h-6" />
             </div>
             <div>
               <p className="text-xs text-slate-400">Coordenadas (Odom)</p>
-              <p className="text-sm font-bold text-purple-300">X: {pose.x}m | Y: {pose.y}m</p>
+              <p className={`text-sm font-bold ${isOnline ? 'text-purple-300' : 'text-slate-400'}`}>
+                {isOnline ? `X: ${pose.x}m | Y: ${pose.y}m` : '-- (Sem Sinal)'}
+              </p>
             </div>
           </div>
 
           <div className="p-4 bg-slate-800/80 rounded-xl border border-slate-700/60 flex items-center gap-3">
-            <div className="p-3 bg-amber-500/20 text-amber-400 rounded-lg">
+            <div className={`p-3 rounded-lg ${isOnline ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-700 text-slate-400'}`}>
               <Compass className="w-6 h-6" />
             </div>
             <div>
               <p className="text-xs text-slate-400">Status Nav2</p>
-              <p className="text-sm font-bold text-amber-300">Pronto para Waypoints</p>
+              <p className={`text-sm font-bold ${isOnline ? 'text-amber-300' : 'text-slate-400'}`}>
+                {isOnline ? 'Pronto para Waypoints' : '🔴 OFFLINE'}
+              </p>
             </div>
           </div>
         </div>

@@ -33,8 +33,8 @@ class TurtleBotNode(Node):
         else:
             self.cmd_vel_pub = None
 
-        self.battery_percentage: float = 100.0
-        self.is_docked: bool = True
+        self.battery_percentage: Optional[float] = None
+        self.is_docked: bool = False
         self.current_pose: Dict[str, float] = {"x": 0.0, "y": 0.0, "yaw": 0.0}
         self.last_msg_time: float = time.time()
 

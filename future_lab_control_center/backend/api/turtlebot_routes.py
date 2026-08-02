@@ -59,6 +59,7 @@ def get_turtlebot_status():
     st["ping_ok"] = ping_ok
     if not ping_ok:
         st["status"] = "offline"
+        st["battery_percentage"] = None
     return st
 
 @router.get("/diagnose")
