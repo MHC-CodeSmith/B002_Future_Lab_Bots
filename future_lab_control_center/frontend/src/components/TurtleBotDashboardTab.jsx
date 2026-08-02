@@ -262,8 +262,11 @@ export default function TurtleBotDashboardTab({
 
           <div className="space-y-3 pt-1">
             <button
-              onClick={onLaunchLocalization}
-              className="w-full py-3 px-4 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold rounded-xl flex items-center justify-between transition-all"
+              onClick={() => {
+                if (onLaunchLocalization) onLaunchLocalization();
+                handleSelectLogSource('localization');
+              }}
+              className="w-full py-3 px-4 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold rounded-xl flex items-center justify-between transition-all active:scale-95"
             >
               <span className="flex items-center gap-2 text-sm">
                 <MapPin className="w-4 h-4 text-emerald-400" />
@@ -273,8 +276,11 @@ export default function TurtleBotDashboardTab({
             </button>
 
             <button
-              onClick={onLaunchNav2}
-              className="w-full py-3 px-4 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold rounded-xl flex items-center justify-between transition-all"
+              onClick={() => {
+                if (onLaunchNav2) onLaunchNav2();
+                handleSelectLogSource('nav2');
+              }}
+              className="w-full py-3 px-4 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold rounded-xl flex items-center justify-between transition-all active:scale-95"
             >
               <span className="flex items-center gap-2 text-sm">
                 <Navigation className="w-4 h-4 text-amber-400" />
@@ -284,8 +290,11 @@ export default function TurtleBotDashboardTab({
             </button>
 
             <button
-              onClick={onLaunchViz}
-              className="w-full py-3 px-4 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold rounded-xl flex items-center justify-between transition-all"
+              onClick={() => {
+                if (onLaunchViz) onLaunchViz();
+                handleSelectLogSource('viz');
+              }}
+              className="w-full py-3 px-4 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold rounded-xl flex items-center justify-between transition-all active:scale-95"
             >
               <span className="flex items-center gap-2 text-sm">
                 <Eye className="w-4 h-4 text-blue-400" />
