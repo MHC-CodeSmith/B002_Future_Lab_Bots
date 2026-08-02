@@ -100,20 +100,39 @@ def diagnose_turtlebot_network():
     }
 
 @router.get("/logs")
-def get_turtlebot_logs(lines: int = 50):
-    """Retorna os últimos logs do console do Nav2, Localização e ROS 2."""
+def get_turtlebot_logs(source: str = "all", lines: int = 60):
+    """Retorna os últimos logs do console de Localização, Nav2 Stack, RViz2 ou Missões."""
     try:
-        cmd = f"docker logs --tail {lines} future_lab_backend 2>&1"
-        res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=3)
-        log_text = res.stdout if res.returncode == 0 else "Nenhum log disponível."
+        log_file_map = {
+            "localization": "/tmp/nav2_localization.log",
+            "nav2": "/tmp/nav2_stack.log",
+            "viz": "/tmp/nav2_viz.log",
+            "mission": "/tmp/nav2_mission_manager.log"
+        }
         
-        raw_lines = [l.strip() for l in log_text.splitlines() if l.strip()]
-        filtered = [l for l in raw_lines if any(k in l.lower() for k in ["nav2", "amcl", "map", "lifecycle", "rviz", "mission", "goal", "pose", "active", "dock", "info", "warn", "error"])]
+        target_file = log_file_map.get(source)
+        if target_file and os.path.exists(target_file):
+            with open(target_file, "r") as f:
+                raw = [l.strip() for l in f.readlines() if l.strip()]
+                return {"status": "success", "source": source, "logs": raw[-lines:]}
         
-        output = filtered if len(filtered) >= 5 else raw_lines
-        return {"status": "success", "logs": output[-lines:]}
+        # Se for "all" ou se o arquivo específico ainda não existir, consolida de todos os arquivos ou docker
+        consolidated = []
+        for src, filepath in log_file_map.items():
+            if os.path.exists(filepath):
+                with open(filepath, "r") as f:
+                    file_lines = [f"[{src.upper()}] {l.strip()}" for l in f.readlines() if l.strip()]
+                    consolidated.extend(file_lines[-20:])
+        
+        if not consolidated:
+            cmd = f"docker logs --tail {lines} future_lab_backend 2>&1"
+            res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=3)
+            log_text = res.stdout if res.returncode == 0 else "Nenhum log disponível no momento."
+            consolidated = [l.strip() for l in log_text.splitlines() if l.strip()]
+            
+        return {"status": "success", "source": source, "logs": consolidated[-lines:]}
     except Exception as e:
-        return {"status": "error", "logs": [f"Erro ao ler logs: {e}"]}
+        return {"status": "error", "source": source, "logs": [f"Erro ao ler logs: {e}"]}
 
 @router.post("/teleop")
 def send_teleop(payload: TeleopPayload):
@@ -158,7 +177,7 @@ def launch_localization():
         tb4_ws = get_tb4_workspace()
         map_path = os.path.join(tb4_ws, "maps/B002_map.yaml")
         subprocess.run("xhost +local:root 2>/dev/null || xhost + 2>/dev/null || true", shell=True, timeout=3)
-        cmd = f'cd {tb4_ws} && export DISPLAY=:0 && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_navigation localization.launch.py map:={map_path} bond_timeout:=10.0'
+        cmd = f'cd {tb4_ws} && export DISPLAY=:0 && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_navigation localization.launch.py map:={map_path} bond_timeout:=10.0 > /tmp/nav2_localization.log 2>&1'
         subprocess.Popen(cmd, shell=True, executable="/bin/bash")
         return {"status": "success", "message": "Localização Nav2 (B002_map.yaml) iniciada com sucesso!"}
     except Exception as e:
@@ -171,7 +190,7 @@ def launch_nav2():
         tb4_ws = get_tb4_workspace()
         params_path = os.path.join(tb4_ws, "config/nav2_custom.yaml")
         subprocess.run("xhost +local:root 2>/dev/null || xhost + 2>/dev/null || true", shell=True, timeout=3)
-        cmd = f'cd {tb4_ws} && export DISPLAY=:0 && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_navigation nav2.launch.py params_file:={params_path}'
+        cmd = f'cd {tb4_ws} && export DISPLAY=:0 && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_navigation nav2.launch.py params_file:={params_path} > /tmp/nav2_stack.log 2>&1'
         subprocess.Popen(cmd, shell=True, executable="/bin/bash")
         return {"status": "success", "message": "Stack Nav2 (nav2_custom.yaml) iniciado com sucesso!"}
     except Exception as e:
@@ -183,7 +202,7 @@ def launch_viz():
     try:
         tb4_ws = get_tb4_workspace()
         subprocess.run("xhost +local:root 2>/dev/null || xhost + 2>/dev/null || true", shell=True, timeout=3)
-        cmd_viz = f'cd {tb4_ws} && export DISPLAY=:0 && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_viz view_navigation.launch.py'
+        cmd_viz = f'cd {tb4_ws} && export DISPLAY=:0 && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_viz view_navigation.launch.py > /tmp/nav2_viz.log 2>&1'
         subprocess.Popen(cmd_viz, shell=True, executable="/bin/bash")
         return {"status": "success", "message": "Janela do RViz Nav2 disparada no monitor do PC Host!"}
     except Exception as e:
@@ -194,9 +213,9 @@ def launch_mission_manager():
     """Inicializa o Gerenciador de Missões (mission_manager.py)."""
     try:
         tb4_ws = get_tb4_workspace()
-        cmd = f'cd {tb4_ws} && {JAZZY_ENV_CMD} && python3 scripts/mission_manager.py --ros-args --params-file params/waypoints.yaml'
+        cmd = f'cd {tb4_ws} && {JAZZY_ENV_CMD} && python3 scripts/mission_manager.py --ros-args --params-file params/waypoints.yaml > /tmp/nav2_mission_manager.log 2>&1'
         subprocess.Popen(cmd, shell=True, executable="/bin/bash")
-        return {"status": "success", "message": "Gerenciador de Missões (mission_manager.py) iniciado com sucesso!"}
+        return {"status": "success", "message": "Nó Mestre do Mission Manager inicializado!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Falha ao iniciar Mission Manager: {e}")
 
