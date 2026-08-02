@@ -85,20 +85,35 @@ def diagnose_turtlebot_network():
             if res.returncode == 0:
                 raw_lines = [line.strip() for line in res.stdout.splitlines() if line.strip()]
                 topics = raw_lines
-                for k in key_topics_status.keys():
-                    key_topics_status[k] = (k in raw_lines)
-        except Exception as e:
-            print(f"[WARN] Erro ao listar tópicos ROS 2 do TurtleBot: {e}")
+                for t in key_topics_status.keys():
+                    key_topics_status[t] = t in raw_lines
+        except Exception:
+            pass
             
     return {
+        "status": "success",
         "ping_ok": ping_ok,
-        "ip": tb_ip,
-        "discovery_server": "192.168.0.129:11811",
-        "domain_id": 0,
+        "tb_ip": tb_ip,
         "topics_count": len(topics),
         "key_topics": key_topics_status,
-        "raw_topics": topics[:25]
+        "all_topics": topics
     }
+
+@router.get("/logs")
+def get_turtlebot_logs(lines: int = 50):
+    """Retorna os últimos logs do console do Nav2, Localização e ROS 2."""
+    try:
+        cmd = f"docker logs --tail {lines} future_lab_backend 2>&1"
+        res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=3)
+        log_text = res.stdout if res.returncode == 0 else "Nenhum log disponível."
+        
+        raw_lines = [l.strip() for l in log_text.splitlines() if l.strip()]
+        filtered = [l for l in raw_lines if any(k in l.lower() for k in ["nav2", "amcl", "map", "lifecycle", "rviz", "mission", "goal", "pose", "active", "dock", "info", "warn", "error"])]
+        
+        output = filtered if len(filtered) >= 5 else raw_lines
+        return {"status": "success", "logs": output[-lines:]}
+    except Exception as e:
+        return {"status": "error", "logs": [f"Erro ao ler logs: {e}"]}
 
 @router.post("/teleop")
 def send_teleop(payload: TeleopPayload):

@@ -28,6 +28,26 @@ export default function TurtleBotDashboardTab({
   const isDocked = tbStatus?.is_docked;
   const pose = tbStatus?.current_pose || { x: 0.0, y: 0.0, yaw: 0.0 };
   const [loadingDiag, setLoadingDiag] = useState(false);
+  const [logs, setLogs] = useState([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
+
+  const fetchLogs = async () => {
+    setLoadingLogs(true);
+    try {
+      const res = await fetch(`http://${typeof window !== 'undefined' ? window.location.hostname : 'localhost'}:8000/api/v1/turtlebot/logs`);
+      const data = await res.json();
+      if (data?.logs) {
+        setLogs(data.logs);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+    setLoadingLogs(false);
+  };
+
+  React.useEffect(() => {
+    fetchLogs();
+  }, []);
 
   const handleRunDiagnose = async () => {
     setLoadingDiag(true);
@@ -385,6 +405,48 @@ export default function TurtleBotDashboardTab({
             </button>
             <div></div>
           </div>
+        </div>
+      </div>
+
+      {/* Console Terminal de Logs Nav2 / ROS 2 em Tempo Real */}
+      <div className="glass-card p-5 rounded-2xl border border-slate-700/60 space-y-4">
+        <div className="flex items-center justify-between border-b border-slate-700/80 pb-3">
+          <div className="flex items-center gap-2">
+            <Activity className="w-5 h-5 text-emerald-400" />
+            <h3 className="text-base font-bold text-slate-200">Terminal de Logs Nav2 & ROS 2 em Tempo Real</h3>
+          </div>
+          <button
+            onClick={fetchLogs}
+            disabled={loadingLogs}
+            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-emerald-400 font-extrabold text-xs rounded-lg border border-slate-700 flex items-center gap-1.5 transition-all active:scale-95"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loadingLogs ? 'animate-spin' : ''}`} />
+            <span>Atualizar Logs</span>
+          </button>
+        </div>
+
+        <div className="p-4 bg-black/90 rounded-xl border border-slate-800 font-mono text-xs text-slate-300 max-h-72 overflow-y-auto space-y-1 shadow-inner">
+          {logs && logs.length > 0 ? (
+            logs.map((logLine, idx) => {
+              let colorClass = "text-slate-300";
+              if (logLine.includes("ERROR") || logLine.includes("Failed") || logLine.includes("Aborting")) {
+                colorClass = "text-red-400 font-bold";
+              } else if (logLine.includes("WARN")) {
+                colorClass = "text-amber-300";
+              } else if (logLine.includes("INFO") || logLine.includes("active") || logLine.includes("success")) {
+                colorClass = "text-emerald-300";
+              }
+              return (
+                <div key={idx} className={`leading-relaxed whitespace-pre-wrap ${colorClass}`}>
+                  {logLine}
+                </div>
+              );
+            })
+          ) : (
+            <div className="text-slate-500 italic">
+              Clique em "Atualizar Logs" para carregar os registros em tempo real do Nav2, Localização, AMCL e ROS 2.
+            </div>
+          )}
         </div>
       </div>
     </div>
