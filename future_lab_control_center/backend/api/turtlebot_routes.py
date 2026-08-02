@@ -52,8 +52,14 @@ from backend.api.health_routes import ping_host
 @router.get("/status")
 def get_turtlebot_status():
     """Retorna o status do TurtleBot 4 (bateria, posição, docking)."""
+    tb_ip = "192.168.0.129"
+    ping_ok = ping_host(tb_ip, timeout_sec=1)
     node = get_turtlebot_node()
-    return node.get_status()
+    st = node.get_status()
+    st["ping_ok"] = ping_ok
+    if not ping_ok:
+        st["status"] = "offline"
+    return st
 
 @router.get("/diagnose")
 def diagnose_turtlebot_network():
@@ -106,11 +112,12 @@ def send_teleop(payload: TeleopPayload):
 @router.post("/dock")
 def trigger_dock():
     """Envia o comando de Docking (Ir para Estação de Carga)."""
+    tb_ip = "192.168.0.129"
+    if not ping_host(tb_ip, timeout_sec=2):
+        raise HTTPException(status_code=503, detail=f"TurtleBot 4 (IP {tb_ip}) está desligado ou desconectado da rede Wi-Fi.")
     try:
         cmd = f'{JAZZY_ENV_CMD} && ros2 action send_goal /dock irobot_create_msgs/action/Dock "{{}}"'
         subprocess.Popen(cmd, shell=True, executable="/bin/bash")
-        node = get_turtlebot_node()
-        node.is_docked = True
         return {"status": "success", "message": "Comando de Docking enviado ao TurtleBot 4!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Falha ao acionar Docking: {e}")
@@ -118,11 +125,12 @@ def trigger_dock():
 @router.post("/undock")
 def trigger_undock():
     """Envia o comando de Undocking (Sair da Estação de Carga)."""
+    tb_ip = "192.168.0.129"
+    if not ping_host(tb_ip, timeout_sec=2):
+        raise HTTPException(status_code=503, detail=f"TurtleBot 4 (IP {tb_ip}) está desligado ou desconectado da rede Wi-Fi.")
     try:
         cmd = f'{JAZZY_ENV_CMD} && ros2 action send_goal /undock irobot_create_msgs/action/Undock "{{}}"'
         subprocess.Popen(cmd, shell=True, executable="/bin/bash")
-        node = get_turtlebot_node()
-        node.is_docked = False
         return {"status": "success", "message": "Comando de Undocking enviado ao TurtleBot 4!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Falha ao acionar Undocking: {e}")
