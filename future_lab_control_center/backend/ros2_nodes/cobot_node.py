@@ -409,12 +409,12 @@ class CobotNode(BaseNode):
             print(f"[WARN] HTTP Micro-Bridge move_joints falhou: {e}")
         return False
 
-    def goto_pose(self, pose_name: str, velocity_scaling: float = 0.20) -> bool:
+    def goto_pose(self, pose_name: str, velocity_scaling: float = 0.50) -> bool:
         if pose_name not in self.poses:
             return False
 
         target_joints = self.poses[pose_name]
-        speed_val = max(1, min(15, int(velocity_scaling * 100)))
+        speed_val = max(25, min(90, int(velocity_scaling * 100)))
 
         # 1. Tenta HTTP Micro-Bridge (< 50ms) primeiro para controle direto e instantâneo do braço físico
         if self.goto_pose_http_microbridge(target_joints, speed=speed_val):

@@ -167,9 +167,9 @@ def move_to_pose(pose_name: str, payload: Optional[MovePoseSchema] = None):
 
     stop_yolo_test_process()
     node = get_cobot_node()
-    default_vel = float(cell_state.get("arm_speed", 0.15))
+    default_vel = float(cell_state.get("arm_speed", 0.50))
     vel = payload.velocity_scaling if (payload and payload.velocity_scaling is not None) else default_vel
-    vel = max(0.01, min(0.15, vel))
+    vel = max(0.05, min(1.0, vel))
     ok = node.goto_pose(pose_name, velocity_scaling=vel)
     if not ok:
         raise HTTPException(status_code=500, detail=f"Falha ao mover robô para a pose '{pose_name}'.")

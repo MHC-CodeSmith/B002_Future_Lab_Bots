@@ -14,7 +14,7 @@ class CellModeSchema(BaseModel):
     mode: str  # "auto" ou "manual"
     cooldown_sec: Optional[float] = 5.0
     yolo_conf: Optional[float] = 0.60
-    arm_speed: Optional[float] = 0.15
+    arm_speed: Optional[float] = 0.50
 
 class InterruptConfirmSchema(BaseModel):
     abort: bool  # True = SIM, Abortar; False = NÃO, Continuar
@@ -24,7 +24,7 @@ cell_state = {
     "auto_running": False,
     "cooldown_sec": 5.0,
     "yolo_conf": 0.60,
-    "arm_speed": 0.15,
+    "arm_speed": 0.50,
     "manual_authorized": False,
     "manual_step": "idle",  # "idle", "at_scan", "pick_authorized", "at_place_approach", "place_authorized"
     "status": "idle",
@@ -136,8 +136,8 @@ def _run_cycle_internal(is_manual: bool = False):
 
     from backend.api.cobot_routes import start_yolo_test_process, stop_yolo_test_process
 
-    speed = max(0.01, min(0.15, float(cell_state.get("arm_speed", 0.15))))
-    slow_speed = max(0.01, speed * 0.7)
+    speed = max(0.10, min(1.0, float(cell_state.get("arm_speed", 0.50))))
+    slow_speed = max(0.05, speed * 0.7)
 
     try:
         # ========== STEP 1: HOME → SCAN ==========
@@ -345,7 +345,7 @@ def set_cell_mode(payload: CellModeSchema):
     if payload.yolo_conf is not None:
         cell_state["yolo_conf"] = max(0.10, min(1.0, payload.yolo_conf))
     if payload.arm_speed is not None:
-        cell_state["arm_speed"] = max(0.01, min(0.15, payload.arm_speed))
+        cell_state["arm_speed"] = max(0.05, min(1.0, payload.arm_speed))
 
     if payload.mode == "manual":
         # Se trocou para MANUAL, desliga o loop automático
