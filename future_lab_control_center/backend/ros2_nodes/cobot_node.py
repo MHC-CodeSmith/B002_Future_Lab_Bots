@@ -400,95 +400,82 @@ class CobotNode(BaseNode):
             url = f"http://{nano_ip}:8088/move_joints?j={raw_j}&speed={speed_val}"
             import urllib.request
             req = urllib.request.Request(url)
-            with urllib.request.urlopen(req, timeout=0.3) as resp:
+            with urllib.request.urlopen(req, timeout=2.5) as resp:
                 if resp.status == 200:
                     self.current_joints = list(target_joints[:6])
                     print(f"[INFO] Movimento via HTTP Micro-Bridge executado com velocidade {speed_val}%!")
                     return True
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[WARN] HTTP Micro-Bridge move_joints falhou: {e}")
         return False
 
     def goto_pose(self, pose_name: str, velocity_scaling: float = 0.20) -> bool:
         if pose_name not in self.poses:
             return False
 
-        if not self.is_ros_active:
-            # ROS 2 DDS não disponível — tenta HTTP Micro-Bridge para mover o braço
-            target_joints = self.poses[pose_name]
-            speed_val = max(1, min(15, int(velocity_scaling * 100)))
-            if self.goto_pose_http_microbridge(target_joints, speed=speed_val):
-                return True
-            # Fallback: simula a movimentação localmente
-            time.sleep(1.0)
-            self.current_joints = list(target_joints)
-            return True
-
         target_joints = self.poses[pose_name]
         speed_val = max(1, min(15, int(velocity_scaling * 100)))
 
-        # Helper de execução do movimento
-        def _execute_move() -> bool:
-            # 1. Tenta mover via MoveIt (/move_action) se o MoveIt estiver no ar
-            if self.move_cli.wait_for_server(timeout_sec=4.0):
-                try:
-                    mpr = MotionPlanRequest()
-                    mpr.group_name = GROUP
-                    mpr.allowed_planning_time = 5.0
-                    mpr.num_planning_attempts = 5
-                    mpr.max_velocity_scaling_factor = float(velocity_scaling)
-                    mpr.max_acceleration_scaling_factor = float(velocity_scaling)
-                    mpr.start_state.is_diff = True
-                    if self.current_joints is not None:
-                        mpr.start_state.joint_state.name = list(JOINT_NAMES)
-                        mpr.start_state.joint_state.position = [float(v) for v in self.current_joints]
+        # 1. Tenta HTTP Micro-Bridge (< 50ms) primeiro para controle direto e instantâneo do braço físico
+        if self.goto_pose_http_microbridge(target_joints, speed=speed_val):
+            success = True
+        else:
+            # Helper de execução do movimento via ROS 2 se HTTP não respondeu
+            def _execute_move() -> bool:
+                if self.move_cli and self.move_cli.wait_for_server(timeout_sec=1.0):
+                    try:
+                        mpr = MotionPlanRequest()
+                        mpr.group_name = GROUP
+                        mpr.allowed_planning_time = 5.0
+                        mpr.num_planning_attempts = 5
+                        mpr.max_velocity_scaling_factor = float(velocity_scaling)
+                        mpr.max_acceleration_scaling_factor = float(velocity_scaling)
+                        mpr.start_state.is_diff = True
+                        if self.current_joints is not None:
+                            mpr.start_state.joint_state.name = list(JOINT_NAMES)
+                            mpr.start_state.joint_state.position = [float(v) for v in self.current_joints]
 
-                    c = Constraints()
-                    for n, p in zip(JOINT_NAMES, target_joints):
-                        jc = JointConstraint()
-                        jc.joint_name = n
-                        jc.position = float(p)
-                        jc.tolerance_above = jc.tolerance_below = 0.01
-                        jc.weight = 1.0
-                        c.joint_constraints.append(jc)
-                    mpr.goal_constraints = [c]
+                        c = Constraints()
+                        for n, p in zip(JOINT_NAMES, target_joints):
+                            jc = JointConstraint()
+                            jc.joint_name = n
+                            jc.position = float(p)
+                            jc.tolerance_above = jc.tolerance_below = 0.01
+                            jc.weight = 1.0
+                            c.joint_constraints.append(jc)
+                        mpr.goal_constraints = [c]
 
-                    po = PlanningOptions()
-                    po.plan_only = False
+                        po = PlanningOptions()
+                        po.plan_only = False
 
-                    goal = MoveGroup.Goal()
-                    goal.request = mpr
-                    goal.planning_options = po
+                        goal = MoveGroup.Goal()
+                        goal.request = mpr
+                        goal.planning_options = po
 
-                    send_fut = self.move_cli.send_goal_async(goal)
-                    t0 = time.time()
-                    while not send_fut.done() and (time.time() - t0) < 3.0:
-                        time.sleep(0.05)
+                        send_fut = self.move_cli.send_goal_async(goal)
+                        t0 = time.time()
+                        while not send_fut.done() and (time.time() - t0) < 3.0:
+                            time.sleep(0.05)
 
-                    if send_fut.done():
-                        gh = send_fut.result()
-                        if gh is not None and gh.accepted:
-                            res_fut = gh.get_result_async()
-                            t0 = time.time()
-                            while not res_fut.done() and (time.time() - t0) < 10.0:
-                                time.sleep(0.05)
-                            if res_fut.done():
-                                res = res_fut.result()
-                                if res and res.result.error_code.val == 1:
-                                    return True
-                except Exception as e:
-                    print(f"[WARN] MoveIt falhou no goto_pose, usando fallback direto: {e}")
+                        if send_fut.done():
+                            gh = send_fut.result()
+                            if gh is not None and gh.accepted:
+                                res_fut = gh.get_result_async()
+                                t0 = time.time()
+                                while not res_fut.done() and (time.time() - t0) < 10.0:
+                                    time.sleep(0.05)
+                                if res_fut.done():
+                                    res = res_fut.result()
+                                    if res and res.result.error_code.val == 1:
+                                        return True
+                    except Exception as e:
+                        print(f"[WARN] MoveIt falhou no goto_pose: {e}")
 
-            # 2. Tenta HTTP Micro-Bridge (~28ms) se disponível
-            if self.goto_pose_http_microbridge(target_joints, speed=speed_val):
-                return True
+                duration = max(2.0, min(12.0, 2.5 * (0.15 / max(0.01, velocity_scaling))))
+                print(f"[INFO] Movendo braço para '{pose_name}' via ponte direta (velocidade: {speed_val}%, duração: {duration:.1f}s)...")
+                return self.goto_pose_direct_bridge(target_joints, duration_sec=duration)
 
-            # 3. Fallback direto via Action Server da ponte de hardware no Nano/ROS
-            duration = max(2.0, min(12.0, 2.5 * (0.15 / max(0.01, velocity_scaling))))
-            print(f"[INFO] Movendo braço para '{pose_name}' via ponte direta (velocidade: {speed_val}%, duração: {duration:.1f}s)...")
-            return self.goto_pose_direct_bridge(target_joints, duration_sec=duration)
-
-        success = _execute_move()
+            success = _execute_move()
         if success:
             # Regra Mestre de Hardware:
             # 1. Ligar a bomba APÓS alcançar a pose 'pick'
