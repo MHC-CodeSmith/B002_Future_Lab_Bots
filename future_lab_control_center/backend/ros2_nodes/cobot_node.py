@@ -78,6 +78,18 @@ class CobotNode(BaseNode):
         self.poses: Dict[str, List[float]] = {}
         self.is_ros_active: bool = False
         self.lock = threading.Lock()
+
+        # Pré-inicializa TODOS os atributos de clientes ROS 2 como None
+        # para garantir que existam mesmo se a inicialização do nó falhar
+        # (evita AttributeError e permite fallback para HTTP Micro-Bridge)
+        self.move_cli = None
+        self.follow_jt_cli = None
+        self.pump_on_cli = None
+        self.pump_off_cli = None
+        self.release_cli = None
+        self.lock_cli = None
+        self.cmd_pub = None
+
         self.load_poses()
 
         if HAS_RCLPY and rclpy.ok():
@@ -308,8 +320,8 @@ class CobotNode(BaseNode):
                 except Exception:
                     pass
 
-            cmd = f"sshpass -p Elephant ssh -o ConnectTimeout=4 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null er@{nano_ip} 'bash -c \"export ROS_DOMAIN_ID=42 && export RMW_IMPLEMENTATION=rmw_fastrtps_cpp && source /opt/ros/galactic/setup.bash && source ~/custom_ws/install/setup.bash && ros2 service call {srv_name} std_srvs/srv/Trigger\"'"
-            res = subprocess.run(cmd, shell=True, timeout=6, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            cmd = f"sshpass -p Elephant ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null er@{nano_ip} 'export ROS_DOMAIN_ID=42 && source /opt/ros/galactic/setup.bash && source ~/custom_ws/install/setup.bash && ros2 service call {srv_name} std_srvs/srv/Trigger'"
+            res = subprocess.run(cmd, shell=True, timeout=12, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             output = (res.stdout or "") + (res.stderr or "")
             if "success=True" in output or "success=true" in output or "success: true" in output or "Servos soltos" in output or "Servos travados" in output or "Pump" in output:
                 print(f"[INFO] Fallback SSH do serviço '{label}' executado com SUCESSO!")
@@ -322,7 +334,8 @@ class CobotNode(BaseNode):
 
     def call_trigger_service(self, cli, label: str, timeout_sec: float = 0.5) -> bool:
         if not self.is_ros_active or cli is None:
-            return True
+            # ROS 2 DDS não disponível — usa diretamente o fallback HTTP Micro-Bridge
+            return self._trigger_service_fallback_http(label)
 
         # 1. Tenta chamada direta síncrona via ROS 2 DDS primeiro (se já descoberto)
         try:
@@ -344,8 +357,12 @@ class CobotNode(BaseNode):
 
     def set_pump(self, on: bool) -> bool:
         if not self.is_ros_active:
-            self.pump_active = on
-            return True
+            # ROS 2 DDS não disponível — usa diretamente o fallback HTTP Micro-Bridge
+            label = "Bomba ON" if on else "Bomba OFF"
+            ok = self._trigger_service_fallback_http(label)
+            if ok:
+                self.pump_active = on
+            return ok
         cli = self.pump_on_cli if on else self.pump_off_cli
         ok = self.call_trigger_service(cli, "Bomba ON" if on else "Bomba OFF")
         if ok:
@@ -397,8 +414,14 @@ class CobotNode(BaseNode):
             return False
 
         if not self.is_ros_active:
+            # ROS 2 DDS não disponível — tenta HTTP Micro-Bridge para mover o braço
+            target_joints = self.poses[pose_name]
+            speed_val = max(1, min(15, int(velocity_scaling * 100)))
+            if self.goto_pose_http_microbridge(target_joints, speed=speed_val):
+                return True
+            # Fallback: simula a movimentação localmente
             time.sleep(1.0)
-            self.current_joints = list(self.poses[pose_name])
+            self.current_joints = list(target_joints)
             return True
 
         target_joints = self.poses[pose_name]
