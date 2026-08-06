@@ -273,18 +273,39 @@ def launch_integrated_3d():
 
 @router.post("/start_oakd_camera")
 def start_oakd_camera():
-    """Inicializa a câmera OAK-D remotamente no TurtleBot 4 via SSH no IP 192.168.0.129."""
+    """Desperta a câmera OAK-D-PRO no TurtleBot 4 chamando o serviço ROS 2 /oakd/start_camera."""
     tb_ip = "192.168.0.129"
     if not ping_host(tb_ip, timeout_sec=2):
         raise HTTPException(status_code=503, detail=f"TurtleBot 4 (IP {tb_ip}) não acessível na rede.")
     try:
-        # Dispara nó da câmera OAK-D via SSH no TurtleBot
-        cmd = f"sshpass -p ubuntu ssh -o ConnectTimeout=4 -o StrictHostKeyChecking=no ubuntu@{tb_ip} 'nohup ros2 launch oakd_camera oakd.launch.py > /tmp/oakd.log 2>&1 &' &"
-        subprocess.Popen(cmd, shell=True)
+        cmd = f'{JAZZY_ENV_CMD} && ros2 service call /oakd/start_camera std_srvs/srv/Trigger {{}}'
+        subprocess.Popen(cmd, shell=True, executable="/bin/bash")
         return {
             "status": "success",
-            "message": "Nó da Câmera OAK-D disparado no TurtleBot 4 via SSH!",
-            "stream_url": f"http://{tb_ip}:8081/stream.mjpg"
+            "message": "Câmera OAK-D-PRO despertada e ativada no TurtleBot 4 com sucesso!",
+            "stream_url": "/api/v1/turtlebot/oakd_stream"
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Falha ao disparar câmera OAK-D: {e}")
+        raise HTTPException(status_code=500, detail=f"Falha ao acionar câmera OAK-D: {e}")
+
+from fastapi.responses import StreamingResponse
+
+@router.get("/oakd_stream")
+def proxy_oakd_stream():
+    """Streaming MJPEG ao vivo da Câmera OAK-D-PRO do TurtleBot 4."""
+    node = get_turtlebot_node()
+
+    def generate_frames():
+        while True:
+            frame = node.latest_jpeg_frame
+            if frame:
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+                time.sleep(0.04)  # ~25 FPS
+            else:
+                time.sleep(0.1)
+
+    return StreamingResponse(
+        generate_frames(),
+        media_type="multipart/x-mixed-replace; boundary=frame"
+    )

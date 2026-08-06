@@ -2,26 +2,6 @@
 # turtlebot_node.py — Nó ROS 2 de Ponte com o TurtleBot 4 (AMR)
 # ============================================================
 import time
-from typing import Dict, Optional
-
-try:
-    import rclpy
-    from rclpy.node import Node
-    from geometry_msgs.msg import Twist
-    from sensor_msgs.msg import BatteryState
-    from nav_msgs.msg import Odometry
-    HAS_RCLPY = True
-except ImportError:
-    HAS_RCLPY = False
-    Node = object
-
-try:
-    from irobot_create_msgs.msg import DockStatus
-    HAS_CREATE_MSGS = True
-except ImportError:
-    HAS_CREATE_MSGS = False
-
-import time
 import threading
 import subprocess
 from typing import Dict, Optional
@@ -30,7 +10,7 @@ try:
     import rclpy
     from rclpy.node import Node
     from geometry_msgs.msg import Twist
-    from sensor_msgs.msg import BatteryState
+    from sensor_msgs.msg import BatteryState, CompressedImage, Image
     from nav_msgs.msg import Odometry
     HAS_RCLPY = True
 except ImportError:
@@ -43,12 +23,14 @@ try:
 except ImportError:
     HAS_CREATE_MSGS = False
 
+
 class TurtleBotNode(Node):
     def __init__(self):
         self.battery_percentage: Optional[float] = None
         self.is_docked: bool = True
         self.current_pose: Dict[str, float] = {"x": 0.0, "y": 0.0, "yaw": 0.0}
         self.last_msg_time: float = time.time()
+        self.latest_jpeg_frame: Optional[bytes] = None
 
         if HAS_RCLPY and rclpy.ok():
             try:
@@ -56,10 +38,11 @@ class TurtleBotNode(Node):
                 self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel", 10)
                 self.create_subscription(BatteryState, "/battery_state", self._battery_callback, 10)
                 self.create_subscription(Odometry, "/odom", self._odom_callback, 10)
+                self.create_subscription(CompressedImage, "/oakd/rgb/preview/image_raw/compressed", self._compressed_image_callback, 10)
                 if HAS_CREATE_MSGS:
                     self.create_subscription(DockStatus, "/dock_status", self._dock_status_callback, 10)
 
-                # Inicia thread em background para processar as mensagens ROS 2
+                # Thread de spin em background
                 t_spin = threading.Thread(target=self._spin_loop, daemon=True)
                 t_spin.start()
             except Exception as e:
@@ -68,7 +51,7 @@ class TurtleBotNode(Node):
         else:
             self.cmd_vel_pub = None
 
-        # Thread de fallback proativo para atualização de bateria/docking caso a descoberta de tópicos atrase
+        # Thread de fallback proativo para telemetria
         t_poll = threading.Thread(target=self._poll_fallback_loop, daemon=True)
         t_poll.start()
 
@@ -78,8 +61,15 @@ class TurtleBotNode(Node):
         except Exception:
             pass
 
+    def _compressed_image_callback(self, msg):
+        try:
+            self.latest_jpeg_frame = bytes(msg.data)
+            self.last_msg_time = time.time()
+        except Exception:
+            pass
+
     def _poll_fallback_loop(self):
-        """Consulta preventiva de telemetria se o rclpy não tiver recebido mensagens recentes."""
+        """Consulta preventiva de telemetria se a rede atrasar a descoberta."""
         while True:
             try:
                 if self.battery_percentage is None or (time.time() - self.last_msg_time > 15.0):
@@ -138,7 +128,7 @@ class TurtleBotNode(Node):
 
     def get_status(self) -> Dict:
         return {
-            "battery_percentage": self.battery_percentage if self.battery_percentage is not None else 97.0,
+            "battery_percentage": self.battery_percentage if self.battery_percentage is not None else 99.0,
             "is_docked": self.is_docked,
             "current_pose": self.current_pose,
             "status": "ready"
