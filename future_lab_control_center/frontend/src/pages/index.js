@@ -487,6 +487,18 @@ export default function Dashboard() {
     });
   };
 
+  const handleTbStartOakdCamera = async () => {
+    const apiBase = getApiBase();
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/start_oakd_camera`, { method: 'POST' }, '👁️ LIGAR CÂMERA OAK-D');
+    if (ok) {
+      setNotification({
+        type: 'success',
+        title: '👁️ CÂMERA OAK-D ATIVADA',
+        message: data.message || 'Visão remota da OAK-D disparada via SSH no TurtleBot 4!'
+      });
+    }
+  };
+
   // Valores Finais (Considera o Estado Otimista Instantâneo se Presente)
   const currentPumpActive = optimisticPump !== null ? optimisticPump : Boolean(cellStatus?.pump_active);
   const currentYoloTestActive = optimisticYoloTest !== null ? optimisticYoloTest : Boolean(cellStatus?.yolo_test_active);
