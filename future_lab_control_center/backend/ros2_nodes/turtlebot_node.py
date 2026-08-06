@@ -45,7 +45,7 @@ class TurtleBotNode(Node):
                     pass
             try:
                 super().__init__("future_lab_turtlebot_node")
-                self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel", 10)
+                self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel_unstamped", 10)
                 self.create_subscription(BatteryState, "/battery_state", self._battery_callback, 10)
                 self.create_subscription(Odometry, "/odom", self._odom_callback, 10)
                 self.create_subscription(CompressedImage, "/oakd/rgb/preview/image_raw/compressed", self._compressed_image_callback, 10)
@@ -134,7 +134,15 @@ class TurtleBotNode(Node):
             t = Twist()
             t.linear.x = float(linear_x)
             t.angular.z = float(angular_z)
-            self.cmd_vel_pub.publish(t)
+            # Publica rajada de pulsos por 0.5s para superar o watchdog do iRobot Create 3
+            def _burst():
+                for _ in range(10):
+                    try:
+                        self.cmd_vel_pub.publish(t)
+                    except Exception:
+                        pass
+                    time.sleep(0.05)
+            threading.Thread(target=_burst, daemon=True).start()
 
     def get_status(self) -> Dict:
         return {

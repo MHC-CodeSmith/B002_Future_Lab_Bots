@@ -146,46 +146,126 @@ export default function TurtleBotDashboardTab({
         </div>
       </div>
 
-      {/* Painel de Vídeo ao Vivo da Câmera OAK-D do TurtleBot 4 */}
-      <div className="glass-card p-5 rounded-2xl border border-slate-700/60 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-700/60 pb-3">
-          <div className="flex items-center gap-2.5">
-            <Eye className="w-5 h-5 text-purple-400" />
-            <div>
-              <h3 className="text-base font-bold text-slate-100">Câmera OAK-D Lite ao Vivo (TurtleBot 4 AMR)</h3>
-              <p className="text-xs text-slate-400">Transmissão em tempo real da visão frontal do robô durante a navegação autônoma.</p>
+      {/* Seção Lado a Lado: Câmera OAK-D Lite ao Vivo + Teleoperação Manual por D-Pad */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Painel de Vídeo ao Vivo da Câmera OAK-D do TurtleBot 4 */}
+        <div className="glass-card p-5 rounded-2xl border border-slate-700/60 space-y-4 flex flex-col justify-between shadow-xl">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-700/60 pb-3">
+            <div className="flex items-center gap-2.5">
+              <Eye className="w-5 h-5 text-purple-400" />
+              <div>
+                <h3 className="text-base font-bold text-slate-100">Visão OAK-D Lite ao Vivo (TurtleBot 4 AMR)</h3>
+                <p className="text-xs text-slate-400">Transmissão em tempo real durante a teleoperação.</p>
+              </div>
             </div>
+            <button
+              onClick={async () => {
+                if (onStartOakdCamera) await onStartOakdCamera();
+                setOakdOnline(true);
+              }}
+              className="py-2 px-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 text-xs self-start sm:self-auto"
+            >
+              <Eye className="w-4 h-4" />
+              <span>👁️ LIGAR CÂMERA OAK-D</span>
+            </button>
           </div>
-          <button
-            onClick={async () => {
-              if (onStartOakdCamera) await onStartOakdCamera();
-              setOakdOnline(true);
-            }}
-            className="py-2.5 px-4 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 text-xs self-start sm:self-auto"
-          >
-            <Eye className="w-4 h-4" />
-            <span>👁️ LIGAR CÂMERA OAK-D (192.168.0.129)</span>
-          </button>
+
+          {/* Video Player Frame */}
+          <div className="relative aspect-video bg-slate-950 rounded-xl overflow-hidden border border-slate-800 flex items-center justify-center">
+            {oakdOnline ? (
+              <img
+                src={`http://${typeof window !== 'undefined' ? window.location.hostname : 'localhost'}:8000/api/v1/turtlebot/oakd_stream`}
+                alt="Stream da Câmera OAK-D"
+                className="w-full h-full object-contain"
+                onError={() => setOakdOnline(false)}
+              />
+            ) : (
+              <div className="text-center p-6 space-y-3">
+                <Eye className="w-12 h-12 text-slate-600 mx-auto animate-pulse" />
+                <p className="text-sm font-bold text-slate-400">Câmera OAK-D Desconectada</p>
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                  Clique no botão <span className="text-purple-300 font-semibold font-mono">"👁️ LIGAR CÂMERA OAK-D"</span> para ativar a visão remota.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Video Player Frame */}
-        <div className="relative aspect-video bg-slate-950 rounded-xl overflow-hidden border border-slate-800 flex items-center justify-center">
-          {oakdOnline ? (
-            <img
-              src={`http://${typeof window !== 'undefined' ? window.location.hostname : 'localhost'}:8000/api/v1/turtlebot/oakd_stream`}
-              alt="Stream da Câmera OAK-D"
-              className="w-full h-full object-contain"
-              onError={() => setOakdOnline(false)}
-            />
-          ) : (
-            <div className="text-center p-6 space-y-3">
-              <Eye className="w-12 h-12 text-slate-600 mx-auto animate-pulse" />
-              <p className="text-sm font-bold text-slate-400">Câmera OAK-D Desconectada ou Desligada</p>
-              <p className="text-xs text-slate-500 max-w-md mx-auto">
-                Clique no botão <span className="text-purple-300 font-semibold font-mono">"👁️ LIGAR CÂMERA OAK-D"</span> acima para iniciar o nó de visão remota no TurtleBot 4.
-              </p>
+        {/* D-Pad Teleoperação Manual */}
+        <div className="glass-card p-5 rounded-2xl border border-slate-700/60 space-y-4 flex flex-col justify-between shadow-xl">
+          <div>
+            <div className="flex items-center justify-between border-b border-slate-700/60 pb-3">
+              <div className="flex items-center gap-2.5">
+                <Bot className="w-5 h-5 text-blue-400" />
+                <div>
+                  <h3 className="text-base font-bold text-slate-200">Teleoperação Manual por D-Pad</h3>
+                  <p className="text-xs text-slate-400">Controle de movimento direto (/cmd_vel_unstamped).</p>
+                </div>
+              </div>
+              {isDocked && (
+                <button
+                  onClick={onUndock}
+                  className="py-1.5 px-3 bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded-lg text-xs font-bold hover:bg-amber-500/30 transition-all flex items-center gap-1"
+                  title="O robô está encaixado na dock station. Clique para desencaixar as rodas."
+                >
+                  <Play className="w-3.5 h-3.5" />
+                  <span>🚀 DESENCAIXAR DOCK (UNDOCK)</span>
+                </button>
+              )}
             </div>
-          )}
+            {isDocked && (
+              <div className="mt-3 p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs text-amber-300 flex items-center gap-2">
+                <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0" />
+                <span><strong>Atenção:</strong> O robô está encaixado na Dock. Clique em <strong>UNDOCK</strong> acima para destravar os motores e mover livremente.</span>
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col items-center justify-center py-4">
+            <div className="grid grid-cols-3 gap-3 w-56">
+              <div></div>
+              <button
+                onClick={() => handleSendTeleop(0.25, 0.0)}
+                className="p-5 bg-slate-800 hover:bg-blue-600 active:bg-blue-700 text-white font-bold rounded-2xl border border-slate-700 shadow-lg flex items-center justify-center transition-all active:scale-90"
+                title="Frente (linear_x = +0.25 m/s)"
+              >
+                <ArrowUp className="w-7 h-7" />
+              </button>
+              <div></div>
+
+              <button
+                onClick={() => handleSendTeleop(0.0, 0.6)}
+                className="p-5 bg-slate-800 hover:bg-blue-600 active:bg-blue-700 text-white font-bold rounded-2xl border border-slate-700 shadow-lg flex items-center justify-center transition-all active:scale-90"
+                title="Esquerda (angular_z = +0.6 rad/s)"
+              >
+                <ArrowLeft className="w-7 h-7" />
+              </button>
+              <button
+                onClick={() => handleSendTeleop(0.0, 0.0)}
+                className="p-5 bg-red-600/90 hover:bg-red-600 active:bg-red-700 text-white font-bold rounded-2xl border border-red-500 shadow-lg flex items-center justify-center transition-all active:scale-90"
+                title="Parar Robô (Emergency Stop /cmd_vel)"
+              >
+                <Square className="w-7 h-7 fill-current" />
+              </button>
+              <button
+                onClick={() => handleSendTeleop(0.0, -0.6)}
+                className="p-5 bg-slate-800 hover:bg-blue-600 active:bg-blue-700 text-white font-bold rounded-2xl border border-slate-700 shadow-lg flex items-center justify-center transition-all active:scale-90"
+                title="Direita (angular_z = -0.6 rad/s)"
+              >
+                <ArrowRight className="w-7 h-7" />
+              </button>
+
+              <div></div>
+              <button
+                onClick={() => handleSendTeleop(-0.25, 0.0)}
+                className="p-5 bg-slate-800 hover:bg-blue-600 active:bg-blue-700 text-white font-bold rounded-2xl border border-slate-700 shadow-lg flex items-center justify-center transition-all active:scale-90"
+                title="Ré (linear_x = -0.25 m/s)"
+              >
+                <ArrowDown className="w-7 h-7" />
+              </button>
+              <div></div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -420,52 +500,6 @@ export default function TurtleBotDashboardTab({
         </div>
       </div>
 
-      {/* D-Pad Teleoperação Manual */}
-      <div className="glass-card p-5 rounded-xl border border-slate-700/60 space-y-4">
-        <h3 className="text-base font-bold text-slate-200 flex items-center gap-2">
-          <Bot className="w-5 h-5 text-blue-400" />
-          Teleoperação Manual por D-Pad (/cmd_vel)
-        </h3>
-
-        <div className="flex flex-col items-center justify-center py-2">
-          <div className="grid grid-cols-3 gap-2 w-48">
-            <div></div>
-            <button
-              onClick={() => handleSendTeleop(0.2, 0.0)}
-              className="p-4 bg-slate-800 hover:bg-blue-600 text-white font-bold rounded-xl border border-slate-700 flex items-center justify-center transition-all active:scale-95"
-            >
-              <ArrowUp className="w-6 h-6" />
-            </button>
-            <div></div>
-
-            <button
-              onClick={() => handleSendTeleop(0.0, 0.5)}
-              className="p-4 bg-slate-800 hover:bg-blue-600 text-white font-bold rounded-xl border border-slate-700 flex items-center justify-center transition-all active:scale-95"
-            >
-              <ArrowLeft className="w-6 h-6" />
-            </button>
-            <button
-              onClick={() => handleSendTeleop(0.0, 0.0)}
-              className="p-4 bg-red-600/80 hover:bg-red-600 text-white font-bold rounded-xl border border-red-500 flex items-center justify-center transition-all active:scale-95"
-            >
-              <Square className="w-6 h-6" />
-            </button>
-            <button
-              onClick={() => handleSendTeleop(0.0, -0.5)}
-              className="p-4 bg-slate-800 hover:bg-blue-600 text-white font-bold rounded-xl border border-slate-700 flex items-center justify-center transition-all active:scale-95"
-            >
-              <ArrowRight className="w-6 h-6" />
-            </button>
-
-            <div></div>
-            <button
-              onClick={() => handleSendTeleop(-0.2, 0.0)}
-              className="p-4 bg-slate-800 hover:bg-blue-600 text-white font-bold rounded-xl border border-slate-700 flex items-center justify-center transition-all active:scale-95"
-            >
-              <ArrowDown className="w-6 h-6" />
-            </button>
-            <div></div>
-          </div>
         </div>
       </div>
 
