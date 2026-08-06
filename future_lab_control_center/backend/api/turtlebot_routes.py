@@ -179,7 +179,7 @@ def launch_localization():
         map_path = os.path.join(tb4_ws, "maps/B002_map.yaml")
         subprocess.run("xhost +local:root 2>/dev/null || xhost + 2>/dev/null || true", shell=True, timeout=3)
         cmd = f'cd {tb4_ws} && export DISPLAY=:0 && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_navigation localization.launch.py map:={map_path} bond_timeout:=10.0 > /tmp/nav2_localization.log 2>&1'
-        subprocess.Popen(cmd, shell=True, executable="/bin/bash")
+        subprocess.Popen(cmd, shell=True, executable="/bin/bash", start_new_session=True)
         return {"status": "success", "message": "Localização Nav2 (B002_map.yaml) iniciada com sucesso!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Falha ao iniciar Localização: {e}")
@@ -192,7 +192,7 @@ def launch_nav2():
         params_path = os.path.join(tb4_ws, "config/nav2_custom.yaml")
         subprocess.run("xhost +local:root 2>/dev/null || xhost + 2>/dev/null || true", shell=True, timeout=3)
         cmd = f'cd {tb4_ws} && export DISPLAY=:0 && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_navigation nav2.launch.py params_file:={params_path} > /tmp/nav2_stack.log 2>&1'
-        subprocess.Popen(cmd, shell=True, executable="/bin/bash")
+        subprocess.Popen(cmd, shell=True, executable="/bin/bash", start_new_session=True)
         return {"status": "success", "message": "Stack Nav2 (nav2_custom.yaml) iniciado com sucesso!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Falha ao iniciar Nav2: {e}")
@@ -204,7 +204,7 @@ def launch_viz():
         tb4_ws = get_tb4_workspace()
         subprocess.run("xhost +local:root 2>/dev/null || xhost + 2>/dev/null || true", shell=True, timeout=3)
         cmd_viz = f'cd {tb4_ws} && export DISPLAY=:0 && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_viz view_navigation.launch.py > /tmp/nav2_viz.log 2>&1'
-        subprocess.Popen(cmd_viz, shell=True, executable="/bin/bash")
+        subprocess.Popen(cmd_viz, shell=True, executable="/bin/bash", start_new_session=True)
         return {"status": "success", "message": "Janela do RViz Nav2 disparada no monitor do PC Host!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Falha ao abrir RViz Nav2: {e}")
@@ -214,8 +214,10 @@ def launch_mission_manager():
     """Inicializa o Gerenciador de Missões (mission_manager.py)."""
     try:
         tb4_ws = get_tb4_workspace()
-        cmd = f'pkill -9 -f mission_manager.py 2>/dev/null || true; cd {tb4_ws} && {JAZZY_ENV_CMD} && python3 scripts/mission_manager.py --ros-args --params-file params/waypoints.yaml > /tmp/nav2_mission_manager.log 2>&1'
-        subprocess.Popen(cmd, shell=True, executable="/bin/bash")
+        subprocess.run("pkill -9 -f 'scripts/mission_manager.py' 2>/dev/null || true", shell=True)
+        time.sleep(0.3)
+        cmd = f'cd {tb4_ws} && {JAZZY_ENV_CMD} && PYTHONUNBUFFERED=1 python3 -u scripts/mission_manager.py --ros-args --params-file params/waypoints.yaml > /tmp/nav2_mission_manager.log 2>&1'
+        subprocess.Popen(cmd, shell=True, executable="/bin/bash", start_new_session=True)
         return {"status": "success", "message": "Nó Mestre do Mission Manager inicializado!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Falha ao iniciar Mission Manager: {e}")
@@ -225,7 +227,7 @@ def trigger_delivery():
     """Aciona o serviço ROS 2 de entrega de peças (/start_delivery)."""
     try:
         cmd = f'{JAZZY_ENV_CMD} && ros2 service call /start_delivery std_srvs/srv/Trigger {{}}'
-        subprocess.Popen(cmd, shell=True, executable="/bin/bash")
+        subprocess.Popen(cmd, shell=True, executable="/bin/bash", start_new_session=True)
         return {"status": "success", "message": "Rotina de Entrega (/start_delivery) acionada!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Falha ao acionar rotina de entrega: {e}")
@@ -235,7 +237,7 @@ def trigger_failure():
     """Aciona o serviço ROS 2 de recolhimento de peça com defeito / descarte (/start_failure)."""
     try:
         cmd = f'{JAZZY_ENV_CMD} && ros2 service call /start_failure std_srvs/srv/Trigger {{}}'
-        subprocess.Popen(cmd, shell=True, executable="/bin/bash")
+        subprocess.Popen(cmd, shell=True, executable="/bin/bash", start_new_session=True)
         return {"status": "success", "message": "Rotina de Falha/Descarte (/start_failure) acionada!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Falha ao acionar rotina de falha: {e}")
@@ -245,7 +247,7 @@ def trigger_restock():
     """Aciona o serviço ROS 2 de reabastecimento de matéria-prima (/start_restock)."""
     try:
         cmd = f'{JAZZY_ENV_CMD} && ros2 service call /start_restock std_srvs/srv/Trigger {{}}'
-        subprocess.Popen(cmd, shell=True, executable="/bin/bash")
+        subprocess.Popen(cmd, shell=True, executable="/bin/bash", start_new_session=True)
         return {"status": "success", "message": "Rotina de Reabastecimento (/start_restock) acionada!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Falha ao acionar rotina de reabastecimento: {e}")
@@ -255,7 +257,7 @@ def trigger_patrol():
     """Aciona o serviço ROS 2 de ronda/patrulha (/start_patrol)."""
     try:
         cmd = f'{JAZZY_ENV_CMD} && ros2 service call /start_patrol std_srvs/srv/Trigger {{}}'
-        subprocess.Popen(cmd, shell=True, executable="/bin/bash")
+        subprocess.Popen(cmd, shell=True, executable="/bin/bash", start_new_session=True)
         return {"status": "success", "message": "Rotina de Patrulha (/start_patrol) acionada!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Falha ao acionar rotina de patrulha: {e}")
@@ -266,11 +268,11 @@ def stop_mission():
     try:
         # 1. Chama service /stop_mission do mission_manager
         cmd_stop_srv = f'{JAZZY_ENV_CMD} && ros2 service call /stop_mission std_srvs/srv/Trigger {{}}'
-        subprocess.Popen(cmd_stop_srv, shell=True, executable="/bin/bash")
+        subprocess.Popen(cmd_stop_srv, shell=True, executable="/bin/bash", start_new_session=True)
 
         # 2. Publica parada de emergência no /cmd_vel_unstamped
         cmd_stop_vel = f'{JAZZY_ENV_CMD} && ros2 topic pub --once /cmd_vel_unstamped geometry_msgs/msg/Twist "{{linear: {{x: 0.0, y: 0.0, z: 0.0}}, angular: {{x: 0.0, y: 0.0, z: 0.0}}}}"'
-        subprocess.Popen(cmd_stop_vel, shell=True, executable="/bin/bash")
+        subprocess.Popen(cmd_stop_vel, shell=True, executable="/bin/bash", start_new_session=True)
 
         return {"status": "success", "message": "🛑 Missão interrompida! Robô parado e Mission Manager desocupado."}
     except Exception as e:
