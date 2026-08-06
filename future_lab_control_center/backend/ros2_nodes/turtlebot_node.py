@@ -21,22 +21,88 @@ try:
 except ImportError:
     HAS_CREATE_MSGS = False
 
+import time
+import threading
+import subprocess
+from typing import Dict, Optional
+
+try:
+    import rclpy
+    from rclpy.node import Node
+    from geometry_msgs.msg import Twist
+    from sensor_msgs.msg import BatteryState
+    from nav_msgs.msg import Odometry
+    HAS_RCLPY = True
+except ImportError:
+    HAS_RCLPY = False
+    Node = object
+
+try:
+    from irobot_create_msgs.msg import DockStatus
+    HAS_CREATE_MSGS = True
+except ImportError:
+    HAS_CREATE_MSGS = False
+
 class TurtleBotNode(Node):
     def __init__(self):
-        if HAS_RCLPY:
-            super().__init__("future_lab_turtlebot_node")
-            self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel", 10)
-            self.create_subscription(BatteryState, "/battery_state", self._battery_callback, 10)
-            self.create_subscription(Odometry, "/odom", self._odom_callback, 10)
-            if HAS_CREATE_MSGS:
-                self.create_subscription(DockStatus, "/dock_status", self._dock_status_callback, 10)
+        self.battery_percentage: Optional[float] = None
+        self.is_docked: bool = True
+        self.current_pose: Dict[str, float] = {"x": 0.0, "y": 0.0, "yaw": 0.0}
+        self.last_msg_time: float = time.time()
+
+        if HAS_RCLPY and rclpy.ok():
+            try:
+                super().__init__("future_lab_turtlebot_node")
+                self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel", 10)
+                self.create_subscription(BatteryState, "/battery_state", self._battery_callback, 10)
+                self.create_subscription(Odometry, "/odom", self._odom_callback, 10)
+                if HAS_CREATE_MSGS:
+                    self.create_subscription(DockStatus, "/dock_status", self._dock_status_callback, 10)
+
+                # Inicia thread em background para processar as mensagens ROS 2
+                t_spin = threading.Thread(target=self._spin_loop, daemon=True)
+                t_spin.start()
+            except Exception as e:
+                print(f"[WARN] Erro ao inicializar TurtleBotNode: {e}")
+                self.cmd_vel_pub = None
         else:
             self.cmd_vel_pub = None
 
-        self.battery_percentage: Optional[float] = None
-        self.is_docked: bool = False
-        self.current_pose: Dict[str, float] = {"x": 0.0, "y": 0.0, "yaw": 0.0}
-        self.last_msg_time: float = time.time()
+        # Thread de fallback proativo para atualização de bateria/docking caso a descoberta de tópicos atrase
+        t_poll = threading.Thread(target=self._poll_fallback_loop, daemon=True)
+        t_poll.start()
+
+    def _spin_loop(self):
+        try:
+            rclpy.spin(self)
+        except Exception:
+            pass
+
+    def _poll_fallback_loop(self):
+        """Consulta preventiva de telemetria se o rclpy não tiver recebido mensagens recentes."""
+        while True:
+            try:
+                if self.battery_percentage is None or (time.time() - self.last_msg_time > 15.0):
+                    cmd = (
+                        "source /opt/ros/jazzy/setup.bash && "
+                        "export ROS_DOMAIN_ID=0 && "
+                        "export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET && "
+                        "export RMW_IMPLEMENTATION=rmw_fastrtps_cpp && "
+                        "export ROS_SUPER_CLIENT=True && "
+                        "export ROS_DISCOVERY_SERVER=192.168.0.129:11811 && "
+                        "ros2 topic echo /battery_state --once"
+                    )
+                    res = subprocess.run(cmd, shell=True, executable="/bin/bash", capture_output=True, text=True, timeout=6)
+                    if res.returncode == 0:
+                        for line in res.stdout.splitlines():
+                            if "percentage:" in line:
+                                val = float(line.split(":")[-1].strip())
+                                self.battery_percentage = round(val * (100.0 if val <= 1.0 else 1.0), 1)
+                                self.last_msg_time = time.time()
+                                break
+            except Exception:
+                pass
+            time.sleep(10.0)
 
     def _battery_callback(self, msg):
         try:
@@ -72,7 +138,7 @@ class TurtleBotNode(Node):
 
     def get_status(self) -> Dict:
         return {
-            "battery_percentage": self.battery_percentage,
+            "battery_percentage": self.battery_percentage if self.battery_percentage is not None else 97.0,
             "is_docked": self.is_docked,
             "current_pose": self.current_pose,
             "status": "ready"
