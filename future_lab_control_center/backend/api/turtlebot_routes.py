@@ -214,7 +214,7 @@ def launch_mission_manager():
     """Inicializa o Gerenciador de Missões (mission_manager.py)."""
     try:
         tb4_ws = get_tb4_workspace()
-        cmd = f'cd {tb4_ws} && {JAZZY_ENV_CMD} && python3 scripts/mission_manager.py --ros-args --params-file params/waypoints.yaml > /tmp/nav2_mission_manager.log 2>&1'
+        cmd = f'pkill -9 -f mission_manager.py 2>/dev/null || true; cd {tb4_ws} && {JAZZY_ENV_CMD} && python3 scripts/mission_manager.py --ros-args --params-file params/waypoints.yaml > /tmp/nav2_mission_manager.log 2>&1'
         subprocess.Popen(cmd, shell=True, executable="/bin/bash")
         return {"status": "success", "message": "Nó Mestre do Mission Manager inicializado!"}
     except Exception as e:
