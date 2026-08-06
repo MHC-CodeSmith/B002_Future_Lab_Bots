@@ -440,6 +440,19 @@ export default function Dashboard() {
     refreshStatus();
   };
 
+  const handleTbStopMission = async () => {
+    const apiBase = getApiBase();
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/stop_mission`, { method: 'POST' }, '🛑 CANCELAR MISSÃO');
+    if (ok) {
+      setNotification({
+        type: 'warning',
+        title: '🛑 MISSÃO INTERROMPIDA',
+        message: data.message || 'Missão em andamento cancelada! Robô parado e Mission Manager liberado.'
+      });
+    }
+    refreshStatus();
+  };
+
   const handleTbDiagnose = async () => {
     const apiBase = getApiBase();
     const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/diagnose`, { method: 'GET' }, '🔍 DIAGNÓSTICO TURTLEBOT');
@@ -629,6 +642,7 @@ export default function Dashboard() {
           onTriggerFailure={handleTbTriggerFailure}
           onTriggerRestock={handleTbTriggerRestock}
           onTriggerPatrol={handleTbTriggerPatrol}
+          onStopMission={handleTbStopMission}
           onLaunchIntegrated3D={handleTbLaunchIntegrated3D}
           onTeleop={handleTbTeleop}
           onStartOakdCamera={handleTbStartOakdCamera}

@@ -20,6 +20,7 @@ export default function TurtleBotDashboardTab({
   onTriggerFailure,
   onTriggerRestock, 
   onTriggerPatrol, 
+  onStopMission,
   onLaunchIntegrated3D,
   onTeleop,
   onStartOakdCamera
@@ -495,10 +496,22 @@ export default function TurtleBotDashboardTab({
                 <span>/start_patrol</span>
                 <span className="text-[10px] text-slate-400 font-normal">Patrulha / Ronda</span>
               </button>
-              </div>
+            </div>
+
+            {/* Botão de Emergência para Cancelamento de Missão */}
+            <div className="pt-3">
+              <button
+                onClick={onStopMission}
+                className="w-full py-3 px-4 bg-red-600/90 hover:bg-red-600 active:bg-red-700 text-white font-extrabold rounded-xl border border-red-500 shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 text-xs"
+                title="Aborta a missão atual, cancela Nav2 e libera o Mission Manager"
+              >
+                <Square className="w-4 h-4 fill-current" />
+                <span>🛑 CANCELAR / PARAR MISSÃO ATUAL (/stop_mission)</span>
+              </button>
             </div>
           </div>
         </div>
+      </div>
 
       {/* Console Terminal de Logs Nav2 / ROS 2 em Tempo Real */}
       <div className="glass-card p-5 rounded-2xl border border-slate-700/60 space-y-4">

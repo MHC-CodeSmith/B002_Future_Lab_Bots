@@ -2,6 +2,7 @@
 # turtlebot_routes.py — API Router do TurtleBot 4 (AMR & Jazzy Stack)
 # ============================================================
 import os
+import time
 import subprocess
 import threading
 from typing import Optional
