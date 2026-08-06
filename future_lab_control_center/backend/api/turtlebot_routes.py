@@ -260,6 +260,22 @@ def trigger_patrol():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Falha ao acionar rotina de patrulha: {e}")
 
+@router.post("/stop_mission")
+def stop_mission():
+    """Interrompe e cancela qualquer missão ativa no Mission Manager e força parada dos motores."""
+    try:
+        # 1. Chama service /stop_mission do mission_manager
+        cmd_stop_srv = f'{JAZZY_ENV_CMD} && ros2 service call /stop_mission std_srvs/srv/Trigger {{}}'
+        subprocess.Popen(cmd_stop_srv, shell=True, executable="/bin/bash")
+
+        # 2. Publica parada de emergência no /cmd_vel_unstamped
+        cmd_stop_vel = f'{JAZZY_ENV_CMD} && ros2 topic pub --once /cmd_vel_unstamped geometry_msgs/msg/Twist "{{linear: {{x: 0.0, y: 0.0, z: 0.0}}, angular: {{x: 0.0, y: 0.0, z: 0.0}}}}"'
+        subprocess.Popen(cmd_stop_vel, shell=True, executable="/bin/bash")
+
+        return {"status": "success", "message": "🛑 Missão interrompida! Robô parado e Mission Manager desocupado."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Falha ao interromper missão: {e}")
+
 @router.post("/launch_integrated_3d")
 def launch_integrated_3d():
     """Abre a cena gráfica 3D integrada (MyCobot 280 + TurtleBot 4 + Mapa B002) no monitor do PC Host."""
