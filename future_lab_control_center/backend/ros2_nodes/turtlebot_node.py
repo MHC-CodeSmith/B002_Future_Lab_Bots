@@ -1,10 +1,15 @@
-# ============================================================
-# turtlebot_node.py — Nó ROS 2 de Ponte com o TurtleBot 4 (AMR)
-# ============================================================
+import os
 import time
 import threading
 import subprocess
 from typing import Dict, Optional
+
+# Configura o Discovery Server do TurtleBot 4 (192.168.0.129:11811) no ambiente Python do rclpy
+os.environ["ROS_DOMAIN_ID"] = "0"
+os.environ["ROS_AUTOMATIC_DISCOVERY_RANGE"] = "SUBNET"
+os.environ["RMW_IMPLEMENTATION"] = "rmw_fastrtps_cpp"
+os.environ["ROS_SUPER_CLIENT"] = "True"
+os.environ["ROS_DISCOVERY_SERVER"] = "192.168.0.129:11811"
 
 try:
     import rclpy
@@ -32,7 +37,12 @@ class TurtleBotNode(Node):
         self.last_msg_time: float = time.time()
         self.latest_jpeg_frame: Optional[bytes] = None
 
-        if HAS_RCLPY and rclpy.ok():
+        if HAS_RCLPY:
+            if not rclpy.ok():
+                try:
+                    rclpy.init()
+                except Exception:
+                    pass
             try:
                 super().__init__("future_lab_turtlebot_node")
                 self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel", 10)
