@@ -21,7 +21,8 @@ export default function TurtleBotDashboardTab({
   onTriggerRestock, 
   onTriggerPatrol, 
   onLaunchIntegrated3D,
-  onTeleop
+  onTeleop,
+  onStartOakdCamera
 }) {
   const isOnline = tbStatus?.status === 'ready' && tbStatus?.ping_ok !== false;
   const batteryPct = isOnline && tbStatus?.battery_percentage != null ? tbStatus.battery_percentage : null;
@@ -31,6 +32,7 @@ export default function TurtleBotDashboardTab({
   const [logs, setLogs] = useState([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [logSource, setLogSource] = useState('localization');
+  const [oakdOnline, setOakdOnline] = useState(false);
 
   const fetchLogs = async (sourceParam = logSource) => {
     setLoadingLogs(true);
@@ -141,6 +143,49 @@ export default function TurtleBotDashboardTab({
               </p>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Painel de Vídeo ao Vivo da Câmera OAK-D do TurtleBot 4 */}
+      <div className="glass-card p-5 rounded-2xl border border-slate-700/60 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-700/60 pb-3">
+          <div className="flex items-center gap-2.5">
+            <Eye className="w-5 h-5 text-purple-400" />
+            <div>
+              <h3 className="text-base font-bold text-slate-100">Câmera OAK-D Lite ao Vivo (TurtleBot 4 AMR)</h3>
+              <p className="text-xs text-slate-400">Transmissão em tempo real da visão frontal do robô durante a navegação autônoma.</p>
+            </div>
+          </div>
+          <button
+            onClick={async () => {
+              if (onStartOakdCamera) await onStartOakdCamera();
+              setOakdOnline(true);
+            }}
+            className="py-2.5 px-4 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 text-xs self-start sm:self-auto"
+          >
+            <Eye className="w-4 h-4" />
+            <span>👁️ LIGAR CÂMERA OAK-D (192.168.0.129)</span>
+          </button>
+        </div>
+
+        {/* Video Player Frame */}
+        <div className="relative aspect-video bg-slate-950 rounded-xl overflow-hidden border border-slate-800 flex items-center justify-center">
+          {oakdOnline ? (
+            <img
+              src={`http://${typeof window !== 'undefined' ? window.location.hostname : 'localhost'}:8000/api/v1/turtlebot/oakd_stream`}
+              alt="Stream da Câmera OAK-D"
+              className="w-full h-full object-contain"
+              onError={() => setOakdOnline(false)}
+            />
+          ) : (
+            <div className="text-center p-6 space-y-3">
+              <Eye className="w-12 h-12 text-slate-600 mx-auto animate-pulse" />
+              <p className="text-sm font-bold text-slate-400">Câmera OAK-D Desconectada ou Desligada</p>
+              <p className="text-xs text-slate-500 max-w-md mx-auto">
+                Clique no botão <span className="text-purple-300 font-semibold font-mono">"👁️ LIGAR CÂMERA OAK-D"</span> acima para iniciar o nó de visão remota no TurtleBot 4.
+              </p>
+            </div>
+          )}
         </div>
       </div>
 

@@ -619,6 +619,7 @@ export default function Dashboard() {
           onTriggerPatrol={handleTbTriggerPatrol}
           onLaunchIntegrated3D={handleTbLaunchIntegrated3D}
           onTeleop={handleTbTeleop}
+          onStartOakdCamera={handleTbStartOakdCamera}
         />
       )}
     </main>
