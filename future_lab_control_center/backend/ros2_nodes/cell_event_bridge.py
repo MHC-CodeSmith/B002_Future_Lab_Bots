@@ -43,8 +43,8 @@ def is_turtlebot_ready_at_loading_station() -> bool:
     if status.get("status") == "offline":
         return True  # Fallback permissivo para operação em modo isolado sem AMR
         
-    is_docked = Boolean(status.get("is_docked", False))
-    dock_visible = Boolean(status.get("dock_visible", False))
+    is_docked = bool(status.get("is_docked", False))
+    dock_visible = bool(status.get("dock_visible", False))
     
     if is_turtlebot_busy():
         return False

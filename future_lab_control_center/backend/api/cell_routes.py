@@ -294,7 +294,26 @@ def _run_cycle_internal(is_manual: bool = False):
         print("[CYCLE] Finalização: Retornando para HOME...")
         _goto_pose_with_resume(node, "home", 0.20)
 
-        print(f"[CYCLE] ✅ CICLO EXECUTADO COM SUCESSO COMPLETO!")
+        # ========== STEP 6: PUBLICA /product_class E DISPARA MISSÃO NO TURTLEBOT 4 ==========
+        print(f"[CYCLE] Step 6: Publicando classe '{cls_name}' no /product_class e disparando missão no TurtleBot 4...")
+        node.publish_product_class(cls_name)
+
+        if is_valid_tin_class(cls_name):
+            print(f"[CYCLE] 🚚 Disparando /start_delivery no TurtleBot 4 para a peça '{cls_name}'...")
+            from backend.api.turtlebot_routes import trigger_delivery
+            try:
+                trigger_delivery()
+            except Exception as e:
+                print(f"[WARN] Falha ao disparar /start_delivery no TurtleBot 4: {e}")
+        else:
+            print(f"[CYCLE] ⚠️ Disparando /start_failure no TurtleBot 4 para descarte de peça com defeito...")
+            from backend.api.turtlebot_routes import trigger_failure
+            try:
+                trigger_failure()
+            except Exception as e:
+                print(f"[WARN] Falha ao disparar /start_failure no TurtleBot 4: {e}")
+
+        print(f"[CYCLE] ✅ CICLO EXECUTADO E HANDSHAKE INTER-ROBÔS DISPARADO COM SUCESSO!")
 
     except Exception as e:
         print(f"[CYCLE] ERRO no ciclo interno: {e}")

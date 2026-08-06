@@ -102,6 +102,7 @@ class CobotNode(BaseNode):
                 self.release_cli = self.create_client(Trigger, "/release_servos")
                 self.lock_cli = self.create_client(Trigger, "/lock_servos")
                 self.cmd_pub = self.create_publisher(JointState, "/joint_states_commands", 10)
+                self.product_class_pub = self.create_publisher(String, "/product_class", 10)
                 
                 self.create_subscription(JointState, "/joint_states", self._js_cb, 10)
                 self.create_subscription(JointState, "/joint_states_raw", self._js_cb, 10)
@@ -136,6 +137,16 @@ class CobotNode(BaseNode):
         """Zera e limpa completamente qualquer histórico de detecção do YOLO da memória."""
         with self.lock:
             self.last_yolo_msg = None
+
+    def publish_product_class(self, cls_name: str):
+        """Publica a classe da lata identificada no tópico ROS 2 /product_class para comunicação inter-robôs."""
+        if hasattr(self, 'product_class_pub') and self.product_class_pub is not None:
+            msg = String()
+            msg.data = str(cls_name)
+            for _ in range(3):
+                self.product_class_pub.publish(msg)
+                time.sleep(0.05)
+            print(f"[INFO] Tópico ROS 2 /product_class publicado com sucesso: '{cls_name}'")
 
     def load_poses(self):
         poses_path = get_poses_file()
