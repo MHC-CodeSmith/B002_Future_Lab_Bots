@@ -217,6 +217,20 @@ def _run_cycle_internal(is_manual: bool = False):
         cls_name = (cell_state.get("yolo_detected_item") or {}).get("class", "lata")
         print(f"[CYCLE] Step 2 Concluído: Lata '{cls_name}' autorizada para coleta!")
 
+        # Handshake Inter-Robôs: Verifica se o TurtleBot 4 está no Ponto de Coleta/Estação antes de coletar e colocar na bandeja
+        from backend.ros2_nodes.cell_event_bridge import is_turtlebot_ready_at_loading_station, record_detected_class
+        if not is_turtlebot_ready_at_loading_station():
+            print("[CYCLE] ⏳ TurtleBot em trânsito de entrega! Aguardando retorno ao Ponto de Coleta em pose SCAN...")
+            cell_state["status"] = "waiting_turtlebot_return"
+            while not is_turtlebot_ready_at_loading_station():
+                if not _check_pause_and_cancel():
+                    _abort_cleanup()
+                    return
+                time.sleep(0.5)
+            print("[CYCLE] ✅ TurtleBot disponível no Ponto de Coleta! Iniciando Pick & Place...")
+
+        record_detected_class(cls_name)
+
         # ========== STEP 3: PICK APPROACH → PICK (BOMBA ON) → PICK APPROACH → PLACE APPROACH ==========
         cell_state["status"] = "moving_pick"
         cell_state["manual_step"] = "moving_pick"

@@ -270,3 +270,21 @@ def launch_integrated_3d():
         return {"status": "success", "message": "Janela 3D Integrada (Cobot + TurtleBot 4) disparada no monitor do PC Host!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Falha ao abrir Visão 3D Integrada: {e}")
+
+@router.post("/start_oakd_camera")
+def start_oakd_camera():
+    """Inicializa a câmera OAK-D remotamente no TurtleBot 4 via SSH no IP 192.168.0.129."""
+    tb_ip = "192.168.0.129"
+    if not ping_host(tb_ip, timeout_sec=2):
+        raise HTTPException(status_code=503, detail=f"TurtleBot 4 (IP {tb_ip}) não acessível na rede.")
+    try:
+        # Dispara nó da câmera OAK-D via SSH no TurtleBot
+        cmd = f"sshpass -p ubuntu ssh -o ConnectTimeout=4 -o StrictHostKeyChecking=no ubuntu@{tb_ip} 'nohup ros2 launch oakd_camera oakd.launch.py > /tmp/oakd.log 2>&1 &' &"
+        subprocess.Popen(cmd, shell=True)
+        return {
+            "status": "success",
+            "message": "Nó da Câmera OAK-D disparado no TurtleBot 4 via SSH!",
+            "stream_url": f"http://{tb_ip}:8081/stream.mjpg"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Falha ao disparar câmera OAK-D: {e}")
