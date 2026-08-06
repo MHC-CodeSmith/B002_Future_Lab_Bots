@@ -31,6 +31,8 @@ services:
       dockerfile: Dockerfile
     container_name: future_lab_frontend
     network_mode: "host"
+    volumes:
+      - ./frontend/src:/app/src
     env_file:
       - .env
     restart: unless-stopped

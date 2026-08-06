@@ -174,7 +174,7 @@ export default function TurtleBotDashboardTab({
           <div className="relative aspect-video bg-slate-950 rounded-xl overflow-hidden border border-slate-800 flex items-center justify-center">
             {oakdOnline ? (
               <img
-                src={`http://${typeof window !== 'undefined' ? window.location.hostname : 'localhost'}:8000/api/v1/turtlebot/oakd_stream`}
+                src={typeof window !== 'undefined' ? "http://" + window.location.hostname + ":8000/api/v1/turtlebot/oakd_stream" : "http://localhost:8000/api/v1/turtlebot/oakd_stream"}
                 alt="Stream da Câmera OAK-D"
                 className="w-full h-full object-contain"
                 onError={() => setOakdOnline(false)}
@@ -495,9 +495,10 @@ export default function TurtleBotDashboardTab({
                 <span>/start_patrol</span>
                 <span className="text-[10px] text-slate-400 font-normal">Patrulha / Ronda</span>
               </button>
+              </div>
             </div>
+          </div>
         </div>
-      </div>
 
       {/* Console Terminal de Logs Nav2 / ROS 2 em Tempo Real */}
       <div className="glass-card p-5 rounded-2xl border border-slate-700/60 space-y-4">
@@ -510,25 +511,25 @@ export default function TurtleBotDashboardTab({
             <div className="flex bg-slate-900/90 p-1 rounded-xl border border-slate-800 text-xs">
               <button
                 onClick={() => handleSelectLogSource('localization')}
-                className={`px-3 py-1 rounded-lg font-bold transition-all ${logSource === 'localization' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
+                className={"px-3 py-1 rounded-lg font-bold transition-all " + (logSource === 'localization' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-slate-200')}
               >
                 🗺️ Localização (Mapa)
               </button>
               <button
                 onClick={() => handleSelectLogSource('nav2')}
-                className={`px-3 py-1 rounded-lg font-bold transition-all ${logSource === 'nav2' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
+                className={"px-3 py-1 rounded-lg font-bold transition-all " + (logSource === 'nav2' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-slate-200')}
               >
                 🚀 Nav2 Stack
               </button>
               <button
                 onClick={() => handleSelectLogSource('viz')}
-                className={`px-3 py-1 rounded-lg font-bold transition-all ${logSource === 'viz' ? 'bg-purple-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
+                className={"px-3 py-1 rounded-lg font-bold transition-all " + (logSource === 'viz' ? 'bg-purple-600 text-white shadow' : 'text-slate-400 hover:text-slate-200')}
               >
                 👁️ RViz2
               </button>
               <button
                 onClick={() => handleSelectLogSource('all')}
-                className={`px-3 py-1 rounded-lg font-bold transition-all ${logSource === 'all' ? 'bg-slate-700 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
+                className={"px-3 py-1 rounded-lg font-bold transition-all " + (logSource === 'all' ? 'bg-slate-700 text-white shadow' : 'text-slate-400 hover:text-slate-200')}
               >
                 📋 Todos
               </button>
@@ -538,7 +539,7 @@ export default function TurtleBotDashboardTab({
               disabled={loadingLogs}
               className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-emerald-400 font-extrabold text-xs rounded-lg border border-slate-700 flex items-center gap-1.5 transition-all active:scale-95"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${loadingLogs ? 'animate-spin' : ''}`} />
+              <RefreshCw className={"w-3.5 h-3.5 " + (loadingLogs ? "animate-spin" : "")} />
               <span>Atualizar</span>
             </button>
           </div>
@@ -556,7 +557,7 @@ export default function TurtleBotDashboardTab({
                 colorClass = "text-emerald-300";
               }
               return (
-                <div key={idx} className={`leading-relaxed whitespace-pre-wrap ${colorClass}`}>
+                <div key={idx} className={"leading-relaxed whitespace-pre-wrap " + colorClass}>
                   {logLine}
                 </div>
               );
