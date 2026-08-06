@@ -496,10 +496,6 @@ export default function TurtleBotDashboardTab({
                 <span className="text-[10px] text-slate-400 font-normal">Patrulha / Ronda</span>
               </button>
             </div>
-          </div>
-        </div>
-      </div>
-
         </div>
       </div>
 
@@ -567,7 +563,7 @@ export default function TurtleBotDashboardTab({
             })
           ) : (
             <div className="text-slate-500 italic text-center py-4">
-              Nenhum log gravado ainda para a opção de console "{logSource.toUpperCase()}". Clique no botão de inicialização correspondente acima para iniciar o processo!
+              Nenhum log gravado ainda para a opção de console. Clique no botão de inicialização correspondente acima para iniciar o processo!
             </div>
           )}
         </div>
