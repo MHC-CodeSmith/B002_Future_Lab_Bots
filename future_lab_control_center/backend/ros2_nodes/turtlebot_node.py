@@ -12,6 +12,7 @@ os.environ["ROS_DISCOVERY_SERVER"] = "192.168.0.129:11811;"
 
 JAZZY_ENV_CMD = (
     "source /home/future-lab/B002_Future_Lab_Bots/turtlebot4_jazzy/setup.bash && "
+    "export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET && "
     "export DISPLAY=:0 && "
 )
 

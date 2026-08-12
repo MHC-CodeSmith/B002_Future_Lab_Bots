@@ -14,8 +14,26 @@ from backend.api.health_routes import _launch_gui_in_pty
 
 router = APIRouter(prefix="/api/v1/turtlebot", tags=["TurtleBot 4"])
 
+_EXPECTED_ROS_ENV = {
+    "ROS_DOMAIN_ID": "0",
+    "RMW_IMPLEMENTATION": "rmw_fastrtps_cpp",
+    "ROS_SUPER_CLIENT": "True",
+    "ROS_AUTOMATIC_DISCOVERY_RANGE": "SUBNET",
+}
+
+def _assert_ros_env():
+    for k, esperado in _EXPECTED_ROS_ENV.items():
+        atual = os.environ.get(k)
+        if atual != esperado:
+            print(f"[ENV WARN] {k}={atual!r}, esperado {esperado!r} — descoberta ROS pode falhar")
+    if os.environ.get("FASTDDS_BUILTIN_TRANSPORTS"):
+        print("[ENV WARN] FASTDDS_BUILTIN_TRANSPORTS definido — derruba o Discovery Server")
+
+_assert_ros_env()
+
 JAZZY_ENV_CMD = (
     "source /home/future-lab/B002_Future_Lab_Bots/turtlebot4_jazzy/setup.bash && "
+    "export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET && "
     "export DISPLAY=:0 && "
     "export LIBGL_ALWAYS_SOFTWARE=1 && "
     "export QT_X11_NO_MITSHM=1"
