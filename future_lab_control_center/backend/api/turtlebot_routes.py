@@ -343,11 +343,16 @@ def trigger_undock():
         def _exec_undock():
             try:
                 node = get_turtlebot_node()
-                print("[INFO TB4] Disparando recuo físico dos motores (-0.25 m/s por 3s)...")
+                print("[INFO TB4] Disparando recuo físico dos motores e ação /undock...")
                 node.send_reverse_undock_burst(duration_sec=3.0, speed=-0.25)
-
-                node.is_docked = False
-                print("[INFO TB4] Manobra física de Undock concluída com SUCESSO!")
+                cmd_action = f'{JAZZY_ENV_CMD} && ros2 action send_goal /undock irobot_create_msgs/action/Undock "{{}}"'
+                try:
+                    res = subprocess.run(cmd_action, shell=True, executable="/bin/bash", capture_output=True, text=True, timeout=10)
+                    if "SUCCEEDED" in res.stdout or "is_docked: false" in res.stdout:
+                        print("[INFO TB4] Manobra física de Undock concluída com SUCESSO!")
+                        node.is_docked = False
+                except Exception as e:
+                    print(f"[WARN TB4] Ação de undock expirou ou não respondeu: {e}")
             except Exception as e:
                 print(f"[ERROR TB4] Exceção na manobra de Undock: {e}")
             finally:
