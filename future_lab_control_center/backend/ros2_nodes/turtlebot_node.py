@@ -44,11 +44,12 @@ class TurtleBotNode(Node):
         self.current_pose: Dict[str, float] = {"x": 0.0, "y": 0.0, "yaw": 0.0}
         self.last_msg_time: float = time.time()
         self.latest_jpeg_frame: Optional[bytes] = None
-        self.dock_override_until: float = 0.0
 
         self._dock_raw_last: Optional[bool] = None
         self._dock_confirm_count: int = 0
 
+        self.cmd_vel_pub = None
+        self.cmd_vel_stamped_pub = None
         self.start_delivery_cli = None
         self.start_failure_cli = None
         self.start_restock_cli = None

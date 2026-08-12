@@ -21,13 +21,26 @@ _EXPECTED_ROS_ENV = {
     "ROS_AUTOMATIC_DISCOVERY_RANGE": "SUBNET",
 }
 
+def _container_env() -> dict:
+    """Ambiente com que o processo foi iniciado (compose/Dockerfile), sem as
+    sobrescritas feitas em runtime por main.py e turtlebot_node.py."""
+    try:
+        with open("/proc/self/environ", "rb") as f:
+            raw = f.read().decode("utf-8", "replace")
+        return dict(i.split("=", 1) for i in raw.split("\0") if "=" in i)
+    except Exception:
+        return dict(os.environ)
+
 def _assert_ros_env():
+    env = _container_env()
     for k, esperado in _EXPECTED_ROS_ENV.items():
-        atual = os.environ.get(k)
+        atual = env.get(k)
         if atual != esperado:
-            print(f"[ENV WARN] {k}={atual!r}, esperado {esperado!r} — descoberta ROS pode falhar")
-    if os.environ.get("FASTDDS_BUILTIN_TRANSPORTS"):
-        print("[ENV WARN] FASTDDS_BUILTIN_TRANSPORTS definido — derruba o Discovery Server")
+            print(f"[ENV WARN] {k}={atual!r} no ambiente do container, esperado {esperado!r} "
+                  f"— o backend corrige em runtime, mas a origem divergiu")
+    if env.get("FASTDDS_BUILTIN_TRANSPORTS"):
+        print("[ENV WARN] FASTDDS_BUILTIN_TRANSPORTS definido no ambiente do container "
+              "— vaza para os subprocessos e derruba o Discovery Server")
 
 _assert_ros_env()
 
@@ -107,11 +120,19 @@ def get_turtlebot_status():
     tb_ip = "192.168.0.129"
     ping_ok = ping_host(tb_ip, timeout_sec=1)
     node = get_turtlebot_node()
-    st = node.get_status()
-    st["ping_ok"] = ping_ok
+
     if not ping_ok:
-        st["status"] = "offline"
-        st["battery_percentage"] = None
+        return {
+            "status": "offline",
+            "battery_percentage": None,
+            "is_docked": node.is_docked,
+            "current_pose": node.current_pose,
+            "ping_ok": False,
+            "sim_state": sim_state,
+        }
+
+    st = node.get_status()
+    st["ping_ok"] = True
     st["sim_state"] = sim_state
     return st
 
