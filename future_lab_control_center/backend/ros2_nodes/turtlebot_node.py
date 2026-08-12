@@ -45,6 +45,9 @@ class TurtleBotNode(Node):
         self.latest_jpeg_frame: Optional[bytes] = None
         self.dock_override_until: float = 0.0
 
+        self._dock_raw_last: Optional[bool] = None
+        self._dock_confirm_count: int = 0
+
         self.start_delivery_cli = None
         self.start_failure_cli = None
         self.start_restock_cli = None
@@ -60,12 +63,12 @@ class TurtleBotNode(Node):
                 super().__init__("future_lab_turtlebot_node")
                 self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel_unstamped", 10)
                 self.cmd_vel_stamped_pub = self.create_publisher(TwistStamped, "/cmd_vel", 10)
-                self.create_subscription(BatteryState, "/battery_state", self._battery_callback, 10)
-                self.create_subscription(Odometry, "/odom", self._odom_callback, 10)
-                self.create_subscription(CompressedImage, "/oakd/rgb/preview/image_raw/compressed", self._compressed_image_callback, 10)
+                self.create_subscription(BatteryState, "/battery_state", self._battery_callback, qos_profile_sensor_data)
+                self.create_subscription(Odometry, "/odom", self._odom_callback, qos_profile_sensor_data)
+                self.create_subscription(CompressedImage, "/oakd/rgb/preview/image_raw/compressed", self._compressed_image_callback, qos_profile_sensor_data)
                 if HAS_CREATE_MSGS:
                     try:
-                        self.create_subscription(DockStatus, "/dock_status", self._dock_status_callback, 10)
+                        self.create_subscription(DockStatus, "/dock_status", self._dock_status_callback, qos_profile_sensor_data)
                     except Exception as e:
                         print(f"[WARN TB4] Não foi possível se inscrever em /dock_status: {e}")
 
@@ -78,32 +81,18 @@ class TurtleBotNode(Node):
                 t_spin = threading.Thread(target=self._spin_loop, daemon=True)
                 t_spin.start()
             except Exception as e:
-                print(f"[WARN] Erro ao inicializar TurtleBotNode: {e}")
-                self.cmd_vel_pub = None
-                self.cmd_vel_stamped_pub = None
-        # Thread de fallback proativo para telemetria (Bateria e Dock Status)
+                print(f"[WARN TB4] Erro ao inicializar nó rclpy: {e}")
+
+        # Thread de polling de fallback para bateria/docking via CLI caso rclpy perca conectividade
         t_poll = threading.Thread(target=self._poll_fallback_loop, daemon=True)
         t_poll.start()
 
-    def call_trigger_service(self, srv_name: str) -> bool:
-        """Dispara um serviço Trigger do TurtleBot 4 (delivery, failure, restock, stop) via Subprocess CLI com ambiente Discovery Server."""
-        try:
-            cmd = JAZZY_ENV_CMD + f"ros2 service call /{srv_name} std_srvs/srv/Trigger '{{}}'"
-            print(f"[INFO] 🚀 Disparando serviço ROS 2 '/{srv_name}' no TurtleBot 4...")
-            subprocess.Popen(cmd, shell=True, executable="/bin/bash")
-            return True
-        except Exception as e:
-            print(f"[WARN] Erro ao disparar serviço '/{srv_name}': {e}")
-            return False
-
     def _spin_loop(self):
-        try:
-            from rclpy.executors import MultiThreadedExecutor
-            executor = MultiThreadedExecutor()
-            executor.add_node(self)
-            executor.spin()
-        except Exception as e:
-            print(f"[WARN TB4] MultiThreadedExecutor spin finalizado: {e}")
+        if HAS_RCLPY:
+            try:
+                rclpy.spin(self)
+            except Exception as e:
+                print(f"[WARN TB4] Spin loop finalizado: {e}")
 
     def _compressed_image_callback(self, msg):
         try:
@@ -112,11 +101,22 @@ class TurtleBotNode(Node):
         except Exception:
             pass
 
+    def _set_docked_debounced(self, value: bool):
+        """Só altera is_docked após duas leituras consecutivas idênticas."""
+        if value == self._dock_raw_last:
+            self._dock_confirm_count += 1
+        else:
+            self._dock_raw_last = value
+            self._dock_confirm_count = 1
+        if self._dock_confirm_count >= 2 and self.is_docked != value:
+            print(f"[TB4] is_docked {self.is_docked} -> {value}")
+            self.is_docked = value
+
     def _poll_fallback_loop(self):
         """Consulta preventiva de telemetria (bateria e docking) com Discovery Server e UDPv4 ativos."""
         while True:
             try:
-                # 1. Leitura Real da Bateria & Status de Carregamento/Docking
+                # 1. Leitura Real da Bateria
                 cmd_bat = JAZZY_ENV_CMD + "ros2 topic echo /battery_state --once"
                 res_bat = subprocess.run(cmd_bat, shell=True, executable="/bin/bash", capture_output=True, text=True, timeout=12)
                 if res_bat.returncode == 0:
@@ -125,24 +125,6 @@ class TurtleBotNode(Node):
                             val = float(line.split(":")[-1].strip())
                             self.battery_percentage = round(val * (100.0 if val <= 1.0 else 1.0), 1)
                             self.last_msg_time = time.time()
-                        elif "current:" in line:
-                            try:
-                                curr_val = float(line.split(":")[-1].strip())
-                                if curr_val > 0.05:
-                                    self.is_docked = True
-                                elif curr_val < -0.05:
-                                    self.is_docked = False
-                            except ValueError:
-                                pass
-                        elif "power_supply_status:" in line:
-                            try:
-                                status_val = int(line.split(":")[-1].strip())
-                                if status_val in (1, 4):
-                                    self.is_docked = True
-                                elif status_val in (2, 3):
-                                    self.is_docked = False
-                            except ValueError:
-                                pass
 
                 # 2. Leitura Real do Dock Status
                 cmd_dock = JAZZY_ENV_CMD + "ros2 topic echo /dock_status --once"
@@ -151,43 +133,30 @@ class TurtleBotNode(Node):
                     for line in res_dock.stdout.splitlines():
                         if "is_docked:" in line:
                             val_str = line.split(":")[-1].strip().lower()
-                            self.is_docked = (val_str == "true")
+                            self._set_docked_debounced(val_str == "true")
                             self.last_msg_time = time.time()
                             break
-            except Exception as e:
+            except Exception:
                 pass
             time.sleep(2.0)
 
     def set_dock_override(self, is_docked: bool, duration_sec: float = 5.0):
-        """Define o estado de docking manualmente por apenas 5 segundos durante a transicao de comando."""
         self.is_docked = is_docked
 
     def clear_dock_override(self):
-        """Restabelece a escuta da telemetria do robô."""
-        self.dock_override_until = 0
+        pass
 
     def clear_undock_override(self):
-        self.clear_dock_override()
+        pass
 
     def force_undock_override(self, duration_sec: float = 5.0):
-        self.set_dock_override(False, duration_sec)
+        self.is_docked = False
 
     def _battery_callback(self, msg):
         try:
             self.last_msg_time = time.time()
             if hasattr(msg, 'percentage'):
                 self.battery_percentage = round(float(msg.percentage) * (100.0 if msg.percentage <= 1.0 else 1.0), 1)
-            
-            # Detecta se está carregando fisicamente via corrente (amperes) ou status
-            current_amp = float(getattr(msg, 'current', 0.0))
-            status_val = int(getattr(msg, 'power_supply_status', 0))
-
-            if current_amp > 0.05 or status_val in (1, 4):
-                # Corrente positiva (> 50mA) ou status CHARGING/FULL -> Robô acoplado e carregando na dock!
-                self.is_docked = True
-            elif current_amp < -0.05 or status_val in (2, 3):
-                # Corrente negativa (descarregando) ou status DISCHARGING -> Robô fora da dock!
-                self.is_docked = False
         except Exception as e:
             print(f"[WARN TB4] Battery callback error: {e}")
 
@@ -205,7 +174,7 @@ class TurtleBotNode(Node):
             self.last_msg_time = time.time()
             if hasattr(msg, 'is_docked'):
                 print(f"[DEBUG TB4] DockStatus callback: is_docked={msg.is_docked}")
-                self.is_docked = bool(msg.is_docked)
+                self._set_docked_debounced(bool(msg.is_docked))
         except Exception as e:
             print(f"[WARN TB4] DockStatus callback error: {e}")
 
@@ -219,7 +188,6 @@ class TurtleBotNode(Node):
             ts.header.frame_id = "base_link"
             ts.twist = t
 
-            # Publica rajada de pulsos por 0.5s para superar o watchdog do iRobot Create 3
             def _burst():
                 for _ in range(10):
                     try:
@@ -232,73 +200,29 @@ class TurtleBotNode(Node):
                     time.sleep(0.05)
             threading.Thread(target=_burst, daemon=True).start()
 
-    def send_reverse_undock_burst(self, duration_sec: float = 3.0, speed: float = -0.25):
-        """Envia pulsos contínuos de ré nos publishers persistentes para recuar fisicamente da estação de carga."""
-        if HAS_RCLPY and self.cmd_vel_pub:
-            t = Twist()
-            t.linear.x = float(speed)
-            t.angular.z = 0.0
-
-            ts = TwistStamped()
-            ts.header.frame_id = "base_link"
-            ts.twist = t
-
-            def _reverse():
-                end_t = time.time() + duration_sec
-                while time.time() < end_t:
-                    try:
-                        self.cmd_vel_pub.publish(t)
-                        if hasattr(self, 'cmd_vel_stamped_pub') and self.cmd_vel_stamped_pub:
-                            ts.header.stamp = self.get_clock().now().to_msg()
-                            self.cmd_vel_stamped_pub.publish(ts)
-                    except Exception as e:
-                        print(f"[WARN TB4] Reverse burst publish error: {e}")
-                    time.sleep(0.05)
-            t_rev = threading.Thread(target=_reverse, daemon=True)
-            t_rev.start()
-            t_rev.join(timeout=duration_sec + 0.5)
-
     def get_status(self) -> Dict:
         # Se a telemetria não foi capturada recentemente pelos callbacks (> 5s), realiza uma tentativa síncrona
         if self.battery_percentage is None or (time.time() - self.last_msg_time) > 5.0:
             try:
                 cmd = JAZZY_ENV_CMD + "ros2 topic echo /battery_state --once"
-                res = subprocess.run(cmd, shell=True, executable="/bin/bash", capture_output=True, text=True, timeout=6)
+                res = subprocess.run(cmd, shell=True, executable="/bin/bash", capture_output=True, text=True, timeout=2)
                 if res.returncode == 0:
                     for line in res.stdout.splitlines():
                         if "percentage:" in line:
                             val = float(line.split(":")[-1].strip())
                             self.battery_percentage = round(val * (100.0 if val <= 1.0 else 1.0), 1)
                             self.last_msg_time = time.time()
-                        elif "current:" in line:
-                            try:
-                                curr_val = float(line.split(":")[-1].strip())
-                                if curr_val > 0.05:
-                                    self.is_docked = True
-                                elif curr_val < -0.05:
-                                    self.is_docked = False
-                            except ValueError:
-                                pass
-                        elif "power_supply_status:" in line:
-                            try:
-                                status_val = int(line.split(":")[-1].strip())
-                                if status_val in (1, 4):
-                                    self.is_docked = True
-                                elif status_val in (2, 3):
-                                    self.is_docked = False
-                            except ValueError:
-                                pass
             except Exception:
                 pass
 
             try:
                 cmd_d = JAZZY_ENV_CMD + "ros2 topic echo /dock_status --once"
-                res_d = subprocess.run(cmd_d, shell=True, executable="/bin/bash", capture_output=True, text=True, timeout=6)
+                res_d = subprocess.run(cmd_d, shell=True, executable="/bin/bash", capture_output=True, text=True, timeout=2)
                 if res_d.returncode == 0:
                     for line in res_d.stdout.splitlines():
                         if "is_docked:" in line:
                             val_str = line.split(":")[-1].strip().lower()
-                            self.is_docked = (val_str == "true")
+                            self._set_docked_debounced(val_str == "true")
                             self.last_msg_time = time.time()
                             break
             except Exception:

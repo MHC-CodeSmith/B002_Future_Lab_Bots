@@ -116,14 +116,19 @@ def start_simulation(payload: SimulationStartSchema):
         sim_state["waiting_confirmation"] = False
 
         def _run_prereq_dock():
-            trigger_dock()
-            time.sleep(8.0)
-            sim_state["current_step"] = "at_dock"
-            sim_state["step_index"] = 2
-            sim_state["step_title"] = "Robô na Estação de Carga (Pronto)"
-            sim_state["step_description"] = f"Robô acoplado na dock. Peça selecionada: {payload.item.upper()}. Clique em 'CONFIRMAR E IR PARA O PRÓXIMO PASSO' para iniciar o Undock."
-            sim_state["waiting_confirmation"] = True
-            sim_state["busy"] = False
+            try:
+                trigger_dock()
+                time.sleep(8.0)
+                sim_state["current_step"] = "at_dock"
+                sim_state["step_index"] = 2
+                sim_state["step_title"] = "Robô na Estação de Carga (Pronto)"
+                sim_state["step_description"] = f"Robô acoplado na dock. Peça selecionada: {payload.item.upper()}. Clique em 'CONFIRMAR E IR PARA O PRÓXIMO PASSO' para iniciar o Undock."
+                sim_state["waiting_confirmation"] = True
+            except Exception as e:
+                sim_state["step_title"] = "Falha na Simulação (Pré-requisito)"
+                sim_state["step_description"] = f"Erro no Docking de pré-requisito: {e}"
+            finally:
+                sim_state["busy"] = False
 
         threading.Thread(target=_run_prereq_dock, daemon=True).start()
         return {"status": "success", "message": "Pré-requisito iniciado: Retornando robô à Dock Station..."}
@@ -158,17 +163,22 @@ def next_simulation_step():
         sim_state["busy"] = True
 
         def _step_pickup():
-            trigger_undock()
-            time.sleep(4.0)
-            cmd = f'{JAZZY_ENV_CMD} && ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose "{{pose: {{header: {{frame_id: map}}, pose: {{position: {{x: -1.078, y: 0.130, z: 0.0}}, orientation: {{w: 1.0}}}}}}}}"'
-            subprocess.Popen(cmd, shell=True, executable="/bin/bash")
-            time.sleep(12.0)
-            sim_state["current_step"] = "at_pickup"
-            sim_state["step_index"] = 3
-            sim_state["step_title"] = "Chegou ao Ponto de Coleta (pickup_point)"
-            sim_state["step_description"] = f"Robô posicionado no Ponto de Coleta. Clique em 'CONFIRMAR E IR PARA O PRÓXIMO PASSO' para navegar até a estação de entrega ({'Azul' if item=='blue' else 'Vermelha'})."
-            sim_state["waiting_confirmation"] = True
-            sim_state["busy"] = False
+            try:
+                trigger_undock()
+                time.sleep(4.0)
+                cmd = f'{JAZZY_ENV_CMD} && ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose "{{pose: {{header: {{frame_id: map}}, pose: {{position: {{x: -1.078, y: 0.130, z: 0.0}}, orientation: {{w: 1.0}}}}}}}}"'
+                subprocess.Popen(cmd, shell=True, executable="/bin/bash")
+                time.sleep(12.0)
+                sim_state["current_step"] = "at_pickup"
+                sim_state["step_index"] = 3
+                sim_state["step_title"] = "Chegou ao Ponto de Coleta (pickup_point)"
+                sim_state["step_description"] = f"Robô posicionado no Ponto de Coleta. Clique em 'CONFIRMAR E IR PARA O PRÓXIMO PASSO' para navegar até a estação de entrega ({'Azul' if item=='blue' else 'Vermelha'})."
+                sim_state["waiting_confirmation"] = True
+            except Exception as e:
+                sim_state["step_title"] = "Falha no Undock / Coleta"
+                sim_state["step_description"] = f"Erro no passo de coleta: {e}"
+            finally:
+                sim_state["busy"] = False
 
         threading.Thread(target=_step_pickup, daemon=True).start()
         return {"status": "success", "message": "Avançando para o Ponto de Coleta..."}
@@ -187,15 +197,20 @@ def next_simulation_step():
         sim_state["busy"] = True
 
         def _step_delivery():
-            cmd = f'{JAZZY_ENV_CMD} && ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose "{{pose: {{header: {{frame_id: map}}, pose: {{position: {{x: {target_x}, y: {target_y}, z: 0.0}}, orientation: {{w: 1.0}}}}}}}}"'
-            subprocess.Popen(cmd, shell=True, executable="/bin/bash")
-            time.sleep(15.0)
-            sim_state["current_step"] = "at_delivery"
-            sim_state["step_index"] = 5
-            sim_state["step_title"] = f"Entrega Concluída ({item.upper()})"
-            sim_state["step_description"] = "Peça entregue no destino. Clique em 'CONFIRMAR E IR PARA O PRÓXIMO PASSO' para retornar à Estação de Carga."
-            sim_state["waiting_confirmation"] = True
-            sim_state["busy"] = False
+            try:
+                cmd = f'{JAZZY_ENV_CMD} && ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose "{{pose: {{header: {{frame_id: map}}, pose: {{position: {{x: {target_x}, y: {target_y}, z: 0.0}}, orientation: {{w: 1.0}}}}}}}}"'
+                subprocess.Popen(cmd, shell=True, executable="/bin/bash")
+                time.sleep(15.0)
+                sim_state["current_step"] = "at_delivery"
+                sim_state["step_index"] = 5
+                sim_state["step_title"] = f"Entrega Concluída ({item.upper()})"
+                sim_state["step_description"] = "Peça entregue no destino. Clique em 'CONFIRMAR E IR PARA O PRÓXIMO PASSO' para retornar à Estação de Carga."
+                sim_state["waiting_confirmation"] = True
+            except Exception as e:
+                sim_state["step_title"] = "Falha na Entrega"
+                sim_state["step_description"] = f"Erro no passo de entrega: {e}"
+            finally:
+                sim_state["busy"] = False
 
         threading.Thread(target=_step_delivery, daemon=True).start()
         return {"status": "success", "message": f"Navegando para o destino '{target_wp}'..."}
@@ -210,14 +225,19 @@ def next_simulation_step():
         sim_state["busy"] = True
 
         def _step_dock_final():
-            trigger_dock()
-            time.sleep(12.0)
-            sim_state["current_step"] = "completed"
-            sim_state["step_index"] = 7
-            sim_state["step_title"] = "Simulação Concluída com Sucesso!"
-            sim_state["step_description"] = "O TurtleBot 4 retornou e acoplou com sucesso na Dock Station."
-            sim_state["waiting_confirmation"] = False
-            sim_state["busy"] = False
+            try:
+                trigger_dock()
+                time.sleep(12.0)
+                sim_state["current_step"] = "completed"
+                sim_state["step_index"] = 7
+                sim_state["step_title"] = "Simulação Concluída com Sucesso!"
+                sim_state["step_description"] = "O TurtleBot 4 retornou e acoplou com sucesso na Dock Station."
+                sim_state["waiting_confirmation"] = False
+            except Exception as e:
+                sim_state["step_title"] = "Falha no Docking Final"
+                sim_state["step_description"] = f"Erro ao acoplar na dock: {e}"
+            finally:
+                sim_state["busy"] = False
 
         threading.Thread(target=_step_dock_final, daemon=True).start()
         return {"status": "success", "message": "Retornando para a Dock Station..."}
@@ -234,7 +254,10 @@ def stop_simulation():
     sim_state["busy"] = False
     
     # Retorna robô à dock se estiver em movimento
-    trigger_dock()
+    try:
+        trigger_dock()
+    except Exception as e:
+        print(f"[WARN TB4] Erro ao disparar trigger_dock em stop_simulation: {e}")
     return {"status": "success", "message": "Simulação cancelada e robô direcionado à Dock Station."}
 
 @router.get("/diagnose")
