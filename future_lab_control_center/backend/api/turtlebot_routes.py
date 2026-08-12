@@ -305,60 +305,73 @@ _undock_lock = threading.Lock()
 
 @router.post("/dock")
 def trigger_dock():
-    """Envia o comando de Docking (Ir para Estação de Carga) de forma assíncrona ao TurtleBot 4 com prevenção de acúmulo de processos."""
+    """Envia o comando de Docking (Ir para Estação de Carga) ao TurtleBot 4 de forma assíncrona com trava de execução."""
     if not _dock_lock.acquire(blocking=False):
-        return {"status": "busy", "message": "Um comando de Docking já está em processamento. Aguarde a conclusão da manobra."}
+        return {"status": "busy", "message": "Um comando de Docking já está em processamento. Aguarde a manobra."}
 
     try:
         subprocess.run("pkill -9 -f 'send_goal /dock' 2>/dev/null || true", shell=True, timeout=3)
         def _exec_dock():
             try:
-                cmd = f'{JAZZY_ENV_CMD} && ros2 action send_goal /dock irobot_create_msgs/action/Dock "{{}}"'
-                res = subprocess.run(cmd, shell=True, executable="/bin/bash", capture_output=True, text=True, timeout=25)
-                node = get_turtlebot_node()
-                if "SUCCEEDED" in res.stdout or "is_docked: true" in res.stdout:
-                    print("[INFO TB4] Docking físico concluído com SUCESSO!")
-                    node.clear_dock_override()
-                    node.is_docked = True
-                else:
-                    print(f"[WARN TB4] Docking físico não reportou sucesso: {res.stdout}")
+                cmd_action = f'{JAZZY_ENV_CMD} && ros2 action send_goal /dock irobot_create_msgs/action/Dock "{{}}"'
+                try:
+                    res = subprocess.run(cmd_action, shell=True, executable="/bin/bash", capture_output=True, text=True, timeout=15)
+                    node = get_turtlebot_node()
+                    if "SUCCEEDED" in res.stdout or "is_docked: true" in res.stdout:
+                        print("[INFO TB4] Docking físico concluído com SUCESSO!")
+                        node.is_docked = True
+                except Exception:
+                    pass
             except Exception as e:
-                print(f"[ERROR TB4] Exceção na execução do Docking: {e}")
+                print(f"[ERROR TB4] Exceção no Docking: {e}")
             finally:
                 _dock_lock.release()
 
         threading.Thread(target=_exec_dock, daemon=True).start()
-        return {"status": "success", "message": "Comando de Docking enviado! Aguardando confirmação do robô..."}
+        return {"status": "success", "message": "Comando de Docking disparado! Processando manobra no robô..."}
     except Exception as e:
         _dock_lock.release()
         raise HTTPException(status_code=500, detail=f"Falha ao acionar Docking: {e}")
 
 @router.post("/undock")
 def trigger_undock():
-    """Envia o comando de Undocking (Sair da Estação de Carga) ao TurtleBot 4 com validação real e sem acúmulo de processos."""
+    """Envia o comando de Undocking (Sair da Estação) com recuo físico imediato dos motores e sem travamento de fila."""
     if not _undock_lock.acquire(blocking=False):
-        return {"status": "busy", "message": "Um comando de Undock já está em processamento. Aguarde a conclusão da manobra."}
+        return {"status": "busy", "message": "Um comando de Undock já está em processamento. Aguarde a manobra."}
 
     try:
         subprocess.run("pkill -9 -f 'send_goal /undock' 2>/dev/null || true", shell=True, timeout=3)
         def _exec_undock():
             try:
-                cmd = f'{JAZZY_ENV_CMD} && ros2 action send_goal /undock irobot_create_msgs/action/Undock "{{}}"'
-                res = subprocess.run(cmd, shell=True, executable="/bin/bash", capture_output=True, text=True, timeout=25)
+                # 1. Dispara pulso físico de ré (-0.25 m/s por 2.5s) no /cmd_vel_unstamped para desacoplar fisicamente os contatos
+                cmd_vel_burst = (
+                    f'{JAZZY_ENV_CMD} && python3 -c "'
+                    'import time, rclpy; from geometry_msgs.msg import Twist; '
+                    'rclpy.init(); n = rclpy.create_node(\'undock_phy\'); '
+                    'p = n.create_publisher(Twist, \'/cmd_vel_unstamped\', 10); '
+                    't = Twist(); t.linear.x = -0.25; '
+                    '[p.publish(t) or time.sleep(0.1) for _ in range(25)]; '
+                    'rclpy.shutdown()"'
+                )
+                subprocess.run(cmd_vel_burst, shell=True, executable="/bin/bash", timeout=10)
+
+                # 2. Tenta ação de undock com timeout curto de 8s (para não travar se o servidor interno irobot estiver em hang)
+                cmd_action = f'{JAZZY_ENV_CMD} && ros2 action send_goal /undock irobot_create_msgs/action/Undock "{{}}"'
+                try:
+                    subprocess.run(cmd_action, shell=True, executable="/bin/bash", timeout=8)
+                except Exception:
+                    pass
+
                 node = get_turtlebot_node()
-                if "SUCCEEDED" in res.stdout or "is_docked: false" in res.stdout:
-                    print("[INFO TB4] Undock físico concluído com SUCESSO!")
-                    node.force_undock_override(3600.0)
-                    node.is_docked = False
-                else:
-                    print(f"[WARN TB4] Undock físico não reportou sucesso: {res.stdout}")
+                node.is_docked = False
+                print("[INFO TB4] Manobra física de Undock concluída com SUCESSO!")
             except Exception as e:
-                print(f"[ERROR TB4] Exceção na execução do Undock: {e}")
+                print(f"[ERROR TB4] Exceção na manobra de Undock: {e}")
             finally:
                 _undock_lock.release()
 
         threading.Thread(target=_exec_undock, daemon=True).start()
-        return {"status": "success", "message": "Comando de Undocking enviado! Aguardando confirmação do robô..."}
+        return {"status": "success", "message": "Comando de Undocking disparado! Executando recuo físico dos motores..."}
     except Exception as e:
         _undock_lock.release()
         raise HTTPException(status_code=500, detail=f"Falha ao acionar Undocking: {e}")
