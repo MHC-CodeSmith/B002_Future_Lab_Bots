@@ -335,6 +335,20 @@ def trigger_undock():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Falha ao acionar Undocking: {e}")
 
+class DockStatusPayload(BaseModel):
+    is_docked: bool
+
+@router.post("/set_dock_status")
+def set_dock_status(payload: DockStatusPayload):
+    """Força manualmente o status de docking (True ou False) sobrescrevendo leituras presas da telemetria."""
+    try:
+        node = get_turtlebot_node()
+        node.set_dock_override(payload.is_docked, duration_sec=3600.0)
+        state_str = "DOCKED (Na Estação)" if payload.is_docked else "UNDOCKED (Livre / Fora da Estação)"
+        return {"status": "success", "is_docked": payload.is_docked, "message": f"Status alterado manualmente para {state_str}."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Falha ao alterar status de dock: {e}")
+
 @router.post("/launch_localization")
 def launch_localization():
     """Lança o módulo de Localização Nav2 com o mapa B002 e bond_timeout=30.0. Limpa processos antigos primeiro."""
