@@ -1,16 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { RefreshCw, Cpu, Camera, Bot, CheckCircle2, Loader2, AlertCircle } from 'lucide-react';
+import { useLanguage } from '../context/LanguageContext';
 
 export default function RebootOverlayModal({ isRebooting, onRebootComplete }) {
+  const { t } = useLanguage();
   const [currentStep, setCurrentStep] = useState(0);
   const [progress, setProgress] = useState(0);
 
   const steps = [
-    { id: 1, title: 'Parando processos antigos da Jetson Nano e MoveIt...', duration: 2000 },
-    { id: 2, title: 'Iniciando ponte de comunicação de hardware (mycobot_hw) na Nano...', duration: 3500 },
-    { id: 3, title: 'Subindo servidor de transmissão de vídeo da Câmera MJPEG...', duration: 2500 },
-    { id: 4, title: 'Inicializando planejador MoveIt (galactic_demo) e RViz no PC...', duration: 3500 },
-    { id: 5, title: 'Validando conexão da rede e telemetria das juntas...', duration: 2500 },
+    { id: 1, title: t('rebootStep1'), duration: 2000 },
+    { id: 2, title: t('rebootStep2'), duration: 3500 },
+    { id: 3, title: t('rebootStep3'), duration: 2500 },
+    { id: 4, title: t('rebootStep4'), duration: 3500 },
+    { id: 5, title: t('rebootStep5'), duration: 2500 },
   ];
 
   useEffect(() => {
@@ -74,17 +76,17 @@ export default function RebootOverlayModal({ isRebooting, onRebootComplete }) {
         <div className="space-y-2">
           <h2 className="text-xl md:text-2xl font-black tracking-wider text-slate-100 flex items-center justify-center gap-2">
             <Cpu className="w-6 h-6 text-cyan-400" />
-            REINICIANDO HARDWARE & PLANEJADOR MOVEIT
+            {t('rebootOverlayTitle')}
           </h2>
           <p className="text-xs md:text-sm text-slate-400 leading-relaxed max-w-lg mx-auto">
-            Por favor, aguarde enquanto a célula restabelece a ponte com a <span className="text-cyan-300 font-bold">Jetson Nano</span>, a câmera e o motor de planejamento ROS 2.
+            {t('rebootOverlaySubtitle')}
           </p>
         </div>
 
         {/* Barra de Progresso Gradiente */}
         <div className="space-y-1.5">
           <div className="flex justify-between text-xs font-bold px-1">
-            <span className="text-cyan-400">Status de Conectividade</span>
+            <span className="text-cyan-400">{t('rebootOverlayProgressLabel')}</span>
             <span className="text-blue-400 font-mono">{progress}%</span>
           </div>
           <div className="w-full h-3 bg-slate-800 rounded-full overflow-hidden p-0.5 border border-slate-700">
@@ -134,7 +136,7 @@ export default function RebootOverlayModal({ isRebooting, onRebootComplete }) {
         {/* Alerta de Bloqueio do Dashboard */}
         <div className="p-3 bg-blue-950/40 border border-blue-500/30 rounded-xl text-[11px] text-blue-200 flex items-center justify-center gap-2">
           <AlertCircle className="w-4 h-4 text-cyan-400 shrink-0" />
-          <span>O acesso ao painel está temporariamente bloqueado até a conclusão do boot.</span>
+          <span>{t('rebootOverlayLockAlert')}</span>
         </div>
       </div>
     </div>

@@ -34,12 +34,12 @@ export default function Dashboard() {
   };
 
   // Helper seguro para chamadas à API sem estourar erros de runtime unhandled
-  const safeApiCall = async (url, options = {}, warningTitle = '⚠️ ATENÇÃO DE OPERAÇÃO') => {
+  const safeApiCall = async (url, options = {}, warningTitle = '⚠️ OPERATION WARNING') => {
     try {
       const res = await fetch(url, options);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const msg = data.detail || data.message || `Erro HTTP ${res.status}`;
+        const msg = data.detail || data.message || `HTTP Error ${res.status}`;
         setNotification({
           type: 'warning',
           title: warningTitle,
@@ -52,8 +52,8 @@ export default function Dashboard() {
       console.warn("Erro na requisição API:", e);
       setNotification({
         type: 'error',
-        title: '❌ FALHA DE CONEXÃO COM O BACKEND',
-        message: 'Não foi possível se comunicar com o backend do Control Center.'
+        title: t('connFailedTitle'),
+        message: t('connFailedMsg')
       });
       return { ok: false, data: null };
     }
@@ -99,7 +99,7 @@ export default function Dashboard() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(modeObj)
-    }, '⚙️ CONFIGURAÇÃO DE MODO');
+    }, t('modeConfigTitle'));
     refreshStatus();
   };
 
@@ -117,7 +117,7 @@ export default function Dashboard() {
 
   const handleManualStartScan = async () => {
     const apiBase = getApiBase();
-    await safeApiCall(`${apiBase}/cell/manual/start_scan`, { method: 'POST' }, '🔍 MODO MANUAL: MOVER PARA SCAN');
+    await safeApiCall(`${apiBase}/cell/manual/start_scan`, { method: 'POST' }, t('manualMoveScanTitle'));
     refreshStatus();
   };
 
@@ -145,13 +145,13 @@ export default function Dashboard() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ abort: Boolean(shouldAbort) })
-    }, '⏸️ INTERRUPÇÃO DA CÉLULA');
+    }, t('cellInterruptTitle'));
     refreshStatus();
   };
 
   const handleEmergencyStop = async () => {
     const apiBase = getApiBase();
-    await safeApiCall(`${apiBase}/cell/stop`, { method: 'POST' }, '🛑 PARADA DE EMERGÊNCIA');
+    await safeApiCall(`${apiBase}/cell/stop`, { method: 'POST' }, t('emergencyStopTitle'));
     refreshStatus();
   };
 
@@ -170,7 +170,7 @@ export default function Dashboard() {
   const handleRestartNanoHardware = async () => {
     setIsRebooting(true);
     const apiBase = getApiBase();
-    await safeApiCall(`${apiBase}/health/restart_nano_hardware`, { method: 'POST' }, '🔄 REINICIANDO NANO');
+    await safeApiCall(`${apiBase}/health/restart_nano_hardware`, { method: 'POST' }, t('restartingNanoTitleAlert'));
   };
 
   const handleTogglePump = async () => {
@@ -181,7 +181,7 @@ export default function Dashboard() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ on: targetState })
-    }, '💨 BOMBA DE SUCÇÃO');
+    }, t('suctionPumpTitle'));
     refreshStatus();
   };
 
@@ -227,12 +227,12 @@ export default function Dashboard() {
 
   const handleRecord = async (name) => {
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/cobot/teach/record/${name}`, { method: 'POST' }, `🔴 GRAVAR POSE ${name ? name.toUpperCase() : ''}`);
+    const { ok, data } = await safeApiCall(`${apiBase}/cobot/teach/record/${name}`, { method: 'POST' }, `${t('recordPoseTitle')} ${name ? name.toUpperCase() : ''}`);
     if (ok) {
       setNotification({
         type: 'success',
-        title: `🔴 POSE '${name ? name.toUpperCase() : ''}' GRAVADA`,
-        message: `Ângulos gravados em memória com sucesso!`
+        title: `${t('poseRecordedTitle')} '${name ? name.toUpperCase() : ''}'`,
+        message: t('poseRecordedMsg')
       });
     }
     refreshStatus();
@@ -240,12 +240,12 @@ export default function Dashboard() {
 
   const handleSave = async () => {
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/cobot/teach/save`, { method: 'POST' }, '💾 SALVAR CALIBRAGEM');
+    const { ok, data } = await safeApiCall(`${apiBase}/cobot/teach/save`, { method: 'POST' }, t('saveCalibrationTitle'));
     if (ok) {
       setNotification({
         type: 'success',
-        title: '💾 CALIBRAGEM SALVA NO DISCO',
-        message: data.message || 'Todas as poses salvas no arquivo YAML do robô!'
+        title: t('calibrationSavedTitle'),
+        message: data.message || t('calibrationSavedMsg')
       });
     }
     refreshStatus();
@@ -267,8 +267,8 @@ export default function Dashboard() {
     if (ok) {
       setNotification({
         type: 'warning',
-        title: '🗑️ CALIBRAGEM ZERADA',
-        message: 'Todas as poses salvas foram limpas. Um backup automático da versão anterior foi criado!'
+        title: t('calibrationClearedTitle'),
+        message: t('calibrationClearedMsg')
       });
     }
     await refreshStatus();
@@ -276,12 +276,12 @@ export default function Dashboard() {
 
   const handleRestore = async () => {
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/cobot/teach/restore`, { method: 'POST' }, '⏪ RESTAURAR BACKUP');
+    const { ok, data } = await safeApiCall(`${apiBase}/cobot/teach/restore`, { method: 'POST' }, t('restoreBackupTitle'));
     if (ok) {
       setNotification({
         type: 'success',
-        title: '⏪ BACKUP RESTAURADO',
-        message: data?.message || 'Última calibragem restaurada com sucesso!'
+        title: t('backupRestoredTitle'),
+        message: data?.message || t('backupRestoredMsg')
       });
     }
     await refreshStatus();
@@ -289,36 +289,36 @@ export default function Dashboard() {
 
   const handleMovePose = async (name) => {
     const apiBase = getApiBase();
-    await safeApiCall(`${apiBase}/cobot/move/${name}`, { method: 'POST' }, `🤖 MOVER PARA ${name.toUpperCase()}`);
+    await safeApiCall(`${apiBase}/cobot/move/${name}`, { method: 'POST' }, `${t('moveToPoseTitle')} ${name.toUpperCase()}`);
     refreshStatus();
   };
 
   const handleMovePoseFail = async (name) => {
     const apiBase = getApiBase();
-    await safeApiCall(`${apiBase}/cobot/move/${name}`, { method: 'POST' }, `🤖 MOVER PARA ${name.toUpperCase()}`);
+    await safeApiCall(`${apiBase}/cobot/move/${name}`, { method: 'POST' }, `${t('moveToPoseTitle')} ${name.toUpperCase()}`);
     refreshStatus();
   };
 
   const handleLaunchRviz = async () => {
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/health/launch_rviz`, { method: 'POST' }, '🖥️ RVIZ 2 (3D)');
+    const { ok, data } = await safeApiCall(`${apiBase}/health/launch_rviz`, { method: 'POST' }, t('rviz3DTitle'));
     if (ok) {
       setNotification({
         type: 'info',
-        title: '🖥️ RVIZ 2 (3D MOVES) INICIADO',
-        message: data.message || 'Janela gráfica 3D do RViz 2 disparada no monitor do PC Host!'
+        title: t('rviz3DStartedTitle'),
+        message: data.message || t('rviz3DStartedMsg')
       });
     }
   };
 
   const handleLaunchYoloWindow = async () => {
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/cobot/launch_yolo_window`, { method: 'POST' }, '👁️ OPENCV YOLO');
+    const { ok, data } = await safeApiCall(`${apiBase}/cobot/launch_yolo_window`, { method: 'POST' }, t('opencvYoloTitle'));
     if (ok) {
       setNotification({
         type: 'info',
-        title: '👁️ JANELA OPENCV DISPARADA',
-        message: data.message || 'Janela gráfica OpenCV com bounding boxes iniciada no PC Host!'
+        title: t('opencvYoloStartedTitle'),
+        message: data.message || t('opencvYoloStartedMsg')
       });
     }
   };
@@ -326,12 +326,12 @@ export default function Dashboard() {
   // Handlers TurtleBot 4
   const handleTbDock = async () => {
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/dock`, { method: 'POST' }, '⚡ TURTLEBOT DOCK');
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/dock`, { method: 'POST' }, t('tbDockTitle'));
     if (ok) {
       setNotification({
         type: 'success',
-        title: '⚡ COMANDO DOCK ENVIADO',
-        message: data.message || 'TurtleBot 4 retornando para a Estação de Carregamento!'
+        title: t('tbDockSentTitle'),
+        message: data.message || t('tbDockSentMsg')
       });
     }
     refreshStatus();
@@ -339,12 +339,12 @@ export default function Dashboard() {
 
   const handleTbUndock = async () => {
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/undock`, { method: 'POST' }, '🚀 TURTLEBOT UNDOCK');
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/undock`, { method: 'POST' }, t('tbUndockTitle'));
     if (ok) {
       setNotification({
         type: 'success',
-        title: '🚀 COMANDO UNDOCK ENVIADO',
-        message: data.message || 'TurtleBot 4 saindo da Estação de Carregamento!'
+        title: t('tbUndockSentTitle'),
+        message: data.message || t('tbUndockSentMsg')
       });
     }
     refreshStatus();
@@ -352,12 +352,12 @@ export default function Dashboard() {
 
   const handleTbLaunchLocalization = async () => {
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/launch_localization`, { method: 'POST' }, '📍 LOCALIZAÇÃO NAV2');
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/launch_localization`, { method: 'POST' }, t('tbLocTitle'));
     if (ok) {
       setNotification({
         type: 'success',
-        title: '📍 LOCALIZAÇÃO NAV2 INICIADA',
-        message: data.message || 'Localização Nav2 (B002_map.yaml) disparada com sucesso! Use 2D Pose Estimate no RViz.'
+        title: t('tbLocStartedTitle'),
+        message: data.message || t('tbLocStartedMsg')
       });
     }
     refreshStatus();
@@ -365,12 +365,12 @@ export default function Dashboard() {
 
   const handleTbLaunchNav2 = async () => {
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/launch_nav2`, { method: 'POST' }, '🧭 NAV2 STACK');
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/launch_nav2`, { method: 'POST' }, t('tbNav2Title'));
     if (ok) {
       setNotification({
         type: 'success',
-        title: '🧭 STACK NAV2 INICIADO',
-        message: data.message || 'Stack de navegação autônoma Nav2 iniciado com os parâmetros customizados!'
+        title: t('tbNav2StartedTitle'),
+        message: data.message || t('tbNav2StartedMsg')
       });
     }
     refreshStatus();
@@ -378,24 +378,24 @@ export default function Dashboard() {
 
   const handleTbLaunchViz = async () => {
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/launch_viz`, { method: 'POST' }, '🖥️ RVIZ NAV2');
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/launch_viz`, { method: 'POST' }, t('tbRvizNav2Title'));
     if (ok) {
       setNotification({
         type: 'success',
-        title: '🖥️ RVIZ NAV2 DISPARADO',
-        message: data.message || 'Janela gráfica do RViz2 para navegação disparada na tela do PC Host!'
+        title: t('tbRvizNav2StartedTitle'),
+        message: data.message || t('tbRvizNav2StartedMsg')
       });
     }
   };
 
   const handleTbRestartDaemon = async () => {
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/restart_daemon`, { method: 'POST' }, '🔄 REINICIAR DAEMON ROS 2');
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/restart_daemon`, { method: 'POST' }, t('tbRestartDaemonTitle'));
     if (ok) {
       setNotification({
         type: 'success',
-        title: '🔄 DAEMON ROS 2 REINICIADO',
-        message: data.message || 'Daemon do ROS 2 parado e reiniciado com as variáveis do TurtleBot 4!'
+        title: t('tbRestartDaemonStartedTitle'),
+        message: data.message || t('tbRestartDaemonStartedMsg')
       });
     }
     refreshStatus();
@@ -403,12 +403,12 @@ export default function Dashboard() {
 
   const handleTbStopLocalization = async () => {
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/stop_localization`, { method: 'POST' }, '🛑 ENCERRA LOCALIZAÇÃO');
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/stop_localization`, { method: 'POST' }, t('tbStopLocTitle'));
     if (ok) {
       setNotification({
         type: 'info',
-        title: '🛑 LOCALIZAÇÃO ENCERRADA (CTRL+C)',
-        message: data.message || 'Processo de localização Nav2 finalizado!'
+        title: t('tbStopLocStartedTitle'),
+        message: data.message || t('tbStopLocStartedMsg')
       });
     }
     refreshStatus();
@@ -416,12 +416,12 @@ export default function Dashboard() {
 
   const handleTbStopNav2 = async () => {
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/stop_nav2`, { method: 'POST' }, '🛑 ENCERRA NAV2');
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/stop_nav2`, { method: 'POST' }, t('tbStopNav2Title'));
     if (ok) {
       setNotification({
         type: 'info',
-        title: '🛑 NAV2 STACK ENCERRADO (CTRL+C)',
-        message: data.message || 'Stack de navegação Nav2 finalizado!'
+        title: t('tbStopNav2StartedTitle'),
+        message: data.message || t('tbStopNav2StartedMsg')
       });
     }
     refreshStatus();
@@ -429,12 +429,12 @@ export default function Dashboard() {
 
   const handleTbStopViz = async () => {
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/stop_viz`, { method: 'POST' }, '🛑 ENCERRA RVIZ2');
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/stop_viz`, { method: 'POST' }, t('tbStopRvizTitle'));
     if (ok) {
       setNotification({
         type: 'info',
-        title: '🛑 RVIZ2 FECHADO (CTRL+C)',
-        message: data.message || 'Janela gráfica do RViz2 encerrada!'
+        title: t('tbStopRvizStartedTitle'),
+        message: data.message || t('tbStopRvizStartedMsg')
       });
     }
     refreshStatus();
@@ -442,12 +442,12 @@ export default function Dashboard() {
 
   const handleTbStopMissionManagerProcess = async () => {
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/stop_mission_manager_process`, { method: 'POST' }, '🛑 KILL MISSION MANAGER');
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/stop_mission_manager_process`, { method: 'POST' }, t('tbStopMMTitle'));
     if (ok) {
       setNotification({
         type: 'info',
-        title: '🛑 MISSION MANAGER ENCERRADO (CTRL+C)',
-        message: data.message || 'Processo do Mission Manager finalizado! Pronto para reiniciar do zero.'
+        title: t('tbStopMMStartedTitle'),
+        message: data.message || t('tbStopMMStartedMsg')
       });
     }
     refreshStatus();
@@ -455,12 +455,12 @@ export default function Dashboard() {
 
   const handleTbLaunchMissionManager = async () => {
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/launch_mission_manager`, { method: 'POST' }, '📦 MISSION MANAGER');
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/launch_mission_manager`, { method: 'POST' }, t('tbMMTitle'));
     if (ok) {
       setNotification({
         type: 'success',
-        title: '📦 GERENCIADOR DE MISSÕES ATIVO',
-        message: data.message || 'Node mission_manager.py inicializado! Câmera OAK-D e rotinas prontas.'
+        title: t('tbMMStartedTitle'),
+        message: data.message || t('tbMMStartedMsg')
       });
     }
     refreshStatus();
@@ -468,12 +468,12 @@ export default function Dashboard() {
 
   const handleTbTriggerDelivery = async () => {
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/trigger_delivery`, { method: 'POST' }, '🚚 START DELIVERY');
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/trigger_delivery`, { method: 'POST' }, t('tbDeliveryTitle'));
     if (ok) {
       setNotification({
         type: 'success',
-        title: '🚚 MISSÃO DE ENTREGA ACIONADA',
-        message: data.message || 'Rotina autônoma de entrega (/start_delivery) disparada com sucesso!'
+        title: t('tbDeliveryStartedTitle'),
+        message: data.message || t('tbDeliveryStartedMsg')
       });
     }
     refreshStatus();
@@ -481,12 +481,12 @@ export default function Dashboard() {
 
   const handleTbTriggerRestock = async () => {
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/trigger_restock`, { method: 'POST' }, '📦 START RESTOCK');
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/trigger_restock`, { method: 'POST' }, t('tbRestockTitle'));
     if (ok) {
       setNotification({
         type: 'success',
-        title: '📦 MISSÃO DE REABASTECIMENTO ACIONADA',
-        message: data.message || 'Rotina autônoma de reabastecimento (/start_restock) disparada com sucesso!'
+        title: t('tbRestockStartedTitle'),
+        message: data.message || t('tbRestockStartedMsg')
       });
     }
     refreshStatus();
@@ -496,12 +496,12 @@ export default function Dashboard() {
 
   const handleTbTriggerFailure = async () => {
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/trigger_failure`, { method: 'POST' }, '⚠️ START FAILURE ROUTINE');
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/trigger_failure`, { method: 'POST' }, t('tbFailureTitle'));
     if (ok) {
       setNotification({
         type: 'success',
-        title: '⚠️ MISSÃO DE DESCARTE ACIONADA',
-        message: data.message || 'Rotina de descarte de peça com defeito (/start_failure) disparada com sucesso!'
+        title: t('tbFailureStartedTitle'),
+        message: data.message || t('tbFailureStartedMsg')
       });
     }
     refreshStatus();
@@ -513,12 +513,12 @@ export default function Dashboard() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ item })
-    }, '▶️ INICIAR SIMULAÇÃO');
+    }, t('tbSimStartTitle'));
     if (ok) {
       setNotification({
         type: 'success',
-        title: '🎭 MODO SIMULADO ATIVADO',
-        message: data.message || 'Simulação do TurtleBot 4 iniciada!'
+        title: t('tbSimStartedTitle'),
+        message: data.message || t('tbSimStartedMsg')
       });
     }
     refreshStatus();
@@ -526,12 +526,12 @@ export default function Dashboard() {
 
   const handleTbNextSimStep = async () => {
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/simulation/next_step`, { method: 'POST' }, '✅ PRÓXIMO PASSO');
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/simulation/next_step`, { method: 'POST' }, t('tbSimNextTitle'));
     if (ok) {
       setNotification({
         type: 'info',
-        title: '➡️ AVANÇANDO PASSO DA SIMULAÇÃO',
-        message: data.message || 'Avançando para a próxima etapa...'
+        title: t('tbSimNextStartedTitle'),
+        message: data.message || t('tbSimNextStartedMsg')
       });
     }
     refreshStatus();
@@ -539,12 +539,12 @@ export default function Dashboard() {
 
   const handleTbStopSim = async () => {
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/simulation/stop`, { method: 'POST' }, '🛑 PARAR SIMULAÇÃO');
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/simulation/stop`, { method: 'POST' }, t('tbSimStopTitle'));
     if (ok) {
       setNotification({
         type: 'warning',
-        title: '🛑 SIMULAÇÃO ENCERRADA',
-        message: data.message || 'Modo simulado finalizado.'
+        title: t('tbSimStopStartedTitle'),
+        message: data.message || t('tbSimStopStartedMsg')
       });
     }
     refreshStatus();
@@ -552,12 +552,12 @@ export default function Dashboard() {
 
   const handleTbStopMission = async () => {
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/stop_mission`, { method: 'POST' }, '🛑 CANCELAR MISSÃO');
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/stop_mission`, { method: 'POST' }, t('tbCancelMissionTitle'));
     if (ok) {
       setNotification({
         type: 'warning',
-        title: '🛑 MISSÃO INTERROMPIDA',
-        message: data.message || 'Missão em andamento cancelada! Robô parado e Mission Manager liberado.'
+        title: t('tbCancelMissionStartedTitle'),
+        message: data.message || t('tbCancelMissionStartedMsg')
       });
     }
     refreshStatus();
@@ -565,25 +565,27 @@ export default function Dashboard() {
 
   const handleTbDiagnose = async () => {
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/diagnose`, { method: 'GET' }, '🔍 DIAGNÓSTICO TURTLEBOT');
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/diagnose`, { method: 'GET' }, t('tbDiagnoseTitle'));
     if (ok) {
       setTbDiag(data);
+      const statusText = data.ping_ok ? (lang === 'pt' ? 'ONLINE' : 'ONLINE') : (lang === 'pt' ? 'SEM PING' : 'NO PING');
+      const topicsText = lang === 'pt' ? 'tópicos ROS 2 visíveis' : 'ROS 2 topics visible';
       setNotification({
         type: 'success',
-        title: '🔍 DIAGNÓSTICO CONCLUÍDO',
-        message: `Rede IP 192.168.0.129: ${data.ping_ok ? 'ONLINE' : 'SEM PING'}. ${data.topics_count} tópicos ROS 2 visíveis!`
+        title: t('tbDiagnoseStartedTitle'),
+        message: `IP 192.168.0.129: ${statusText}. ${data.topics_count} ${topicsText}!`
       });
     }
   };
 
   const handleTbTriggerPatrol = async () => {
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/trigger_patrol`, { method: 'POST' }, '🔄 START PATROL');
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/trigger_patrol`, { method: 'POST' }, t('tbPatrolTitle'));
     if (ok) {
       setNotification({
         type: 'success',
-        title: '🔄 PATRULHA INICIADA',
-        message: data.message || 'Rotina autônoma de patrulha (/start_patrol) pelos waypoints iniciada!'
+        title: t('tbPatrolStartedTitle'),
+        message: data.message || t('tbPatrolStartedMsg')
       });
     }
     refreshStatus();
@@ -591,12 +593,12 @@ export default function Dashboard() {
 
   const handleTbLaunchIntegrated3D = async () => {
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/launch_integrated_3d`, { method: 'POST' }, '🌐 VISÃO 3D INTEGRADA');
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/launch_integrated_3d`, { method: 'POST' }, t('tbViz3DTitle'));
     if (ok) {
       setNotification({
         type: 'success',
-        title: '🌐 CENA 3D INTEGRADA DISPARADA',
-        message: data.message || 'Janela 3D com Cobot + TurtleBot 4 + Mapa B002 aberta no PC Host!'
+        title: t('tbViz3DStartedTitle'),
+        message: data.message || t('tbViz3DStartedMsg')
       });
     }
   };
@@ -612,12 +614,12 @@ export default function Dashboard() {
 
   const handleTbStartOakdCamera = async () => {
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/start_oakd_camera`, { method: 'POST' }, '👁️ LIGAR CÂMERA OAK-D');
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/start_oakd_camera`, { method: 'POST' }, t('tbOakdCameraTitle'));
     if (ok) {
       setNotification({
         type: 'success',
-        title: '👁️ CÂMERA OAK-D ATIVADA',
-        message: data.message || 'Visão remota da OAK-D disparada via SSH no TurtleBot 4!'
+        title: t('tbOakdCameraStartedTitle'),
+        message: data.message || t('tbOakdCameraStartedMsg')
       });
     }
   };
@@ -706,12 +708,12 @@ export default function Dashboard() {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ item_class: itemClass })
-            }, '🧪 TESTE DE HANDSHAKE');
+            }, t('tbHandshakeTestTitle'));
             if (ok) {
               setNotification({
                 type: 'success',
-                title: '🧪 TESTE DE HANDSHAKE INICIADO',
-                message: data.message || 'Ciclo automático de teste de comunicação disparado com sucesso!'
+                title: t('tbHandshakeTestStartedTitle'),
+                message: data.message || t('tbHandshakeTestStartedMsg')
               });
             }
             refreshStatus();
