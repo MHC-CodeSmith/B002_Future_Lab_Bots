@@ -9,8 +9,6 @@ from backend.config.settings import get_settings, update_env_file
 router = APIRouter(prefix="/api/v1/settings", tags=["Settings"])
 
 class SettingsUpdateSchema(BaseModel):
-    ROS_DOMAIN_ID: Optional[int] = None
-    RMW_IMPLEMENTATION: Optional[str] = None
     HOST_PC_IP: Optional[str] = None
     JETSON_NANO_IP: Optional[str] = None
     TURTLEBOT_IP: Optional[str] = None

@@ -17,7 +17,10 @@ def load_env_file():
                 line = line.strip()
                 if line and not line.startswith("#") and "=" in line:
                     k, v = line.split("=", 1)
-                    os.environ[k.strip()] = v.strip()
+                    k = k.strip()
+                    if k.startswith("ROS_") or k == "RMW_IMPLEMENTATION":
+                        continue
+                    os.environ[k] = v.strip()
 
 load_env_file()
 
@@ -88,8 +91,8 @@ def resolve_active_turtlebot_ip() -> str:
 
 @dataclass
 class Settings:
-    ROS_DOMAIN_ID: int = int(os.getenv("ROS_DOMAIN_ID", 42))
-    RMW_IMPLEMENTATION: str = os.getenv("RMW_IMPLEMENTATION", "rmw_cyclonedds_cpp")
+    ROS_DOMAIN_ID: int = int(os.getenv("ROS_DOMAIN_ID", 0))
+    RMW_IMPLEMENTATION: str = os.getenv("RMW_IMPLEMENTATION", "rmw_fastrtps_cpp")
     
     # 2. Endereços IP dos Robôs e Dispositivos na Rede
     HOST_PC_IP: str = os.getenv("HOST_PC_IP", "192.168.0.204")
