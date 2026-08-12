@@ -15,13 +15,7 @@ from backend.api.health_routes import _launch_gui_in_pty
 router = APIRouter(prefix="/api/v1/turtlebot", tags=["TurtleBot 4"])
 
 JAZZY_ENV_CMD = (
-    "source /opt/ros/jazzy/setup.bash && "
-    "export ROS_DOMAIN_ID=0 && "
-    "export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET && "
-    "export RMW_IMPLEMENTATION=rmw_fastrtps_cpp && "
-    "export FASTDDS_BUILTIN_TRANSPORTS=UDPv4 && "
-    "export ROS_SUPER_CLIENT=True && "
-    'export ROS_DISCOVERY_SERVER="192.168.0.129:11811;" && '
+    "source /home/future-lab/B002_Future_Lab_Bots/turtlebot4_jazzy/setup.bash && "
     "export DISPLAY=:0 && "
     "export LIBGL_ALWAYS_SOFTWARE=1 && "
     "export QT_X11_NO_MITSHM=1"
