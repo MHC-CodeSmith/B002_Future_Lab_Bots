@@ -340,29 +340,12 @@ def trigger_undock():
         return {"status": "busy", "message": "Um comando de Undock já está em processamento. Aguarde a manobra."}
 
     try:
-        subprocess.run("pkill -9 -f 'send_goal /undock' 2>/dev/null || true", shell=True, timeout=3)
         def _exec_undock():
             try:
-                # 1. Dispara pulso físico de ré (-0.25 m/s por 2.5s) no /cmd_vel_unstamped para desacoplar fisicamente os contatos
-                cmd_vel_burst = (
-                    f'{JAZZY_ENV_CMD} && python3 -c "'
-                    'import time, rclpy; from geometry_msgs.msg import Twist; '
-                    'rclpy.init(); n = rclpy.create_node(\'undock_phy\'); '
-                    'p = n.create_publisher(Twist, \'/cmd_vel_unstamped\', 10); '
-                    't = Twist(); t.linear.x = -0.25; '
-                    '[p.publish(t) or time.sleep(0.1) for _ in range(25)]; '
-                    'rclpy.shutdown()"'
-                )
-                subprocess.run(cmd_vel_burst, shell=True, executable="/bin/bash", timeout=10)
-
-                # 2. Tenta ação de undock com timeout curto de 8s (para não travar se o servidor interno irobot estiver em hang)
-                cmd_action = f'{JAZZY_ENV_CMD} && ros2 action send_goal /undock irobot_create_msgs/action/Undock "{{}}"'
-                try:
-                    subprocess.run(cmd_action, shell=True, executable="/bin/bash", timeout=8)
-                except Exception:
-                    pass
-
                 node = get_turtlebot_node()
+                print("[INFO TB4] Disparando recuo físico dos motores (-0.25 m/s por 3s)...")
+                node.send_reverse_undock_burst(duration_sec=3.0, speed=-0.25)
+
                 node.is_docked = False
                 print("[INFO TB4] Manobra física de Undock concluída com SUCESSO!")
             except Exception as e:
@@ -371,7 +354,7 @@ def trigger_undock():
                 _undock_lock.release()
 
         threading.Thread(target=_exec_undock, daemon=True).start()
-        return {"status": "success", "message": "Comando de Undocking disparado! Executando recuo físico dos motores..."}
+        return {"status": "success", "message": "Comando de Undocking disparado! Recuando motores fisicamente por 3 segundos..."}
     except Exception as e:
         _undock_lock.release()
         raise HTTPException(status_code=500, detail=f"Falha ao acionar Undocking: {e}")

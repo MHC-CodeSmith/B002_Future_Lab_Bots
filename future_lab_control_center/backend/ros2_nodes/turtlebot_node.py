@@ -221,6 +221,24 @@ class TurtleBotNode(Node):
                     time.sleep(0.05)
             threading.Thread(target=_burst, daemon=True).start()
 
+    def send_reverse_undock_burst(self, duration_sec: float = 3.0, speed: float = -0.25):
+        """Envia pulsos contínuos de ré no publisher persistente para recuar fisicamente da estação de carga."""
+        if HAS_RCLPY and self.cmd_vel_pub:
+            t = Twist()
+            t.linear.x = float(speed)
+            t.angular.z = 0.0
+            def _reverse():
+                end_t = time.time() + duration_sec
+                while time.time() < end_t:
+                    try:
+                        self.cmd_vel_pub.publish(t)
+                    except Exception as e:
+                        print(f"[WARN TB4] Reverse burst publish error: {e}")
+                    time.sleep(0.05)
+            t_rev = threading.Thread(target=_reverse, daemon=True)
+            t_rev.start()
+            t_rev.join(timeout=duration_sec + 0.5)
+
     def get_status(self) -> Dict:
         # Se a telemetria não foi capturada recentemente pelos callbacks (> 5s), realiza uma tentativa síncrona
         if self.battery_percentage is None or (time.time() - self.last_msg_time) > 5.0:
