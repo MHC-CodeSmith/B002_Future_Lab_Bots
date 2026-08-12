@@ -157,6 +157,11 @@ class TurtleBotNode(Node):
         self.is_docked = False
         self.undock_override_until = time.time() + duration_sec
 
+    def clear_undock_override(self):
+        """Cancela a sobreposição forçada de undock e restabelece a escuta normal da dock."""
+        self.undock_override_until = 0
+        self.is_docked = True
+
     def _battery_callback(self, msg):
         try:
             self.last_msg_time = time.time()

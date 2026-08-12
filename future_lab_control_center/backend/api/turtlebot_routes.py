@@ -311,8 +311,9 @@ def trigger_dock():
     """Envia o comando de Docking (Ir para Estação de Carga) de forma assíncrona ao TurtleBot 4."""
     try:
         node = get_turtlebot_node()
-        node.is_docked = True
+        node.clear_undock_override()
         def _exec_dock():
+            # Dispara a ação de docking físico
             cmd = f'{JAZZY_ENV_CMD} && ros2 action send_goal /dock irobot_create_msgs/action/Dock "{{}}"'
             subprocess.run(cmd, shell=True, executable="/bin/bash", timeout=25)
         threading.Thread(target=_exec_dock, daemon=True).start()
