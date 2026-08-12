@@ -142,30 +142,25 @@ class TurtleBotNode(Node):
                     for line in res_dock.stdout.splitlines():
                         if "is_docked:" in line:
                             val_str = line.split(":")[-1].strip().lower()
-                            if time.time() < getattr(self, "dock_override_until", 0):
-                                self.is_docked = getattr(self, "dock_override_value", False)
-                            else:
-                                self.is_docked = (val_str == "true")
+                            self.is_docked = (val_str == "true")
                             self.last_msg_time = time.time()
                             break
             except Exception as e:
                 pass
             time.sleep(3.0)
 
-    def set_dock_override(self, is_docked: bool, duration_sec: float = 3600.0):
-        """Define o estado de docking manualmente e ignora leituras da telemetria durante duration_sec."""
+    def set_dock_override(self, is_docked: bool, duration_sec: float = 5.0):
+        """Define o estado de docking manualmente por apenas 5 segundos durante a transicao de comando."""
         self.is_docked = is_docked
-        self.dock_override_value = is_docked
-        self.dock_override_until = time.time() + duration_sec
 
     def clear_dock_override(self):
-        """Remove a sobreposição manual e restabelece a escuta da telemetria do robô."""
+        """Restabelece a escuta da telemetria do robô."""
         self.dock_override_until = 0
 
     def clear_undock_override(self):
         self.clear_dock_override()
 
-    def force_undock_override(self, duration_sec: float = 3600.0):
+    def force_undock_override(self, duration_sec: float = 5.0):
         self.set_dock_override(False, duration_sec)
 
     def _battery_callback(self, msg):
@@ -175,11 +170,9 @@ class TurtleBotNode(Node):
                 self.battery_percentage = round(float(msg.percentage) * (100.0 if msg.percentage <= 1.0 else 1.0), 1)
             if hasattr(msg, 'power_supply_status'):
                 status_val = int(msg.power_supply_status)
-                if time.time() < getattr(self, "dock_override_until", 0):
-                    self.is_docked = getattr(self, "dock_override_value", False)
-                elif status_val in (1, 4):
+                if status_val in (1, 4):  # CHARGING or FULL
                     self.is_docked = True
-                elif status_val in (2, 3):
+                elif status_val in (2, 3):  # DISCHARGING or NOT_CHARGING
                     self.is_docked = False
         except Exception as e:
             print(f"[WARN TB4] Battery callback error: {e}")
