@@ -42,13 +42,20 @@ def check_http_stream(url: str, timeout_sec: float = 0.5) -> bool:
 
 @router.get("/")
 def get_health_status():
-    """Retorna a saúde da rede, pings dos dispositivos e status do stream."""
+    """Retorna a saúde da rede, pings dos dispositivos e status do stream de forma paralela (assíncrona)."""
     settings = get_settings()
     
-    nano_ping = ping_host(settings.JETSON_NANO_IP)
-    nano_stream = check_http_stream(settings.CAMERA_STREAM_URL)
-    turtlebot_ping = ping_host(settings.TURTLEBOT_IP)
-    host_ping = ping_host(settings.HOST_PC_IP)
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        f_nano = executor.submit(ping_host, settings.JETSON_NANO_IP, 1)
+        f_stream = executor.submit(check_http_stream, settings.CAMERA_STREAM_URL, 0.5)
+        f_tb = executor.submit(ping_host, settings.TURTLEBOT_IP, 1)
+        f_host = executor.submit(ping_host, settings.HOST_PC_IP, 1)
+
+        nano_ping = f_nano.result()
+        nano_stream = f_stream.result()
+        turtlebot_ping = f_tb.result()
+        host_ping = f_host.result()
 
     return {
         "status": "online",

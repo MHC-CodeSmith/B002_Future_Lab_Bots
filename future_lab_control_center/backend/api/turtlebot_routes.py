@@ -309,9 +309,6 @@ def send_teleop(payload: TeleopPayload):
 @router.post("/dock")
 def trigger_dock():
     """Envia o comando de Docking (Ir para Estação de Carga) de forma assíncrona ao TurtleBot 4."""
-    tb_ip = "192.168.0.129"
-    if not ping_host(tb_ip, timeout_sec=2):
-        raise HTTPException(status_code=503, detail=f"TurtleBot 4 (IP {tb_ip}) está desligado ou desconectado da rede Wi-Fi.")
     try:
         node = get_turtlebot_node()
         node.is_docked = True
@@ -326,9 +323,6 @@ def trigger_dock():
 @router.post("/undock")
 def trigger_undock():
     """Envia o comando de Undocking (Sair da Estação de Carga) de forma assíncrona ao TurtleBot 4."""
-    tb_ip = "192.168.0.129"
-    if not ping_host(tb_ip, timeout_sec=2):
-        raise HTTPException(status_code=503, detail=f"TurtleBot 4 (IP {tb_ip}) está desligado ou desconectado da rede Wi-Fi.")
     try:
         node = get_turtlebot_node()
         node.is_docked = False
@@ -519,9 +513,6 @@ def launch_integrated_3d():
 @router.post("/start_oakd_camera")
 def start_oakd_camera():
     """Desperta a câmera OAK-D-PRO no TurtleBot 4 chamando o serviço ROS 2 /oakd/start_camera."""
-    tb_ip = "192.168.0.129"
-    if not ping_host(tb_ip, timeout_sec=2):
-        raise HTTPException(status_code=503, detail=f"TurtleBot 4 (IP {tb_ip}) não acessível na rede.")
     try:
         cmd = f'{JAZZY_ENV_CMD} && ros2 service call /oakd/start_camera std_srvs/srv/Trigger {{}}'
         subprocess.Popen(cmd, shell=True, executable="/bin/bash")
