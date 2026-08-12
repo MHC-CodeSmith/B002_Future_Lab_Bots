@@ -142,12 +142,20 @@ class TurtleBotNode(Node):
                     for line in res_dock.stdout.splitlines():
                         if "is_docked:" in line:
                             val_str = line.split(":")[-1].strip().lower()
-                            self.is_docked = (val_str == "true")
+                            if time.time() < getattr(self, "undock_override_until", 0):
+                                self.is_docked = False
+                            else:
+                                self.is_docked = (val_str == "true")
                             self.last_msg_time = time.time()
                             break
             except Exception as e:
                 pass
             time.sleep(3.0)
+
+    def force_undock_override(self, duration_sec: float = 60.0):
+        """Força a flag is_docked para False durante duration_sec ignorando leituras presas da telemetria."""
+        self.is_docked = False
+        self.undock_override_until = time.time() + duration_sec
 
     def _battery_callback(self, msg):
         try:
@@ -156,7 +164,9 @@ class TurtleBotNode(Node):
                 self.battery_percentage = round(float(msg.percentage) * (100.0 if msg.percentage <= 1.0 else 1.0), 1)
             if hasattr(msg, 'power_supply_status'):
                 status_val = int(msg.power_supply_status)
-                if status_val in (1, 4):
+                if time.time() < getattr(self, "undock_override_until", 0):
+                    self.is_docked = False
+                elif status_val in (1, 4):
                     self.is_docked = True
                 elif status_val in (2, 3):
                     self.is_docked = False

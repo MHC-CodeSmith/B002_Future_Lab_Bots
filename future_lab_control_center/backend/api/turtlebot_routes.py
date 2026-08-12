@@ -325,12 +325,12 @@ def trigger_undock():
     """Envia o comando de Undocking (Sair da Estação de Carga) de forma assíncrona ao TurtleBot 4."""
     try:
         node = get_turtlebot_node()
-        node.is_docked = False
+        node.force_undock_override(300.0)
         def _exec_undock():
             cmd = f'{JAZZY_ENV_CMD} && ros2 action send_goal /undock irobot_create_msgs/action/Undock "{{}}"'
             subprocess.run(cmd, shell=True, executable="/bin/bash", timeout=25)
         threading.Thread(target=_exec_undock, daemon=True).start()
-        return {"status": "success", "message": "Comando de Undocking enviado ao TurtleBot 4!"}
+        return {"status": "success", "message": "Comando de Undocking enviado ao TurtleBot 4! Trava de movimento liberada."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Falha ao acionar Undocking: {e}")
 
