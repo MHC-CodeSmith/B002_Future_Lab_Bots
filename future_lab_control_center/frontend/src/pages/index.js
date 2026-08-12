@@ -9,8 +9,10 @@ import PanicOverlayModal from '../components/PanicOverlayModal';
 import RebootOverlayModal from '../components/RebootOverlayModal';
 import InterruptOverlayModal from '../components/InterruptOverlayModal';
 import { Bot, Cpu } from 'lucide-react';
+import { useLanguage } from '../context/LanguageContext';
 
 export default function Dashboard() {
+  const { lang, t } = useLanguage();
   const [activeTab, setActiveTab] = useState('cobot'); // 'cobot' | 'turtlebot'
   const [health, setHealth] = useState(null);
   const [cellStatus, setCellStatus] = useState(null);
@@ -386,6 +388,71 @@ export default function Dashboard() {
     }
   };
 
+  const handleTbRestartDaemon = async () => {
+    const apiBase = getApiBase();
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/restart_daemon`, { method: 'POST' }, '🔄 REINICIAR DAEMON ROS 2');
+    if (ok) {
+      setNotification({
+        type: 'success',
+        title: '🔄 DAEMON ROS 2 REINICIADO',
+        message: data.message || 'Daemon do ROS 2 parado e reiniciado com as variáveis do TurtleBot 4!'
+      });
+    }
+    refreshStatus();
+  };
+
+  const handleTbStopLocalization = async () => {
+    const apiBase = getApiBase();
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/stop_localization`, { method: 'POST' }, '🛑 ENCERRA LOCALIZAÇÃO');
+    if (ok) {
+      setNotification({
+        type: 'info',
+        title: '🛑 LOCALIZAÇÃO ENCERRADA (CTRL+C)',
+        message: data.message || 'Processo de localização Nav2 finalizado!'
+      });
+    }
+    refreshStatus();
+  };
+
+  const handleTbStopNav2 = async () => {
+    const apiBase = getApiBase();
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/stop_nav2`, { method: 'POST' }, '🛑 ENCERRA NAV2');
+    if (ok) {
+      setNotification({
+        type: 'info',
+        title: '🛑 NAV2 STACK ENCERRADO (CTRL+C)',
+        message: data.message || 'Stack de navegação Nav2 finalizado!'
+      });
+    }
+    refreshStatus();
+  };
+
+  const handleTbStopViz = async () => {
+    const apiBase = getApiBase();
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/stop_viz`, { method: 'POST' }, '🛑 ENCERRA RVIZ2');
+    if (ok) {
+      setNotification({
+        type: 'info',
+        title: '🛑 RVIZ2 FECHADO (CTRL+C)',
+        message: data.message || 'Janela gráfica do RViz2 encerrada!'
+      });
+    }
+    refreshStatus();
+  };
+
+  const handleTbStopMissionManagerProcess = async () => {
+    const apiBase = getApiBase();
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/stop_mission_manager_process`, { method: 'POST' }, '🛑 KILL MISSION MANAGER');
+    if (ok) {
+      setNotification({
+        type: 'info',
+        title: '🛑 MISSION MANAGER ENCERRADO (CTRL+C)',
+        message: data.message || 'Processo do Mission Manager finalizado! Pronto para reiniciar do zero.'
+      });
+    }
+    refreshStatus();
+  };
+
   const handleTbLaunchMissionManager = async () => {
     const apiBase = getApiBase();
     const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/launch_mission_manager`, { method: 'POST' }, '📦 MISSION MANAGER');
@@ -435,6 +502,49 @@ export default function Dashboard() {
         type: 'success',
         title: '⚠️ MISSÃO DE DESCARTE ACIONADA',
         message: data.message || 'Rotina de descarte de peça com defeito (/start_failure) disparada com sucesso!'
+      });
+    }
+    refreshStatus();
+  };
+
+  const handleTbStartSim = async (item = 'blue') => {
+    const apiBase = getApiBase();
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/simulation/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ item })
+    }, '▶️ INICIAR SIMULAÇÃO');
+    if (ok) {
+      setNotification({
+        type: 'success',
+        title: '🎭 MODO SIMULADO ATIVADO',
+        message: data.message || 'Simulação do TurtleBot 4 iniciada!'
+      });
+    }
+    refreshStatus();
+  };
+
+  const handleTbNextSimStep = async () => {
+    const apiBase = getApiBase();
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/simulation/next_step`, { method: 'POST' }, '✅ PRÓXIMO PASSO');
+    if (ok) {
+      setNotification({
+        type: 'info',
+        title: '➡️ AVANÇANDO PASSO DA SIMULAÇÃO',
+        message: data.message || 'Avançando para a próxima etapa...'
+      });
+    }
+    refreshStatus();
+  };
+
+  const handleTbStopSim = async () => {
+    const apiBase = getApiBase();
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/simulation/stop`, { method: 'POST' }, '🛑 PARAR SIMULAÇÃO');
+    if (ok) {
+      setNotification({
+        type: 'warning',
+        title: '🛑 SIMULAÇÃO ENCERRADA',
+        message: data.message || 'Modo simulado finalizado.'
       });
     }
     refreshStatus();
@@ -559,7 +669,7 @@ export default function Dashboard() {
           }`}
         >
           <Cpu className="w-5 h-5" />
-          <span>🦾 Célula Robótica (MyCobot 280 & Visão)</span>
+          <span>🦾 {t('tabCellControl')}</span>
         </button>
 
         <button
@@ -571,63 +681,77 @@ export default function Dashboard() {
           }`}
         >
           <Bot className="w-5 h-5" />
-          <span>🐢 TurtleBot 4 (AMR & Visão 3D Integrada)</span>
+          <span>{t('tabTurtleBotControl')}</span>
         </button>
       </div>
 
       {/* Conteúdo da Aba 1: Célula Robótica */}
-      {activeTab === 'cobot' && (
-        <div className="space-y-6">
-          <CellControlPanel
-            cellState={cellStatus?.cell}
-            onUpdateMode={handleUpdateMode}
-            onAutoStart={handleAutoStart}
-            onAutoStop={handleAutoStop}
-            onManualStartScan={handleManualStartScan}
-            onManualAuthorizePick={handleManualAuthorizePick}
-            onManualAuthorizePlace={handleManualAuthorizePlace}
-            onInterrupt={handleInterrupt}
-            onConfirmInterrupt={handleConfirmInterrupt}
-            onEmergencyStop={handleEmergencyStop}
-            onPanicStop={handlePanicStop}
-            onRestartNanoHardware={handleRestartNanoHardware}
+      <div className={activeTab === 'cobot' ? 'space-y-6 block' : 'hidden'}>
+        <CellControlPanel
+          cellState={cellStatus?.cell}
+          onUpdateMode={handleUpdateMode}
+          onAutoStart={handleAutoStart}
+          onAutoStop={handleAutoStop}
+          onManualStartScan={handleManualStartScan}
+          onManualAuthorizePick={handleManualAuthorizePick}
+          onManualAuthorizePlace={handleManualAuthorizePlace}
+          onInterrupt={handleInterrupt}
+          onConfirmInterrupt={handleConfirmInterrupt}
+          onEmergencyStop={handleEmergencyStop}
+          onPanicStop={handlePanicStop}
+          onRestartNanoHardware={handleRestartNanoHardware}
+          onTestHandshake={async (itemClass) => {
+            const apiBase = getApiBase();
+            const { ok, data } = await safeApiCall(`${apiBase}/cell/test_handshake`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ item_class: itemClass })
+            }, '🧪 TESTE DE HANDSHAKE');
+            if (ok) {
+              setNotification({
+                type: 'success',
+                title: '🧪 TESTE DE HANDSHAKE INICIADO',
+                message: data.message || 'Ciclo automático de teste de comunicação disparado com sucesso!'
+              });
+            }
+            refreshStatus();
+          }}
+        />
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <CameraVisionPanel
+            streamUrl={health?.devices?.jetson_nano?.camera_stream_url}
+            cameraOnline={Boolean(health?.devices?.jetson_nano?.camera_stream_online)}
+            lastYolo={cellStatus?.last_yolo}
+            yoloConfThreshold={cellStatus?.cell?.yolo_conf ?? 0.60}
+            pumpActive={currentPumpActive}
+            yoloTestActive={currentYoloTestActive}
+            onTogglePump={handleTogglePump}
+            onToggleYoloTest={handleToggleYoloTest}
+            onRestartCamera={handleRestartCamera}
+            onStopCamera={handleStopCamera}
+            onLaunchYoloWindow={handleLaunchYoloWindow}
           />
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <CameraVisionPanel
-              streamUrl={health?.devices?.jetson_nano?.camera_stream_url}
-              cameraOnline={Boolean(health?.devices?.jetson_nano?.camera_stream_online)}
-              lastYolo={cellStatus?.last_yolo}
-              yoloConfThreshold={cellStatus?.cell?.yolo_conf ?? 0.60}
-              pumpActive={currentPumpActive}
-              yoloTestActive={currentYoloTestActive}
-              onTogglePump={handleTogglePump}
-              onToggleYoloTest={handleToggleYoloTest}
-              onRestartCamera={handleRestartCamera}
-              onStopCamera={handleStopCamera}
-              onLaunchYoloWindow={handleLaunchYoloWindow}
-            />
-
-            <TeachModePanel
-              cellState={cellStatus?.cell}
-              posesData={poses}
-              onRelease={handleRelease}
-              onLock={handleLock}
-              onRecord={handleRecord}
-              onSave={handleSave}
-              onPlayback={handlePlayback}
-              onClear={handleClear}
-              onRestore={handleRestore}
-              onMovePose={handleMovePose}
-              onMovePoseFail={handleMovePoseFail}
-              onLaunchRviz={handleLaunchRviz}
-            />
-          </div>
+          <TeachModePanel
+            cellState={cellStatus?.cell}
+            posesData={poses}
+            onRelease={handleRelease}
+            onLock={handleLock}
+            onRecord={handleRecord}
+            onSave={handleSave}
+            onPlayback={handlePlayback}
+            onClear={handleClear}
+            onRestore={handleRestore}
+            onMovePose={handleMovePose}
+            onMovePoseFail={handleMovePoseFail}
+            onLaunchRviz={handleLaunchRviz}
+          />
         </div>
-      )}
+      </div>
 
       {/* Conteúdo da Aba 2: TurtleBot 4 (AMR) */}
-      {activeTab === 'turtlebot' && (
+      <div className={activeTab === 'turtlebot' ? 'space-y-6 block' : 'hidden'}>
         <TurtleBotDashboardTab
           tbStatus={tbStatus}
           tbDiag={tbDiag}
@@ -646,8 +770,16 @@ export default function Dashboard() {
           onLaunchIntegrated3D={handleTbLaunchIntegrated3D}
           onTeleop={handleTbTeleop}
           onStartOakdCamera={handleTbStartOakdCamera}
+          onStartSim={handleTbStartSim}
+          onNextSimStep={handleTbNextSimStep}
+          onStopSim={handleTbStopSim}
+          onRestartDaemon={handleTbRestartDaemon}
+          onStopLocalization={handleTbStopLocalization}
+          onStopNav2={handleTbStopNav2}
+          onStopViz={handleTbStopViz}
+          onStopMissionManagerProcess={handleTbStopMissionManagerProcess}
         />
-      )}
+      </div>
     </main>
   );
 }

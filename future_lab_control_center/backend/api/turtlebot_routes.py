@@ -19,12 +19,15 @@ JAZZY_ENV_CMD = (
     "export ROS_DOMAIN_ID=0 && "
     "export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET && "
     "export RMW_IMPLEMENTATION=rmw_fastrtps_cpp && "
+    "export FASTDDS_BUILTIN_TRANSPORTS=UDPv4 && "
     "export ROS_SUPER_CLIENT=True && "
-    "export ROS_DISCOVERY_SERVER=192.168.0.129:11811 && "
+    'export ROS_DISCOVERY_SERVER="192.168.0.129:11811;" && '
     "export DISPLAY=:0 && "
     "export LIBGL_ALWAYS_SOFTWARE=1 && "
     "export QT_X11_NO_MITSHM=1"
 )
+
+JAZZY_ENV_CMD_DS = JAZZY_ENV_CMD
 
 from pathlib import Path
 
@@ -50,9 +53,23 @@ class TeleopPayload(BaseModel):
 
 from backend.api.health_routes import ping_host
 
+class SimulationStartSchema(BaseModel):
+    item: str = "blue"  # "blue" ou "red"
+
+sim_state = {
+    "active": False,
+    "selected_item": "blue",
+    "current_step": "idle",
+    "step_index": 0,
+    "step_title": "Simulação Inativa",
+    "step_description": "Selecione a peça e inicie o modo simulado.",
+    "waiting_confirmation": False,
+    "busy": False
+}
+
 @router.get("/status")
 def get_turtlebot_status():
-    """Retorna o status do TurtleBot 4 (bateria, posição, docking)."""
+    """Retorna o status do TurtleBot 4 (bateria, posição, docking e modo simulado)."""
     tb_ip = "192.168.0.129"
     ping_ok = ping_host(tb_ip, timeout_sec=1)
     node = get_turtlebot_node()
@@ -61,7 +78,148 @@ def get_turtlebot_status():
     if not ping_ok:
         st["status"] = "offline"
         st["battery_percentage"] = None
+    st["sim_state"] = sim_state
     return st
+
+@router.post("/simulation/start")
+def start_simulation(payload: SimulationStartSchema):
+    node = get_turtlebot_node()
+    st = node.get_status()
+    is_docked = bool(st.get("is_docked", False))
+    
+    sim_state["active"] = True
+    sim_state["selected_item"] = payload.item
+    sim_state["busy"] = True
+
+    # Pré-requisito: Se estiver fora da dock, força o retorno para a dock primeiro!
+    if not is_docked:
+        sim_state["current_step"] = "returning_dock_prereq"
+        sim_state["step_index"] = 1
+        sim_state["step_title"] = "Retornando à Estação de Carga (Pré-requisito)"
+        sim_state["step_description"] = "O robô está fora da dock. Navegando até a Dock Station antes de iniciar a simulação..."
+        sim_state["waiting_confirmation"] = False
+
+        def _run_prereq_dock():
+            trigger_dock()
+            time.sleep(8.0)
+            sim_state["current_step"] = "at_dock"
+            sim_state["step_index"] = 2
+            sim_state["step_title"] = "Robô na Estação de Carga (Pronto)"
+            sim_state["step_description"] = f"Robô acoplado na dock. Peça selecionada: {payload.item.upper()}. Clique em 'CONFIRMAR E IR PARA O PRÓXIMO PASSO' para iniciar o Undock."
+            sim_state["waiting_confirmation"] = True
+            sim_state["busy"] = False
+
+        threading.Thread(target=_run_prereq_dock, daemon=True).start()
+        return {"status": "success", "message": "Pré-requisito iniciado: Retornando robô à Dock Station..."}
+
+    # Se já estiver na dock:
+    sim_state["current_step"] = "at_dock"
+    sim_state["step_index"] = 1
+    sim_state["step_title"] = "Robô na Estação de Carga (Pronto)"
+    sim_state["step_description"] = f"Robô acoplado na dock. Peça selecionada: {payload.item.upper()}. Clique em 'CONFIRMAR E IR PARA O PRÓXIMO PASSO' para iniciar o Undock."
+    sim_state["waiting_confirmation"] = True
+    sim_state["busy"] = False
+    return {"status": "success", "message": "Simulação iniciada na Dock Station com sucesso!"}
+
+@router.post("/simulation/next_step")
+def next_simulation_step():
+    if not sim_state["active"]:
+        raise HTTPException(status_code=400, detail="Simulação não está ativa.")
+
+    if sim_state["busy"]:
+        return {"status": "busy", "message": "Robô em movimento. Aguarde a conclusão do trajeto atual."}
+
+    step = sim_state["current_step"]
+    item = sim_state["selected_item"]
+
+    if step == "at_dock":
+        # Passo 2: Undock & Ir para Ponto de Coleta (pickup_point)
+        sim_state["current_step"] = "going_pickup"
+        sim_state["step_index"] = 2
+        sim_state["step_title"] = "Undock & Indo para Ponto de Coleta"
+        sim_state["step_description"] = "Desengatando da dock e navegando até 'pickup_point'..."
+        sim_state["waiting_confirmation"] = False
+        sim_state["busy"] = True
+
+        def _step_pickup():
+            trigger_undock()
+            time.sleep(4.0)
+            cmd = f'{JAZZY_ENV_CMD} && ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose "{{pose: {{header: {{frame_id: map}}, pose: {{position: {{x: -1.078, y: 0.130, z: 0.0}}, orientation: {{w: 1.0}}}}}}}}"'
+            subprocess.Popen(cmd, shell=True, executable="/bin/bash")
+            time.sleep(12.0)
+            sim_state["current_step"] = "at_pickup"
+            sim_state["step_index"] = 3
+            sim_state["step_title"] = "Chegou ao Ponto de Coleta (pickup_point)"
+            sim_state["step_description"] = f"Robô posicionado no Ponto de Coleta. Clique em 'CONFIRMAR E IR PARA O PRÓXIMO PASSO' para navegar até a estação de entrega ({'Azul' if item=='blue' else 'Vermelha'})."
+            sim_state["waiting_confirmation"] = True
+            sim_state["busy"] = False
+
+        threading.Thread(target=_step_pickup, daemon=True).start()
+        return {"status": "success", "message": "Avançando para o Ponto de Coleta..."}
+
+    elif step == "at_pickup":
+        # Passo 3: Ir para Estação de Entrega (delivery_blue ou delivery_red)
+        target_wp = "delivery_blue" if item == "blue" else "delivery_red"
+        target_x = 0.50 if item == "blue" else -0.50
+        target_y = 1.20 if item == "blue" else 1.20
+
+        sim_state["current_step"] = "going_delivery"
+        sim_state["step_index"] = 4
+        sim_state["step_title"] = f"Indo para Estação de Entrega ({item.upper()})"
+        sim_state["step_description"] = f"Navegando até o destino '{target_wp}'..."
+        sim_state["waiting_confirmation"] = False
+        sim_state["busy"] = True
+
+        def _step_delivery():
+            cmd = f'{JAZZY_ENV_CMD} && ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose "{{pose: {{header: {{frame_id: map}}, pose: {{position: {{x: {target_x}, y: {target_y}, z: 0.0}}, orientation: {{w: 1.0}}}}}}}}"'
+            subprocess.Popen(cmd, shell=True, executable="/bin/bash")
+            time.sleep(15.0)
+            sim_state["current_step"] = "at_delivery"
+            sim_state["step_index"] = 5
+            sim_state["step_title"] = f"Entrega Concluída ({item.upper()})"
+            sim_state["step_description"] = "Peça entregue no destino. Clique em 'CONFIRMAR E IR PARA O PRÓXIMO PASSO' para retornar à Estação de Carga."
+            sim_state["waiting_confirmation"] = True
+            sim_state["busy"] = False
+
+        threading.Thread(target=_step_delivery, daemon=True).start()
+        return {"status": "success", "message": f"Navegando para o destino '{target_wp}'..."}
+
+    elif step == "at_delivery":
+        # Passo 4 (Final): Retornar à Dock Station
+        sim_state["current_step"] = "returning_dock_final"
+        sim_state["step_index"] = 6
+        sim_state["step_title"] = "Retornando à Estação de Carga (Dock)"
+        sim_state["step_description"] = "Navegando para 'predock_point' e executando Docking..."
+        sim_state["waiting_confirmation"] = False
+        sim_state["busy"] = True
+
+        def _step_dock_final():
+            trigger_dock()
+            time.sleep(12.0)
+            sim_state["current_step"] = "completed"
+            sim_state["step_index"] = 7
+            sim_state["step_title"] = "Simulação Concluída com Sucesso!"
+            sim_state["step_description"] = "O TurtleBot 4 retornou e acoplou com sucesso na Dock Station."
+            sim_state["waiting_confirmation"] = False
+            sim_state["busy"] = False
+
+        threading.Thread(target=_step_dock_final, daemon=True).start()
+        return {"status": "success", "message": "Retornando para a Dock Station..."}
+
+    return {"status": "idle", "message": "Nenhum próximo passo disponível."}
+
+@router.post("/simulation/stop")
+def stop_simulation():
+    sim_state["active"] = False
+    sim_state["current_step"] = "idle"
+    sim_state["step_title"] = "Simulação Encerrada"
+    sim_state["step_description"] = "Modo simulado desativado."
+    sim_state["waiting_confirmation"] = False
+    sim_state["busy"] = False
+    
+    # Retorna robô à dock se estiver em movimento
+    trigger_dock()
+    return {"status": "success", "message": "Simulação cancelada e robô direcionado à Dock Station."}
 
 @router.get("/diagnose")
 def diagnose_turtlebot_network():
@@ -112,12 +270,15 @@ def get_turtlebot_logs(source: str = "all", lines: int = 60):
         }
         
         target_file = log_file_map.get(source)
-        if target_file and os.path.exists(target_file):
-            with open(target_file, "r") as f:
-                raw = [l.strip() for l in f.readlines() if l.strip()]
-                return {"status": "success", "source": source, "logs": raw[-lines:]}
+        if target_file:
+            if os.path.exists(target_file):
+                with open(target_file, "r") as f:
+                    raw = [l.strip() for l in f.readlines() if l.strip()]
+                    return {"status": "success", "source": source, "logs": raw[-lines:] if raw else [f"[{source.upper()}] O arquivo {target_file} está vazio."]}
+            else:
+                return {"status": "success", "source": source, "logs": [f"[{source.upper()}] Nenhum log gerado ainda em {target_file}. Clique no botão correspondente para iniciar!"]}
         
-        # Se for "all" ou se o arquivo específico ainda não existir, consolida de todos os arquivos ou docker
+        # Se for "all", consolida de todos os arquivos ou docker
         consolidated = []
         for src, filepath in log_file_map.items():
             if os.path.exists(filepath):
@@ -147,38 +308,55 @@ def send_teleop(payload: TeleopPayload):
 
 @router.post("/dock")
 def trigger_dock():
-    """Envia o comando de Docking (Ir para Estação de Carga)."""
+    """Envia o comando de Docking (Ir para Estação de Carga) de forma assíncrona ao TurtleBot 4."""
     tb_ip = "192.168.0.129"
     if not ping_host(tb_ip, timeout_sec=2):
         raise HTTPException(status_code=503, detail=f"TurtleBot 4 (IP {tb_ip}) está desligado ou desconectado da rede Wi-Fi.")
     try:
-        cmd = f'{JAZZY_ENV_CMD} && ros2 action send_goal /dock irobot_create_msgs/action/Dock "{{}}"'
-        subprocess.Popen(cmd, shell=True, executable="/bin/bash")
+        node = get_turtlebot_node()
+        node.is_docked = True
+        def _exec_dock():
+            cmd = f'{JAZZY_ENV_CMD} && ros2 action send_goal /dock irobot_create_msgs/action/Dock "{{}}"'
+            subprocess.run(cmd, shell=True, executable="/bin/bash", timeout=25)
+        threading.Thread(target=_exec_dock, daemon=True).start()
         return {"status": "success", "message": "Comando de Docking enviado ao TurtleBot 4!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Falha ao acionar Docking: {e}")
 
 @router.post("/undock")
 def trigger_undock():
-    """Envia o comando de Undocking (Sair da Estação de Carga)."""
+    """Envia o comando de Undocking (Sair da Estação de Carga) de forma assíncrona ao TurtleBot 4."""
     tb_ip = "192.168.0.129"
     if not ping_host(tb_ip, timeout_sec=2):
         raise HTTPException(status_code=503, detail=f"TurtleBot 4 (IP {tb_ip}) está desligado ou desconectado da rede Wi-Fi.")
     try:
-        cmd = f'{JAZZY_ENV_CMD} && ros2 action send_goal /undock irobot_create_msgs/action/Undock "{{}}"'
-        subprocess.Popen(cmd, shell=True, executable="/bin/bash")
+        node = get_turtlebot_node()
+        node.is_docked = False
+        def _exec_undock():
+            cmd = f'{JAZZY_ENV_CMD} && ros2 action send_goal /undock irobot_create_msgs/action/Undock "{{}}"'
+            subprocess.run(cmd, shell=True, executable="/bin/bash", timeout=25)
+        threading.Thread(target=_exec_undock, daemon=True).start()
         return {"status": "success", "message": "Comando de Undocking enviado ao TurtleBot 4!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Falha ao acionar Undocking: {e}")
 
 @router.post("/launch_localization")
 def launch_localization():
-    """Lança o módulo de Localização Nav2 com o mapa B002 e bond_timeout=10.0."""
+    """Lança o módulo de Localização Nav2 com o mapa B002 e bond_timeout=30.0. Limpa processos antigos primeiro."""
     try:
+        # Limpa processos antigos de localização para evitar zumbis
+        subprocess.run(
+            "pkill -9 -f 'localization.launch.py' 2>/dev/null ; "
+            "pkill -9 -f 'map_server' 2>/dev/null ; "
+            "pkill -9 -f 'amcl' 2>/dev/null ; "
+            "pkill -9 -f 'lifecycle_manager_localization' 2>/dev/null ; "
+            "sleep 3 || true",
+            shell=True, timeout=8
+        )
         tb4_ws = get_tb4_workspace()
         map_path = os.path.join(tb4_ws, "maps/B002_map.yaml")
         subprocess.run("xhost +local:root 2>/dev/null || xhost + 2>/dev/null || true", shell=True, timeout=3)
-        cmd = f'cd {tb4_ws} && export DISPLAY=:0 && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_navigation localization.launch.py map:={map_path} bond_timeout:=10.0 > /tmp/nav2_localization.log 2>&1'
+        cmd = f'cd {tb4_ws} && export DISPLAY=:0 && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_navigation localization.launch.py map:={map_path} use_sim_time:=false bond_timeout:=30.0 > /tmp/nav2_localization.log 2>&1'
         subprocess.Popen(cmd, shell=True, executable="/bin/bash", start_new_session=True)
         return {"status": "success", "message": "Localização Nav2 (B002_map.yaml) iniciada com sucesso!"}
     except Exception as e:
@@ -186,12 +364,29 @@ def launch_localization():
 
 @router.post("/launch_nav2")
 def launch_nav2():
-    """Lança o Stack de Navegação Nav2 com as configurações do projeto."""
+    """Lança o Stack de Navegação Nav2 com as configurações do projeto. Limpa processos antigos primeiro."""
     try:
+        # Limpa processos antigos de navegação para evitar zumbis
+        subprocess.run(
+            "pkill -9 -f 'nav2.launch.py' 2>/dev/null ; "
+            "pkill -9 -f 'controller_server' 2>/dev/null ; "
+            "pkill -9 -f 'planner_server' 2>/dev/null ; "
+            "pkill -9 -f 'bt_navigator' 2>/dev/null ; "
+            "pkill -9 -f 'smoother_server' 2>/dev/null ; "
+            "pkill -9 -f 'behavior_server' 2>/dev/null ; "
+            "pkill -9 -f 'route_server' 2>/dev/null ; "
+            "pkill -9 -f 'waypoint_follower' 2>/dev/null ; "
+            "pkill -9 -f 'velocity_smoother' 2>/dev/null ; "
+            "pkill -9 -f 'collision_monitor' 2>/dev/null ; "
+            "pkill -9 -f 'opennav_docking' 2>/dev/null ; "
+            "pkill -9 -f 'lifecycle_manager_navigation' 2>/dev/null ; "
+            "sleep 3 || true",
+            shell=True, timeout=8
+        )
         tb4_ws = get_tb4_workspace()
         params_path = os.path.join(tb4_ws, "config/nav2_custom.yaml")
         subprocess.run("xhost +local:root 2>/dev/null || xhost + 2>/dev/null || true", shell=True, timeout=3)
-        cmd = f'cd {tb4_ws} && export DISPLAY=:0 && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_navigation nav2.launch.py params_file:={params_path} > /tmp/nav2_stack.log 2>&1'
+        cmd = f'cd {tb4_ws} && export DISPLAY=:0 && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_navigation nav2.launch.py params_file:={params_path} use_sim_time:=false bond_timeout:=30.0 > /tmp/nav2_stack.log 2>&1'
         subprocess.Popen(cmd, shell=True, executable="/bin/bash", start_new_session=True)
         return {"status": "success", "message": "Stack Nav2 (nav2_custom.yaml) iniciado com sucesso!"}
     except Exception as e:
@@ -209,6 +404,33 @@ def launch_viz():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Falha ao abrir RViz Nav2: {e}")
 
+@router.post("/stop_localization")
+def stop_localization():
+    """Manda Ctrl+C / encerra o processo de Localização Nav2 (localization.launch.py, map_server, amcl)."""
+    try:
+        subprocess.run("pkill -9 -f 'localization.launch.py' 2>/dev/null || pkill -9 -f 'map_server' 2>/dev/null || true", shell=True)
+        return {"status": "success", "message": "Processo de Localização encerrado (Ctrl+C) com sucesso!"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Falha ao parar Localização: {e}")
+
+@router.post("/stop_nav2")
+def stop_nav2():
+    """Manda Ctrl+C / encerra o Stack de Navegação Nav2 (nav2.launch.py, bt_navigator, planner_server, etc) preservando o mapa."""
+    try:
+        subprocess.run("pkill -9 -f 'nav2.launch.py' 2>/dev/null || pkill -9 -f 'bt_navigator' 2>/dev/null || pkill -9 -f 'controller_server' 2>/dev/null || pkill -9 -f 'planner_server' 2>/dev/null || pkill -9 -f 'lifecycle_manager_navigation' 2>/dev/null || true", shell=True)
+        return {"status": "success", "message": "Stack de Navegação Nav2 encerrado preservando Mapa/Localização!"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Falha ao parar Nav2: {e}")
+
+@router.post("/stop_viz")
+def stop_viz():
+    """Manda Ctrl+C / encerra o RViz2 (view_navigation.launch.py, rviz2)."""
+    try:
+        subprocess.run("pkill -9 -f 'view_navigation.launch.py' 2>/dev/null || pkill -9 -f 'rviz2' 2>/dev/null || true", shell=True)
+        return {"status": "success", "message": "Janela do RViz2 encerrada (Ctrl+C) com sucesso!"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Falha ao fechar RViz2: {e}")
+
 @router.post("/launch_mission_manager")
 def launch_mission_manager():
     """Inicializa o Gerenciador de Missões (mission_manager.py)."""
@@ -216,18 +438,27 @@ def launch_mission_manager():
         tb4_ws = get_tb4_workspace()
         subprocess.run("pkill -9 -f 'scripts/mission_manager.py' 2>/dev/null || true", shell=True)
         time.sleep(0.3)
-        cmd = f'cd {tb4_ws} && {JAZZY_ENV_CMD} && PYTHONUNBUFFERED=1 python3 -u scripts/mission_manager.py --ros-args --params-file params/waypoints.yaml > /tmp/nav2_mission_manager.log 2>&1'
+        cmd = f'cd {tb4_ws} && {JAZZY_ENV_CMD_DS} && PYTHONUNBUFFERED=1 python3 -u scripts/mission_manager.py --ros-args --params-file params/waypoints.yaml > /tmp/nav2_mission_manager.log 2>&1'
         subprocess.Popen(cmd, shell=True, executable="/bin/bash", start_new_session=True)
         return {"status": "success", "message": "Nó Mestre do Mission Manager inicializado!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Falha ao iniciar Mission Manager: {e}")
 
+@router.post("/stop_mission_manager_process")
+def stop_mission_manager_process():
+    """Manda Ctrl+C / encerra o processo do Mission Manager (mission_manager.py) para permitir reiniciar do zero."""
+    try:
+        subprocess.run("pkill -9 -f 'scripts/mission_manager.py' 2>/dev/null || true", shell=True)
+        return {"status": "success", "message": "Processo do Mission Manager finalizado (Ctrl+C) com sucesso!"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Falha ao encerrar Mission Manager: {e}")
+
 @router.post("/trigger_delivery")
 def trigger_delivery():
     """Aciona o serviço ROS 2 de entrega de peças (/start_delivery)."""
     try:
-        cmd = f'{JAZZY_ENV_CMD} && ros2 service call /start_delivery std_srvs/srv/Trigger {{}}'
-        subprocess.Popen(cmd, shell=True, executable="/bin/bash", start_new_session=True)
+        node = get_turtlebot_node()
+        node.call_trigger_service("start_delivery")
         return {"status": "success", "message": "Rotina de Entrega (/start_delivery) acionada!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Falha ao acionar rotina de entrega: {e}")
@@ -236,8 +467,8 @@ def trigger_delivery():
 def trigger_failure():
     """Aciona o serviço ROS 2 de recolhimento de peça com defeito / descarte (/start_failure)."""
     try:
-        cmd = f'{JAZZY_ENV_CMD} && ros2 service call /start_failure std_srvs/srv/Trigger {{}}'
-        subprocess.Popen(cmd, shell=True, executable="/bin/bash", start_new_session=True)
+        node = get_turtlebot_node()
+        node.call_trigger_service("start_failure")
         return {"status": "success", "message": "Rotina de Falha/Descarte (/start_failure) acionada!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Falha ao acionar rotina de falha: {e}")
@@ -246,8 +477,8 @@ def trigger_failure():
 def trigger_restock():
     """Aciona o serviço ROS 2 de reabastecimento de matéria-prima (/start_restock)."""
     try:
-        cmd = f'{JAZZY_ENV_CMD} && ros2 service call /start_restock std_srvs/srv/Trigger {{}}'
-        subprocess.Popen(cmd, shell=True, executable="/bin/bash", start_new_session=True)
+        node = get_turtlebot_node()
+        node.call_trigger_service("start_restock")
         return {"status": "success", "message": "Rotina de Reabastecimento (/start_restock) acionada!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Falha ao acionar rotina de reabastecimento: {e}")
@@ -256,8 +487,8 @@ def trigger_restock():
 def trigger_patrol():
     """Aciona o serviço ROS 2 de ronda/patrulha (/start_patrol)."""
     try:
-        cmd = f'{JAZZY_ENV_CMD} && ros2 service call /start_patrol std_srvs/srv/Trigger {{}}'
-        subprocess.Popen(cmd, shell=True, executable="/bin/bash", start_new_session=True)
+        node = get_turtlebot_node()
+        node.call_trigger_service("start_patrol")
         return {"status": "success", "message": "Rotina de Patrulha (/start_patrol) acionada!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Falha ao acionar rotina de patrulha: {e}")
@@ -266,14 +497,9 @@ def trigger_patrol():
 def stop_mission():
     """Interrompe e cancela qualquer missão ativa no Mission Manager e força parada dos motores."""
     try:
-        # 1. Chama service /stop_mission do mission_manager
-        cmd_stop_srv = f'{JAZZY_ENV_CMD} && ros2 service call /stop_mission std_srvs/srv/Trigger {{}}'
-        subprocess.Popen(cmd_stop_srv, shell=True, executable="/bin/bash", start_new_session=True)
-
-        # 2. Publica parada de emergência no /cmd_vel_unstamped
-        cmd_stop_vel = f'{JAZZY_ENV_CMD} && ros2 topic pub --once /cmd_vel_unstamped geometry_msgs/msg/Twist "{{linear: {{x: 0.0, y: 0.0, z: 0.0}}, angular: {{x: 0.0, y: 0.0, z: 0.0}}}}"'
-        subprocess.Popen(cmd_stop_vel, shell=True, executable="/bin/bash", start_new_session=True)
-
+        node = get_turtlebot_node()
+        node.call_trigger_service("stop_mission")
+        node.send_cmd_vel(0.0, 0.0)
         return {"status": "success", "message": "🛑 Missão interrompida! Robô parado e Mission Manager desocupado."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Falha ao interromper missão: {e}")
@@ -306,6 +532,20 @@ def start_oakd_camera():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Falha ao acionar câmera OAK-D: {e}")
+
+@router.post("/restart_daemon")
+def restart_daemon():
+    """Reinicia o daemon do ROS 2 (ros2 daemon stop && ros2 daemon start) com o ambiente do TurtleBot 4."""
+    try:
+        cmd = f'{JAZZY_ENV_CMD} && ros2 daemon stop && ros2 daemon start'
+        res = subprocess.run(cmd, shell=True, executable="/bin/bash", capture_output=True, text=True, timeout=10)
+        return {
+            "status": "success",
+            "message": "Daemon do ROS 2 reiniciado com sucesso!",
+            "output": res.stdout.strip()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Falha ao reiniciar daemon ROS 2: {e}")
 
 from fastapi.responses import StreamingResponse
 

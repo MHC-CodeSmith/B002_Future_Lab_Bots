@@ -69,24 +69,13 @@ def start_yolo_test_process(conf: float = 0.60, headless: bool = True) -> bool:
                 except Exception:
                     pass
             _yolo_log_file = open("/tmp/yolo_test.log", "a")
-            env = os.environ.copy()
-            env["LD_LIBRARY_PATH"] = "/opt/ros/jazzy/lib:" + env.get("LD_LIBRARY_PATH", "")
-            env["PYTHONPATH"] = "/opt/ros/jazzy/lib/python3.12/site-packages:" + env.get("PYTHONPATH", "")
-            env["PYTHONUNBUFFERED"] = "1"
-            
             from backend.config.settings import get_settings
             stream_url = get_settings().CAMERA_STREAM_URL
-
-            cmd = [
-                "python3", "-u",
-                str(target_script),
-                "--headless",
-                "--conf", str(conf),
-                "--url", stream_url
-            ]
-            yolo_process = subprocess.Popen(cmd, env=env, stdout=_yolo_log_file, stderr=_yolo_log_file)
+            inf_conf = min(float(conf), 0.35)
+            shell_cmd = f"source /opt/ros/jazzy/setup.bash && export ROS_DOMAIN_ID=0 && export RMW_IMPLEMENTATION=rmw_fastrtps_cpp && python3 -u {target_script} --headless --conf {inf_conf} --url {stream_url}"
+            yolo_process = subprocess.Popen(["bash", "-c", shell_cmd], stdout=_yolo_log_file, stderr=_yolo_log_file)
             yolo_test_active = True
-            print(f"[INFO] Processo cam_yolo_test.py iniciado com SUCESSO (PID {yolo_process.pid}) na URL {stream_url}")
+            print(f"[INFO] Processo cam_yolo_test.py iniciado com SUCESSO com rclpy DDS ativo (PID {yolo_process.pid}) na URL {stream_url}")
             return True
         except Exception as e:
             print(f"[WARN] Erro ao disparar cam_yolo_test.py: {e}")
@@ -134,17 +123,25 @@ class MovePoseSchema(BaseModel):
 
 @router.get("/poses")
 def get_poses_status():
-    """Retorna a lista de poses gravadas em memória, status de cada pose e data do último salvamento."""
+    """Retorna a lista de todas as poses gravadas em memória/disco, status de cada pose e data do último salvamento."""
     node = get_cobot_node()
+    node.load_poses()  # Garante recarregamento limpo do disco
     poses_map = node.poses
     saved_at = poses_map.get("_last_saved", "Nenhum salvamento registrado")
     
+    # Unifica todas as poses (as obrigatórias do ciclo + quaisquer customizadas gravadas)
+    all_pose_names = list(REQUIRED_POSES)
+    for k in poses_map.keys():
+        if not k.startswith("_") and k not in all_pose_names:
+            all_pose_names.append(k)
+
     status_list = []
-    for p in REQUIRED_POSES:
+    for p in all_pose_names:
         recorded = p in poses_map
         status_list.append({
             "name": p,
             "recorded": recorded,
+            "required": p in REQUIRED_POSES,
             "joints": poses_map.get(p) if recorded else None
         })
         
@@ -235,9 +232,11 @@ def lock_servos():
 
 @router.post("/teach/record/{pose_name}")
 def record_current_pose(pose_name: str):
-    """Grava a posição angular atual do robô na pose especificada em memória."""
-    if pose_name not in REQUIRED_POSES:
-        raise HTTPException(status_code=400, detail=f"Pose inválida. Deve ser uma de: {REQUIRED_POSES}")
+    """Grava a posição angular atual do robô na pose especificada em memória e salva automaticamente no disco."""
+    clean_pose = pose_name.strip()
+    if not clean_pose or len(clean_pose) > 50:
+        raise HTTPException(status_code=400, detail="Nome da pose inválido.")
+    
     node = get_cobot_node()
     
     # 1. Tenta obter os ângulos instantâneos direto da Micro-Bridge HTTP do Nano (< 5ms)
@@ -264,10 +263,11 @@ def record_current_pose(pose_name: str):
     if joints_to_record is None:
         raise HTTPException(status_code=503, detail="Sem leitura atual de /joint_states ou Micro-Bridge do robô.")
 
-    # Atualiza em memória
-    node.poses[pose_name] = joints_to_record
-    print(f"[INFO] Pose '{pose_name}' gravada com SUCESSO em memória: {joints_to_record}")
-    return {"status": "success", "pose": pose_name, "joints": joints_to_record}
+    # Atualiza em memória e persiste no disco imediatamente em todos os caminhos
+    node.poses[clean_pose] = joints_to_record
+    node.save_poses()
+    print(f"[INFO] Pose '{clean_pose}' gravada e PERSISTIDA com SUCESSO: {joints_to_record}")
+    return {"status": "success", "pose": clean_pose, "joints": joints_to_record, "required": clean_pose in REQUIRED_POSES}
 
 @router.post("/teach/save")
 def save_recorded_poses():

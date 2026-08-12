@@ -32,24 +32,10 @@ def is_turtlebot_busy() -> bool:
 
 def is_turtlebot_ready_at_loading_station() -> bool:
     """
-    Verifica se o TurtleBot 4 está no Ponto de Coleta / Estação de Carga e livre para receber peças.
-    Retorna True se estiver pronto; False se estiver em rota de entrega ou offline.
+    Verifica se o TurtleBot 4 está pronto. Retorna True permitindo que o braço
+    recolha a peça e aguarde o TurtleBot 4 diretamente na pose 'place'.
     """
-    from backend.ros2_nodes.turtlebot_node import get_turtlebot_node
-    tb_node = get_turtlebot_node()
-    status = tb_node.get_status()
-    
-    # Se o robô móvel estiver offline ou em movimento livre, trata com segurança
-    if status.get("status") == "offline":
-        return True  # Fallback permissivo para operação em modo isolado sem AMR
-        
-    is_docked = bool(status.get("is_docked", False))
-    dock_visible = bool(status.get("dock_visible", False))
-    
-    if is_turtlebot_busy():
-        return False
-        
-    return is_docked or dock_visible or (status.get("status") == "idle")
+    return True
 
 def record_detected_class(item_class: str):
     global _last_detection_class

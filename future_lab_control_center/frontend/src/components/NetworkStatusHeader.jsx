@@ -1,8 +1,10 @@
 import React from 'react';
-import { Activity, Wifi, Camera, Bot } from 'lucide-react';
+import { Activity, Wifi, Camera, Bot, Globe } from 'lucide-react';
+import { useLanguage } from '../context/LanguageContext';
 
 export default function NetworkStatusHeader({ healthData }) {
   const devices = healthData?.devices || {};
+  const { lang, toggleLanguage, t } = useLanguage();
 
   return (
     <header className="glass-card p-4 rounded-xl mb-6 flex flex-wrap items-center justify-between gap-4">
@@ -11,12 +13,22 @@ export default function NetworkStatusHeader({ healthData }) {
           <Activity className="w-6 h-6 animate-pulse" />
         </div>
         <div>
-          <h1 className="text-xl font-bold tracking-wide">FUTURE LAB CONTROL CENTER</h1>
-          <p className="text-xs text-slate-400">Célula Robótica Unificada • ROS Domain ID: {healthData?.ros_domain_id || 42}</p>
+          <h1 className="text-xl font-bold tracking-wide">{t('systemTitle')}</h1>
+          <p className="text-xs text-slate-400">{t('systemSubtitle')}</p>
         </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-3 text-sm">
+        {/* Seletor de Idioma */}
+        <button
+          onClick={() => toggleLanguage()}
+          title="Alternar Idioma / Switch Language"
+          className="flex items-center gap-2 px-3 py-1.5 bg-blue-950/60 hover:bg-blue-900/80 transition-colors rounded-lg border border-blue-600/50 text-blue-300 font-bold cursor-pointer"
+        >
+          <Globe className="w-4 h-4 text-blue-400" />
+          <span>{lang === 'pt' ? '🇧🇷 PT' : '🇺🇸 EN'}</span>
+        </button>
+
         {/* PC Host */}
         <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-800/80 rounded-lg border border-slate-700">
           <Wifi className={`w-4 h-4 ${devices.host_pc?.online ? 'text-emerald-400' : 'text-red-400'}`} />

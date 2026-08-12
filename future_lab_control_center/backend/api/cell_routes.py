@@ -111,7 +111,9 @@ def is_valid_tin_class(cls_name: Optional[str]) -> bool:
     l = cls_name.lower().strip()
     if l in ("none", "invalid_stream", "tin_invalid") or "invalid" in l:
         return False
-    if l.startswith("tin_valid") or "valid" in l:
+    # Aceita qualquer classe válida de lata: tin_valid_*, valid, red, blue, lata, square, triangle, etc.
+    valid_keywords = ["valid", "tin", "red", "blue", "lata", "can", "square", "triangle"]
+    if any(k in l for k in valid_keywords):
         return True
     return False
 
@@ -154,10 +156,12 @@ def _run_cycle_internal(is_manual: bool = False):
         cell_state["manual_step"] = "at_scan"
         cell_state["yolo_detected_item"] = None
         node.clear_yolo_state()
-        conf = float(cell_state.get("yolo_conf", 0.60))
+        conf = float(cell_state.get("yolo_conf", 0.45))
 
-        print(f"[CYCLE] Step 2: Ativando YOLO na pose SCAN (confianca > {conf:.2f})...")
-        start_yolo_test_process(conf=conf)
+        print(f"[CYCLE] Step 2: Ativando e monitorando YOLO na pose SCAN (confianca minima: {conf:.2f})...")
+        from backend.api.cobot_routes import is_yolo_process_alive
+        if not is_yolo_process_alive():
+            start_yolo_test_process(conf=conf)
 
         detected_item = None
         t0 = time.time()
@@ -170,47 +174,36 @@ def _run_cycle_internal(is_manual: bool = False):
                     _abort_cleanup()
                     return
 
-                yolo = node.last_yolo_msg
+                yolo = node.get_last_yolo_msg()
                 if yolo and yolo.get("class") and is_valid_tin_class(yolo["class"]):
-                    if yolo.get("confidence", 0) >= conf:
+                    c_val = yolo.get("confidence", 0.0)
+                    if c_val >= (conf * 0.70):
                         detected_item = yolo
                         cell_state["yolo_detected_item"] = yolo
-                    else:
-                        cell_state["yolo_detected_item"] = None
-                else:
-                    cell_state["yolo_detected_item"] = None
-                time.sleep(0.2)
+                time.sleep(0.15)
         else:
-            stable_class = None
-            stable_count = 0
-            while (time.time() - t0) < 15.0:
+            recent_votes = []
+            while (time.time() - t0) < 25.0:
                 if not _check_pause_and_cancel():
                     stop_yolo_test_process()
                     _abort_cleanup()
                     return
 
-                yolo = node.last_yolo_msg
+                yolo = node.get_last_yolo_msg()
                 if yolo and yolo.get("class") and is_valid_tin_class(yolo["class"]):
-                    if yolo.get("confidence", 0) >= conf:
-                        cls = yolo["class"]
-                        if cls == stable_class:
-                            stable_count += 1
-                        else:
-                            stable_class = cls
-                            stable_count = 1
-
-                        if stable_count >= 3:
+                    c_val = yolo.get("confidence", 0.0)
+                    if c_val >= (conf * 0.70):
+                        recent_votes.append(yolo)
+                        cell_state["yolo_detected_item"] = yolo
+                        
+                        if len(recent_votes) >= 2:
                             detected_item = yolo
-                            cell_state["yolo_detected_item"] = yolo
+                            print(f"[CYCLE] 🎯 Lata detectada com SUCESSO: '{yolo['class']}' (conf: {c_val:.2f})!")
                             break
-                else:
-                    stable_count = 0
-                time.sleep(0.25)
-
-        stop_yolo_test_process()
+                time.sleep(0.15)
 
         if not detected_item and not is_manual:
-            print("[CYCLE] Inspeção sem lata válida: mantendo braço na pose SCAN aguardando próximo ciclo...")
+            print("[CYCLE] Inspeção sem lata válida na mesa: mantendo braço na pose SCAN aguardando próximo ciclo...")
             cell_state["status"] = "at_scan_inspecting"
             return
 
@@ -230,6 +223,18 @@ def _run_cycle_internal(is_manual: bool = False):
             print("[CYCLE] ✅ TurtleBot disponível no Ponto de Coleta! Iniciando Pick & Place...")
 
         record_detected_class(cls_name)
+
+        # Disparo Proativo Antecipado do TurtleBot 4 (undock + deslocamento para pickup_point em paralelo com o Pick & Place do Nano)
+        from backend.api.turtlebot_routes import trigger_delivery, trigger_failure
+        try:
+            valid_cls = is_valid_tin_class(cls_name)
+            print(f"[CYCLE] 🚀 Disparo proativo antecipado do TurtleBot 4 para '{cls_name}' (válida={valid_cls})...")
+            if valid_cls:
+                trigger_delivery()
+            else:
+                trigger_failure()
+        except Exception as e:
+            print(f"[WARN] Falha no disparo proativo do TurtleBot 4: {e}")
 
         # ========== STEP 3: PICK APPROACH → PICK (BOMBA ON) → PICK APPROACH → PLACE APPROACH ==========
         cell_state["status"] = "moving_pick"
@@ -274,16 +279,81 @@ def _run_cycle_internal(is_manual: bool = False):
                     return
                 time.sleep(0.2)
 
-        # ========== STEP 5: PLACE (BOMBA OFF) → PLACE APPROACH → HOME ==========
+        # ========== STEP 5: PLACE (BOMBA ON) → DISPARA TURTLEBOT → AGUARDA TURTLEBOT NO PICKUP → BOMBA OFF → HOME ==========
         cell_state["status"] = "placing"
         cell_state["manual_step"] = "placing"
-        print(f"[CYCLE] Step 5: Avançando para PLACE e desligando bomba (velocidade: {speed*100:.0f}%)...")
+        print(f"[CYCLE] Step 5: Avançando para PLACE segurando a lata (velocidade: {speed*100:.0f}%)...")
         ok = _goto_pose_with_resume(node, "place", slow_speed)
         if not ok or not _check_pause_and_cancel():
             _abort_cleanup()
             return
         time.sleep(0.5)
 
+        # 1. Publica classe e dispara o TurtleBot para se deslocar ao pickup_point
+        print(f"[CYCLE] 🚚 Publicando '{cls_name}' e disparando rota no TurtleBot 4 (undock -> pickup_point)...")
+        node.publish_product_class(cls_name)
+
+        from backend.api.turtlebot_routes import trigger_delivery, trigger_failure
+        try:
+            valid_cls = is_valid_tin_class(cls_name)
+            print(f"[CYCLE] 🚀 Disparando rota no TurtleBot 4 para a peça '{cls_name}' (válida={valid_cls})...")
+            if valid_cls:
+                trigger_delivery()
+            else:
+                trigger_failure()
+        except Exception as e:
+            print(f"[WARN] Falha ao disparar /start_delivery no TurtleBot 4: {e}")
+
+        # 2. Aguarda a chegada do TurtleBot 4 no Ponto de Coleta (pickup_point) ou aviso de bateria <= 5%
+        print("[CYCLE] ⏳ Braço Nano em PLACE segurando a lata. Aguardando sinal de chegada do TurtleBot 4 no pickup_point...")
+        
+        # Limpa o evento de emergência antes da checagem
+        if hasattr(node, 'tb4_battery_emergency_event'):
+            node.tb4_battery_emergency_event.clear()
+
+        arrived = False
+        t_start = time.time()
+        while (time.time() - t_start) < 90.0:
+            if hasattr(node, 'tb4_battery_emergency_event') and node.tb4_battery_emergency_event.is_set():
+                print("[CYCLE] 🚨 EMERGÊNCIA: TurtleBot 4 reportou Bateria Crítica (<= 5%)! Iniciando Rollback de Devolução ao PICK...")
+                # Executa Rollback: Devolve a lata com segurança ao ponto PICK
+                cell_state["status"] = "battery_emergency_rollback"
+                _goto_pose_with_resume(node, "place_approach", speed)
+                _goto_pose_with_resume(node, "pick_approach", speed)
+                _goto_pose_with_resume(node, "pick", slow_speed)
+                print("[CYCLE] 🔄 Ponto PICK alcançado -> Desligando bomba de sucção e devolvendo lata à mesa de coleta...")
+                node.set_pump(False)
+                time.sleep(0.5)
+                _goto_pose_with_resume(node, "pick_approach", speed)
+                _goto_pose_with_resume(node, "home", 0.20)
+                
+                # Pausa o ciclo automático aguardando confirmação do usuário ou recarga 100%
+                cell_state["auto_running"] = False
+                cell_state["status"] = "paused_battery_emergency"
+                print("[CYCLE] ⏸️ Modo Automático PAUSADO devido à bateria crítica do TurtleBot 4. Aguardando recarga (100%) ou confirmação manual.")
+                return
+
+            if node.wait_for_turtlebot_at_pickup(timeout_sec=1.0):
+                arrived = True
+                break
+            
+            if not _check_pause_and_cancel():
+                _abort_cleanup()
+                return
+
+        if arrived:
+            print("[CYCLE] ✅ Confirmação recebida! TurtleBot 4 chegou no Ponto de Coleta (pickup_point).")
+        else:
+            print("[CYCLE] ⚠️ Timeout aguardando TurtleBot 4 no pickup_point — liberando lata por segurança...")
+
+        # 3. Desliga a bomba (solta a lata na bandeja do TurtleBot 4) e notifica o robô móvel
+        print("[CYCLE] 📦 Desligando bomba de sucção (liberando lata na bandeja do TurtleBot 4)...")
+        node.set_pump(False)
+        node.publish_item_released()
+        time.sleep(1.0)
+
+        # 4. Retorna o braço com segurança para PLACE APPROACH -> HOME
+        print("[CYCLE] Retornando braço para PLACE APPROACH e HOME...")
         ok = _goto_pose_with_resume(node, "place_approach", speed)
         if not ok or not _check_pause_and_cancel():
             _abort_cleanup()
@@ -294,26 +364,7 @@ def _run_cycle_internal(is_manual: bool = False):
         print("[CYCLE] Finalização: Retornando para HOME...")
         _goto_pose_with_resume(node, "home", 0.20)
 
-        # ========== STEP 6: PUBLICA /product_class E DISPARA MISSÃO NO TURTLEBOT 4 ==========
-        print(f"[CYCLE] Step 6: Publicando classe '{cls_name}' no /product_class e disparando missão no TurtleBot 4...")
-        node.publish_product_class(cls_name)
-
-        if is_valid_tin_class(cls_name):
-            print(f"[CYCLE] 🚚 Disparando /start_delivery no TurtleBot 4 para a peça '{cls_name}'...")
-            from backend.api.turtlebot_routes import trigger_delivery
-            try:
-                trigger_delivery()
-            except Exception as e:
-                print(f"[WARN] Falha ao disparar /start_delivery no TurtleBot 4: {e}")
-        else:
-            print(f"[CYCLE] ⚠️ Disparando /start_failure no TurtleBot 4 para descarte de peça com defeito...")
-            from backend.api.turtlebot_routes import trigger_failure
-            try:
-                trigger_failure()
-            except Exception as e:
-                print(f"[WARN] Falha ao disparar /start_failure no TurtleBot 4: {e}")
-
-        print(f"[CYCLE] ✅ CICLO EXECUTADO E HANDSHAKE INTER-ROBÔS DISPARADO COM SUCESSO!")
+        print(f"[CYCLE] ✅ CICLO EXECUTADO E HANDSHAKE INTER-ROBÔS CONCLUÍDO COM SUCESSO!")
 
     except Exception as e:
         print(f"[CYCLE] ERRO no ciclo interno: {e}")
@@ -323,6 +374,85 @@ def _run_cycle_internal(is_manual: bool = False):
         cell_state["manual_step"] = "idle"
         cell_state["yolo_detected_item"] = None
         cell_state["manual_authorized"] = False
+
+def _run_handshake_test_standalone(item_class: str):
+    """Executa um teste totalmente isolado de comunicação inter-robôs (Handshake) sem alterar o ciclo automático oficial."""
+    global _cycle_cancel, _abort_requested
+    _cycle_cancel = False
+    _abort_requested = False
+
+    node = get_cobot_node()
+    node.load_poses()
+
+    speed = max(0.10, min(1.0, float(cell_state.get("arm_speed", 0.50))))
+    slow_speed = max(0.05, speed * 0.7)
+
+    try:
+        print(f"[HANDSHAKE TEST] 🧪 1. Movendo Nano para SCAN e injetando lata '{item_class}'...")
+        cell_state["status"] = "moving_scan"
+        if not _goto_pose_with_resume(node, "scan", speed):
+            return
+
+        cell_state["status"] = "at_scan_inspecting"
+        cell_state["yolo_detected_item"] = {"class": item_class, "confidence": 0.99}
+        time.sleep(0.5)
+
+        # Disparo proativo antecipado do TurtleBot 4
+        from backend.api.turtlebot_routes import trigger_delivery, trigger_failure
+        from backend.ros2_nodes.cell_event_bridge import record_detected_class
+        record_detected_class(item_class)
+
+        print(f"[HANDSHAKE TEST] 🚚 2. Disparando TurtleBot 4 para a lata '{item_class}'...")
+        if is_valid_tin_class(item_class):
+            trigger_delivery()
+        else:
+            trigger_failure()
+
+        # Coleta e Transporte
+        print("[HANDSHAKE TEST] ✊ 3. Movendo para PICK APPROACH e PICK...")
+        cell_state["status"] = "moving_pick"
+        if not _goto_pose_with_resume(node, "pick_approach", speed):
+            return
+        if not _goto_pose_with_resume(node, "pick", slow_speed):
+            return
+
+        print("[HANDSHAKE TEST] 🧲 Ligar Bomba de Sucção...")
+        node.set_pump(True)
+        time.sleep(0.5)
+
+        print("[HANDSHAKE TEST] 📦 Movendo para PLACE APPROACH e PLACE segurando a lata...")
+        cell_state["status"] = "placing"
+        _goto_pose_with_resume(node, "pick_approach", speed)
+        _goto_pose_with_resume(node, "place_approach", speed)
+        _goto_pose_with_resume(node, "place", slow_speed)
+        time.sleep(0.5)
+
+        print("[HANDSHAKE TEST] ⏳ 4. Braço em PLACE segurando lata. Aguardando chegada do TurtleBot 4 em pickup_point...")
+        arrived = False
+        t_start = time.time()
+        while (time.time() - t_start) < 90.0:
+            if node.wait_for_turtlebot_at_pickup(timeout_sec=1.0):
+                arrived = True
+                break
+
+        if arrived:
+            print("[HANDSHAKE TEST] ✅ TurtleBot 4 chegou ao pickup_point! Soltando a lata na bandeja...")
+        else:
+            print("[HANDSHAKE TEST] ⚠️ Timeout aguardando TurtleBot 4 — liberando lata por segurança...")
+
+        node.set_pump(False)
+        node.publish_item_released()
+        time.sleep(1.0)
+
+        print("[HANDSHAKE TEST] 🏠 5. Retornando Nano para HOME...")
+        _goto_pose_with_resume(node, "place_approach", speed)
+        _goto_pose_with_resume(node, "home", 0.20)
+        cell_state["status"] = "idle"
+        print("[HANDSHAKE TEST] 🎉 Teste de Handshake Concluído com Sucesso!")
+
+    except Exception as e:
+        print(f"[HANDSHAKE TEST] ❌ Erro durante o teste de Handshake: {e}")
+        cell_state["status"] = "idle"
 
 def _run_auto_loop():
     """Worker do modo automático contínuo com verificação de interrupção e cooldown."""
@@ -360,7 +490,7 @@ def get_cell_status():
         "current_joints": node.current_joints,
         "pump_active": node.pump_active,
         "yolo_test_active": is_yolo_process_alive(),
-        "last_yolo": node.last_yolo_msg
+        "last_yolo": node.get_last_yolo_msg()
     }
 
 @router.post("/mode")
@@ -386,6 +516,29 @@ def set_cell_mode(payload: CellModeSchema):
         _cycle_cancel = True
 
     return {"status": "success", "cell": cell_state}
+
+class TestHandshakeSchema(BaseModel):
+    item_class: str = "tin_valid_blue_square"  # "tin_valid_blue_square" ou "tin_valid_red_square"
+
+@router.post("/test_handshake")
+def trigger_test_handshake(payload: TestHandshakeSchema):
+    """Executa um ciclo automático completo do Cobot simular a detecção YOLO para testar a comunicação handshake com o TurtleBot 4."""
+    global _cycle_thread, _cycle_cancel, _abort_requested, _pause_event
+    if cell_state.get("panic_locked"):
+        raise HTTPException(status_code=423, detail="Célula bloqueada em Pânico.")
+
+    cell_state["mode"] = "auto"
+    cell_state["auto_running"] = True
+    _cycle_cancel = False
+    _abort_requested = False
+    _pause_event.set()
+
+    if _cycle_thread is not None and _cycle_thread.is_alive():
+        raise HTTPException(status_code=409, detail="Um ciclo já está em execução. Aguarde a conclusão antes de iniciar outro teste.")
+
+    _cycle_thread = threading.Thread(target=_run_handshake_test_standalone, kwargs={"item_class": payload.item_class}, daemon=True)
+    _cycle_thread.start()
+    return {"status": "success", "message": f"Teste de Handshake iniciado com a lata '{payload.item_class}'!"}
 
 @router.post("/auto/start")
 def start_auto_mode():
@@ -500,6 +653,7 @@ def confirm_interrupt(payload: InterruptConfirmSchema):
     if payload.abort:
         print("[INTERRUPT] Usuário selecionou SIM (ABORTAR). Motores mantêm torque 100% ativo!")
         _abort_requested = True
+        _cycle_cancel = True
         _pause_event.set()  # Acorda a thread para executar o _abort_cleanup() mantendo o torque dos motores!
         
         # Se nenhuma thread de ciclo estiver rodando em segundo plano, executa a limpeza imediatamente
@@ -537,12 +691,19 @@ def emergency_stop():
         )
 
     from backend.api.cobot_routes import stop_yolo_test_process
+    from backend.api.turtlebot_routes import stop_mission
     stop_yolo_test_process()
     node.set_pump(False)
     cell_state["status"] = "stopped"
     cell_state["manual_authorized"] = False
     cell_state["manual_step"] = "idle"
     cell_state["yolo_detected_item"] = None
+
+    # Envia ordem de parada de emergência e retorno à dock para o TurtleBot 4
+    try:
+        stop_mission()
+    except Exception as e:
+        print(f"[WARN] Falha ao enviar parada de emergência ao TurtleBot 4: {e}")
 
     def _home_worker():
         try:
@@ -557,7 +718,7 @@ def emergency_stop():
 
     return {
         "status": "emergency_stop_triggered",
-        "message": "Parada de emergência acionada. Modo Automático DESLIGADO, bomba e teste YOLO parados, e braço retornando para HOME."
+        "message": "Parada de emergência GLOBAL acionada! Modo Automático DESLIGADO, bomba e teste YOLO parados, TurtleBot 4 ordenado à DOCK e braço retornando para HOME."
     }
 
 @router.post("/panic")
@@ -607,6 +768,14 @@ def panic_stop():
             node.clear_yolo_state()
             node.call_trigger_service(node.lock_cli, "Travar Servos (Pânico)")
         except Exception as e:
+            print(f"[WARN] Erro ao travar braço no pânico: {e}")
+
+        try:
+            from backend.api.turtlebot_routes import stop_mission
+            stop_mission()
+            print("[INFO] Parada de Emergência enviada ao TurtleBot 4 no Pânico!")
+        except Exception as e:
+            print(f"[WARN] Erro ao enviar parada ao TurtleBot 4 no pânico: {e}")
             print(f"[WARN] Erro ao desligar bomba/motores no Pânico: {e}")
 
         try:

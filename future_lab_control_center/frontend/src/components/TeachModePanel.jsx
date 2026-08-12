@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { BookOpen, Unlock, Lock, Save, Play, Pause, Trash2, CheckCircle2, XCircle, Clock, RotateCcw } from 'lucide-react';
+import { useLanguage } from '../context/LanguageContext';
 
 export default function TeachModePanel({ cellState, posesData, onRelease, onLock, onRecord, onSave, onPlayback, onClear, onRestore, onMovePose, onMovePoseFail, onLaunchRviz }) {
+  const { t } = useLanguage();
   const [selectedPose, setSelectedPose] = useState('home');
   const [loading, setLoading] = useState(false);
 
@@ -35,10 +37,10 @@ export default function TeachModePanel({ cellState, posesData, onRelease, onLock
         <div className="bg-amber-500/20 border border-amber-500/40 text-amber-300 p-3 rounded-lg flex items-center justify-between text-xs font-bold shadow-lg">
           <span className="flex items-center gap-2">
             <Lock className="w-4 h-4 text-amber-400" />
-            🔒 MODO AUTOMÁTICO EM EXECUÇÃO — Painel de Ensino e Calibragem de Poses Bloqueado.
+            🔒 AUTOMATIC MODE RUNNING — Teach & Pose Calibration Panel Locked.
           </span>
           <span className="text-[10px] bg-amber-900/60 px-2 py-0.5 rounded text-amber-200 uppercase font-mono">
-            Desligue o modo auto para liberar
+            Turn off auto mode to unlock
           </span>
         </div>
       )}
@@ -47,11 +49,11 @@ export default function TeachModePanel({ cellState, posesData, onRelease, onLock
         <div>
           <h2 className="text-lg font-bold flex items-center gap-2">
             <BookOpen className="w-5 h-5 text-blue-400" />
-            Modo Ensino & Calibragem de Poses
+            {t('teachPanelTitle')}
           </h2>
           <p className="text-xs text-slate-400 flex items-center gap-1 mt-1">
             <Clock className="w-3.5 h-3.5" />
-            Última gravação salva: <span className="font-semibold text-slate-200">{posesData?.last_saved || 'Nenhum salvamento registrado'}</span>
+            {t('lastRecordSaved')} <span className="font-semibold text-slate-200">{posesData?.last_saved || '—'}</span>
           </p>
         </div>
         
@@ -62,9 +64,8 @@ export default function TeachModePanel({ cellState, posesData, onRelease, onLock
               onClick={() => handleAction(onLaunchRviz)}
               disabled={loading || isAutoRunning}
               className="px-3 py-1.5 bg-indigo-600/30 hover:bg-indigo-600 text-indigo-200 border border-indigo-500/40 text-xs font-bold rounded-lg flex items-center gap-1.5 btn-hover disabled:opacity-50"
-              title="Abre a janela visual do RViz 2 (3D MoveIt) no monitor do PC Host sem parar a execução em background"
             >
-              🖥️ ABRIR RVIZ 2 (3D)
+              🖥️ {t('openRviz')}
             </button>
           )}
 
@@ -74,7 +75,7 @@ export default function TeachModePanel({ cellState, posesData, onRelease, onLock
             className="px-3 py-1.5 bg-amber-600/30 hover:bg-amber-600 text-amber-300 border border-amber-500/40 text-xs font-bold rounded-lg flex items-center gap-1.5 btn-hover disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Unlock className="w-4 h-4" />
-            SOLTAR MOTORES (1)
+            {t('releaseMotors')}
           </button>
           <button
             onClick={() => handleAction(onLock)}
@@ -82,7 +83,7 @@ export default function TeachModePanel({ cellState, posesData, onRelease, onLock
             className="px-3 py-1.5 bg-blue-600/30 hover:bg-blue-600 text-blue-300 border border-blue-500/40 text-xs font-bold rounded-lg flex items-center gap-1.5 btn-hover disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Lock className="w-4 h-4" />
-            TRAVAR MOTORES (2)
+            {t('lockMotors')}
           </button>
         </div>
       </div>
@@ -92,10 +93,10 @@ export default function TeachModePanel({ cellState, posesData, onRelease, onLock
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-800/80 text-xs uppercase text-slate-400">
             <tr>
-              <th className="p-3">Pose</th>
-              <th className="p-3">Status</th>
-              <th className="p-3">Juntas (Rad)</th>
-              <th className="p-3 text-right">Ações</th>
+              <th className="p-3">{t('thPose')}</th>
+              <th className="p-3">{t('thStatus')}</th>
+              <th className="p-3">{t('thJoints')}</th>
+              <th className="p-3 text-right">{t('thActions')}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
@@ -105,11 +106,11 @@ export default function TeachModePanel({ cellState, posesData, onRelease, onLock
                 <td className="p-3">
                   {p.recorded ? (
                     <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 font-bold flex items-center gap-1 w-max">
-                      <CheckCircle2 className="w-3.5 h-3.5" /> GRAVADA
+                      <CheckCircle2 className="w-3.5 h-3.5" /> {t('recordedBadge')}
                     </span>
                   ) : (
                     <span className="text-xs px-2.5 py-1 rounded-full bg-red-500/20 text-red-300 font-bold flex items-center gap-1 w-max">
-                      <XCircle className="w-3.5 h-3.5" /> PENDENTE
+                      <XCircle className="w-3.5 h-3.5" /> PENDING
                     </span>
                   )}
                 </td>
@@ -131,10 +132,9 @@ export default function TeachModePanel({ cellState, posesData, onRelease, onLock
                         ? 'bg-blue-600 hover:bg-blue-500 text-white btn-hover'
                         : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
                     }`}
-                    title={p.recorded ? `Mover robô para a pose '${p.name}'` : `Pose '${p.name}' pendente. Grave e salve no disco para habilitar.`}
                   >
                     <Play className="w-3 h-3 fill-current" />
-                    IR PARA
+                    {t('goBtn')}
                   </button>
 
                   <button
@@ -145,7 +145,7 @@ export default function TeachModePanel({ cellState, posesData, onRelease, onLock
                     disabled={loading}
                     className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-xs font-bold rounded-md btn-hover"
                   >
-                    GRAVAR (3)
+                    {t('recordBtn')}
                   </button>
                 </td>
               </tr>
@@ -167,22 +167,8 @@ export default function TeachModePanel({ cellState, posesData, onRelease, onLock
               : 'bg-emerald-600 hover:bg-emerald-500 text-white'
           }`}
         >
-          {playbackStatus === 'running' ? (
-            <>
-              <Pause className="w-4 h-4 fill-current" />
-              PAUSAR PLAYBACK (4)
-            </>
-          ) : playbackStatus === 'paused' ? (
-            <>
-              <Play className="w-4 h-4 fill-current" />
-              RETOMAR PLAYBACK (4)
-            </>
-          ) : (
-            <>
-              <Play className="w-4 h-4 fill-current" />
-              PLAYBACK TESTE (4)
-            </>
-          )}
+          <Play className="w-4 h-4 fill-current" />
+          PLAYBACK TEST (4)
         </button>
 
         <button
@@ -191,17 +177,16 @@ export default function TeachModePanel({ cellState, posesData, onRelease, onLock
           className="py-2.5 px-3 bg-blue-600 hover:bg-blue-500 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 btn-hover"
         >
           <Save className="w-4 h-4" />
-          SALVAR NO DISCO (5)
+          SAVE TO DISK (5)
         </button>
 
         <button
           onClick={() => handleAction(onClear)}
           disabled={loading}
           className="py-2.5 px-3 bg-red-600/30 hover:bg-red-600 text-red-300 border border-red-500/40 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 btn-hover"
-          title="Zera a calibragem atual e cria um backup da versão anterior"
         >
           <Trash2 className="w-4 h-4" />
-          ZERAR POSES (6)
+          CLEAR POSES (6)
         </button>
 
         <button
@@ -212,10 +197,9 @@ export default function TeachModePanel({ cellState, posesData, onRelease, onLock
               ? 'bg-purple-600 hover:bg-purple-500 text-white shadow-lg shadow-purple-900/30 btn-hover'
               : 'bg-slate-800/50 text-slate-600 border border-slate-700/50 cursor-not-allowed'
           }`}
-          title={hasBackup ? "Restaurar poses da calibragem gravada anteriormente" : "Nenhum backup de calibragem disponível"}
         >
           <RotateCcw className="w-4 h-4" />
-          RECUPERAR ÚLTIMA
+          RESTORE LAST
         </button>
       </div>
     </div>

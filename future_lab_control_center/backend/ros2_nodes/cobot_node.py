@@ -79,9 +79,11 @@ class CobotNode(BaseNode):
         self.is_ros_active: bool = False
         self.lock = threading.Lock()
 
+        # Handshake Inter-Robôs
+        self.tb4_at_pickup_event = threading.Event()
+        self.tb4_battery_emergency_event = threading.Event()
+
         # Pré-inicializa TODOS os atributos de clientes ROS 2 como None
-        # para garantir que existam mesmo se a inicialização do nó falhar
-        # (evita AttributeError e permite fallback para HTTP Micro-Bridge)
         self.move_cli = None
         self.follow_jt_cli = None
         self.pump_on_cli = None
@@ -89,6 +91,8 @@ class CobotNode(BaseNode):
         self.release_cli = None
         self.lock_cli = None
         self.cmd_pub = None
+        self.product_class_pub = None
+        self.item_released_pub = None
 
         self.load_poses()
 
@@ -103,10 +107,13 @@ class CobotNode(BaseNode):
                 self.lock_cli = self.create_client(Trigger, "/lock_servos")
                 self.cmd_pub = self.create_publisher(JointState, "/joint_states_commands", 10)
                 self.product_class_pub = self.create_publisher(String, "/product_class", 10)
+                self.item_released_pub = self.create_publisher(Bool, "/item_released_on_tb4", 10)
                 
                 self.create_subscription(JointState, "/joint_states", self._js_cb, 10)
                 self.create_subscription(JointState, "/joint_states_raw", self._js_cb, 10)
                 self.create_subscription(String, "/product_class", self._yolo_cb, 10)
+                self.create_subscription(Bool, "/turtlebot_at_pickup", self._tb4_pickup_cb, 10)
+                self.create_subscription(Bool, "/turtlebot_battery_emergency", self._tb4_battery_emergency_cb, 10)
                 self.is_ros_active = True
                 
                 # Aquecimento proativo de serviços ROS 2 DDS em segundo plano
@@ -115,6 +122,11 @@ class CobotNode(BaseNode):
             except Exception as e:
                 print(f"[WARN] Erro ao inicializar nó ROS 2: {e}")
                 self.is_ros_active = False
+
+    def _tb4_battery_emergency_cb(self, msg):
+        if msg and msg.data:
+            print("[EMERGENCY] 🚨 SINAL DE BATERIA CRÍTICA (<= 5%) RECEBIDO DO TURTLEBOT 4!")
+            self.tb4_battery_emergency_event.set()
 
     def _warmup_services(self):
         """Conecta e mantêm aquecidos os canais de serviços DDS em segundo plano para resposta instantânea (0ms)."""
@@ -134,9 +146,53 @@ class CobotNode(BaseNode):
                     pass
 
     def clear_yolo_state(self):
-        """Zera e limpa completamente qualquer histórico de detecção do YOLO da memória."""
+        """Zera e limpa completamente qualquer histórico de detecção do YOLO da memória e do arquivo IPC."""
         with self.lock:
             self.last_yolo_msg = None
+        try:
+            import os
+            if os.path.exists("/tmp/last_yolo_detection.json"):
+                os.remove("/tmp/last_yolo_detection.json")
+        except Exception:
+            pass
+
+    def get_last_yolo_msg(self):
+        """Retorna a última mensagem de detecção do YOLO com fallback duplo (ROS 2 DDS + IPC)."""
+        msg = self.last_yolo_msg
+        if msg is not None and (time.time() - msg.get("timestamp", 0)) < 3.5:
+            return msg
+        try:
+            import os, json
+            if os.path.exists("/tmp/last_yolo_detection.json"):
+                with open("/tmp/last_yolo_detection.json", "r") as f:
+                    data = json.load(f)
+                    if data and data.get("class") and (time.time() - data.get("timestamp", 0)) < 5.0:
+                        with self.lock:
+                            self.last_yolo_msg = data
+                        return data
+        except Exception:
+            pass
+        return self.last_yolo_msg if (self.last_yolo_msg and (time.time() - self.last_yolo_msg.get("timestamp", 0)) < 5.0) else None
+
+    def _tb4_pickup_cb(self, msg):
+        if msg and msg.data:
+            print("[INFO] Sinal /turtlebot_at_pickup RECEBIDO! TurtleBot 4 está no Ponto de Coleta.")
+            self.tb4_at_pickup_event.set()
+
+    def wait_for_turtlebot_at_pickup(self, timeout_sec: float = 30.0) -> bool:
+        """Aguarda a chegada do TurtleBot 4 no pickup_point com timeout configurável."""
+        self.tb4_at_pickup_event.clear()
+        return self.tb4_at_pickup_event.wait(timeout=timeout_sec)
+
+    def publish_item_released(self):
+        """Notifica o TurtleBot 4 de que a lata foi solta na bandeja e a bomba foi desligada."""
+        if hasattr(self, 'item_released_pub') and self.item_released_pub is not None:
+            msg = Bool()
+            msg.data = True
+            for _ in range(5):
+                self.item_released_pub.publish(msg)
+                time.sleep(0.05)
+            print("[INFO] Sinal /item_released_on_tb4 enviado ao TurtleBot 4!")
 
     def publish_product_class(self, cls_name: str):
         """Publica a classe da lata identificada no tópico ROS 2 /product_class para comunicação inter-robôs."""
@@ -149,44 +205,62 @@ class CobotNode(BaseNode):
             print(f"[INFO] Tópico ROS 2 /product_class publicado com sucesso: '{cls_name}'")
 
     def load_poses(self):
-        poses_path = get_poses_file()
-        if poses_path.exists():
-            try:
-                with open(poses_path, "r") as f:
-                    loaded = yaml.safe_load(f) or {}
-                with self.lock:
-                    self.poses = loaded
-            except Exception as e:
-                print(f"Erro ao carregar poses: {e}")
-                with self.lock:
-                    self.poses = {}
-        else:
-            with self.lock:
+        """Carrega o arquivo de poses do disco testando múltiplos caminhos (container, host e local)."""
+        paths_to_check = [
+            POSES_PATH_CONTAINER,
+            POSES_PATH_HOST,
+            POSES_PATH_LOCAL
+        ]
+        loaded = None
+        for p in paths_to_check:
+            if p.exists():
+                try:
+                    with open(p, "r") as f:
+                        content = yaml.safe_load(f)
+                        if content and isinstance(content, dict) and len(content) > 0:
+                            loaded = content
+                            print(f"[INFO] Poses carregadas com sucesso de: {p}")
+                            break
+                except Exception as e:
+                    print(f"[WARN] Erro ao carregar poses de {p}: {e}")
+
+        with self.lock:
+            if loaded:
+                self.poses = loaded
+            else:
                 self.poses = {}
 
     def save_poses(self) -> bool:
-        """Salva as poses com escrita atômica em arquivo temporário (.tmp) + substituição no SO."""
-        poses_path = get_poses_file()
-        poses_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = poses_path.with_suffix(".yaml.tmp")
-        
+        """Salva as poses com escrita atômica em TODOS os caminhos de arquivo válidos (container, host e local)."""
         with self.lock:
             self.poses["_last_saved"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             data_to_save = dict(self.poses)
             
-        try:
-            with open(tmp_path, "w") as f:
-                yaml.safe_dump(data_to_save, f)
-            tmp_path.replace(poses_path) # Escrita 100% atômica no SO (thread-safe)
-            return True
-        except Exception as e:
-            print(f"Erro ao salvar poses atomicamente: {e}")
-            if tmp_path.exists():
-                try:
-                    tmp_path.unlink()
-                except Exception:
-                    pass
-            return False
+        paths_to_update = [
+            POSES_PATH_CONTAINER,
+            POSES_PATH_HOST,
+            POSES_PATH_LOCAL
+        ]
+        
+        success_any = False
+        for p in paths_to_update:
+            try:
+                p.parent.mkdir(parents=True, exist_ok=True)
+                tmp_path = p.with_suffix(".yaml.tmp")
+                with open(tmp_path, "w") as f:
+                    yaml.safe_dump(data_to_save, f)
+                tmp_path.replace(p) # Escrita 100% atômica no SO
+                success_any = True
+                print(f"[INFO] Poses salvas atomicamente em: {p}")
+            except Exception as e:
+                print(f"[WARN] Erro ao salvar poses em {p}: {e}")
+                if tmp_path.exists():
+                    try:
+                        tmp_path.unlink()
+                    except Exception:
+                        pass
+
+        return success_any
 
     def clear_poses(self) -> bool:
         """Cria uma cópia de segurança de backup (.yaml.bak) das poses salvas ou em rascunho de memória antes de zerar a calibragem."""
@@ -422,6 +496,11 @@ class CobotNode(BaseNode):
 
     def goto_pose(self, pose_name: str, velocity_scaling: float = 0.50) -> bool:
         if pose_name not in self.poses:
+            print(f"[INFO] Pose '{pose_name}' não encontrada em memória. Tentando recarregar poses do disco...")
+            self.load_poses()
+
+        if pose_name not in self.poses:
+            print(f"[WARN] Pose '{pose_name}' não existe na lista de poses cadastradas: {list(self.poses.keys())}")
             return False
 
         target_joints = self.poses[pose_name]
@@ -498,11 +577,9 @@ class CobotNode(BaseNode):
                 self.set_pump(True)
                 time.sleep(0.5)  # Aguarda o selo de vácuo no objeto
             elif pose_name == "place":
-                print("[INFO] Aguardando robô físico alcançar a pose 'place'...")
-                time.sleep(2.0)  # Aguarda a estabilização do braço físico na posição de soltura
-                print("[INFO] Pose 'place' ALCANÇADA -> DESLIGANDO bomba de sucção...")
-                self.set_pump(False)
-                time.sleep(0.5)  # Aguarda a despressurização e liberação do objeto
+                print("[INFO] Aguardando robô físico alcançar a pose 'place' (mantendo bomba de sucção LIGADA até a chegada do TurtleBot)...")
+                time.sleep(2.0)  # Aguarda a estabilização do braço físico com a peça em place
+                # A bomba será desligada explicitamente pela rotina do ciclo após o TurtleBot 4 confirmar chegada no pickup_point
 
         return success
 

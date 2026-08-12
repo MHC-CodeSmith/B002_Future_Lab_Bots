@@ -1,7 +1,10 @@
-#!/usr/bin/env python3
-# ============================================================
-# main.py — Servidor Principal do Future Lab Control Center (FastAPI)
-# ============================================================
+import os
+os.environ["ROS_DOMAIN_ID"] = "0"
+os.environ["ROS_AUTOMATIC_DISCOVERY_RANGE"] = "SUBNET"
+os.environ["RMW_IMPLEMENTATION"] = "rmw_fastrtps_cpp"
+os.environ["ROS_SUPER_CLIENT"] = "True"
+os.environ["ROS_DISCOVERY_SERVER"] = "192.168.0.129:11811;"
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 

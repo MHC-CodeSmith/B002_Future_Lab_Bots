@@ -23,14 +23,20 @@ def ping_host(ip: str, timeout_sec: int = 1) -> bool:
     except Exception:
         return False
 
-def check_http_stream(url: str, timeout_sec: float = 1.5) -> bool:
-    """Verifica se o servidor MJPEG da câmera está respondendo."""
+def check_http_stream(url: str, timeout_sec: float = 0.5) -> bool:
+    """Verifica se a porta do servidor de streaming da câmera está aberta sem bloquear em streams infinitos."""
     if not url:
         return False
     try:
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
-            return resp.status in [200, 301, 302]
+        import socket
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        host = parsed.hostname
+        port = parsed.port or 8080
+        if not host:
+            return False
+        with socket.create_connection((host, port), timeout=timeout_sec):
+            return True
     except Exception:
         return False
 

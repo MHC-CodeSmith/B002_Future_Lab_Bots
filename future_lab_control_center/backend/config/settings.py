@@ -69,6 +69,23 @@ def resolve_active_nano_ip() -> str:
     _last_ip_check_time = now
     return _cached_active_ip
 
+def resolve_active_turtlebot_ip() -> str:
+    """Detecta automaticamente se o TurtleBot 4 está respondendo no IP padrão (192.168.0.129)."""
+    env_ip = os.getenv("TURTLEBOT_IP", "192.168.0.129")
+    candidates = ["192.168.0.129", env_ip, "192.168.0.251"]
+    seen = set()
+    for candidate_ip in candidates:
+        if candidate_ip and candidate_ip not in seen:
+            seen.add(candidate_ip)
+            try:
+                cmd = ["ping", "-c", "1", "-W", "1", candidate_ip]
+                res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if res.returncode == 0:
+                    return candidate_ip
+            except Exception:
+                pass
+    return "192.168.0.129"
+
 @dataclass
 class Settings:
     ROS_DOMAIN_ID: int = int(os.getenv("ROS_DOMAIN_ID", 42))
@@ -77,7 +94,7 @@ class Settings:
     # 2. Endereços IP dos Robôs e Dispositivos na Rede
     HOST_PC_IP: str = os.getenv("HOST_PC_IP", "192.168.0.204")
     JETSON_NANO_IP: str = resolve_active_nano_ip()
-    TURTLEBOT_IP: str = os.getenv("TURTLEBOT_IP", "192.168.0.251")
+    TURTLEBOT_IP: str = resolve_active_turtlebot_ip()
 
     # 3. Portas e Streams
     BACKEND_PORT: int = int(os.getenv("BACKEND_PORT", 8000))
