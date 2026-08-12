@@ -162,6 +162,9 @@ class TurtleBotNode(Node):
         """Remove a sobreposição manual e restabelece a escuta da telemetria do robô."""
         self.dock_override_until = 0
 
+    def clear_undock_override(self):
+        self.clear_dock_override()
+
     def force_undock_override(self, duration_sec: float = 3600.0):
         self.set_dock_override(False, duration_sec)
 
