@@ -19,7 +19,7 @@ try:
     import rclpy
     from rclpy.node import Node
     from rclpy.qos import qos_profile_sensor_data
-    from geometry_msgs.msg import Twist
+    from geometry_msgs.msg import Twist, TwistStamped
     from sensor_msgs.msg import BatteryState, CompressedImage, Image
     from nav_msgs.msg import Odometry
     from std_srvs.srv import Trigger
@@ -43,6 +43,7 @@ class TurtleBotNode(Node):
         self.current_pose: Dict[str, float] = {"x": 0.0, "y": 0.0, "yaw": 0.0}
         self.last_msg_time: float = time.time()
         self.latest_jpeg_frame: Optional[bytes] = None
+        self.dock_override_until: float = 0.0
 
         self.start_delivery_cli = None
         self.start_failure_cli = None
@@ -58,6 +59,7 @@ class TurtleBotNode(Node):
             try:
                 super().__init__("future_lab_turtlebot_node")
                 self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel_unstamped", 10)
+                self.cmd_vel_stamped_pub = self.create_publisher(TwistStamped, "/cmd_vel", 10)
                 self.create_subscription(BatteryState, "/battery_state", self._battery_callback, 10)
                 self.create_subscription(Odometry, "/odom", self._odom_callback, 10)
                 self.create_subscription(CompressedImage, "/oakd/rgb/preview/image_raw/compressed", self._compressed_image_callback, 10)
@@ -78,6 +80,7 @@ class TurtleBotNode(Node):
             except Exception as e:
                 print(f"[WARN] Erro ao inicializar TurtleBotNode: {e}")
                 self.cmd_vel_pub = None
+                self.cmd_vel_stamped_pub = None
         # Thread de fallback proativo para telemetria (Bateria e Dock Status)
         t_poll = threading.Thread(target=self._poll_fallback_loop, daemon=True)
         t_poll.start()
@@ -211,27 +214,43 @@ class TurtleBotNode(Node):
             t = Twist()
             t.linear.x = float(linear_x)
             t.angular.z = float(angular_z)
+
+            ts = TwistStamped()
+            ts.header.frame_id = "base_link"
+            ts.twist = t
+
             # Publica rajada de pulsos por 0.5s para superar o watchdog do iRobot Create 3
             def _burst():
                 for _ in range(10):
                     try:
                         self.cmd_vel_pub.publish(t)
+                        if hasattr(self, 'cmd_vel_stamped_pub') and self.cmd_vel_stamped_pub:
+                            ts.header.stamp = self.get_clock().now().to_msg()
+                            self.cmd_vel_stamped_pub.publish(ts)
                     except Exception:
                         pass
                     time.sleep(0.05)
             threading.Thread(target=_burst, daemon=True).start()
 
     def send_reverse_undock_burst(self, duration_sec: float = 3.0, speed: float = -0.25):
-        """Envia pulsos contínuos de ré no publisher persistente para recuar fisicamente da estação de carga."""
+        """Envia pulsos contínuos de ré nos publishers persistentes para recuar fisicamente da estação de carga."""
         if HAS_RCLPY and self.cmd_vel_pub:
             t = Twist()
             t.linear.x = float(speed)
             t.angular.z = 0.0
+
+            ts = TwistStamped()
+            ts.header.frame_id = "base_link"
+            ts.twist = t
+
             def _reverse():
                 end_t = time.time() + duration_sec
                 while time.time() < end_t:
                     try:
                         self.cmd_vel_pub.publish(t)
+                        if hasattr(self, 'cmd_vel_stamped_pub') and self.cmd_vel_stamped_pub:
+                            ts.header.stamp = self.get_clock().now().to_msg()
+                            self.cmd_vel_stamped_pub.publish(ts)
                     except Exception as e:
                         print(f"[WARN TB4] Reverse burst publish error: {e}")
                     time.sleep(0.05)
