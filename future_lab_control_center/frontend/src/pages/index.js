@@ -326,16 +326,16 @@ export default function Dashboard() {
   // Handlers TurtleBot 4
   const handleTbDock = async () => {
     const apiBase = getApiBase();
-    await safeApiCall(`${apiBase}/turtlebot/set_dock_status`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ is_docked: true })
-    }, t('tbDockTitle'));
+    setNotification({
+      type: 'info',
+      title: '📡 Enviando Comando de Docking...',
+      message: 'Comando de Dock enviado ao TurtleBot 4. Processando manobra física no robô...'
+    });
     const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/dock`, { method: 'POST' }, t('tbDockTitle'));
     if (ok) {
       setNotification({
         type: 'success',
-        title: t('tbDockSentTitle'),
+        title: '✅ Docking Concluído!',
         message: data.message || t('tbDockSentMsg')
       });
     }
@@ -344,16 +344,16 @@ export default function Dashboard() {
 
   const handleTbUndock = async () => {
     const apiBase = getApiBase();
-    await safeApiCall(`${apiBase}/turtlebot/set_dock_status`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ is_docked: false })
-    }, t('tbUndockTitle'));
+    setNotification({
+      type: 'info',
+      title: '📡 Enviando Comando de Undocking...',
+      message: 'Comando de Undock enviado ao TurtleBot 4. Processando desengate físico no robô...'
+    });
     const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/undock`, { method: 'POST' }, t('tbUndockTitle'));
     if (ok) {
       setNotification({
         type: 'success',
-        title: t('tbUndockSentTitle'),
+        title: '✅ Undocking Concluído!',
         message: data.message || t('tbUndockSentMsg')
       });
     }

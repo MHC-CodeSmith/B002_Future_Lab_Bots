@@ -305,64 +305,67 @@ _undock_lock = threading.Lock()
 
 @router.post("/dock")
 def trigger_dock():
-    """Envia o comando de Docking (Ir para Estação de Carga) ao TurtleBot 4 de forma assíncrona com trava de execução."""
+    """Envia o comando de Docking ao TurtleBot 4 e aguarda a confirmação real da manobra."""
     if not _dock_lock.acquire(blocking=False):
-        return {"status": "busy", "message": "Um comando de Docking já está em processamento. Aguarde a manobra."}
+        raise HTTPException(
+            status_code=409,
+            detail="Um comando de Docking já está em processamento no robô. Aguarde a manobra finalizar."
+        )
 
     try:
-        subprocess.run("pkill -9 -f 'send_goal /dock' 2>/dev/null || true", shell=True, timeout=3)
-        def _exec_dock():
-            try:
-                cmd_action = f'{JAZZY_ENV_CMD} && ros2 action send_goal /dock irobot_create_msgs/action/Dock "{{}}"'
-                try:
-                    res = subprocess.run(cmd_action, shell=True, executable="/bin/bash", capture_output=True, text=True, timeout=15)
-                    node = get_turtlebot_node()
-                    if "SUCCEEDED" in res.stdout or "is_docked: true" in res.stdout:
-                        print("[INFO TB4] Docking físico concluído com SUCESSO!")
-                        node.is_docked = True
-                except Exception:
-                    pass
-            except Exception as e:
-                print(f"[ERROR TB4] Exceção no Docking: {e}")
-            finally:
-                _dock_lock.release()
+        node = get_turtlebot_node()
+        print("[INFO TB4] Disparando ação /dock no TurtleBot 4...")
+        cmd_action = f'{JAZZY_ENV_CMD} && ros2 action send_goal /dock irobot_create_msgs/action/Dock "{{}}"'
+        res = subprocess.run(cmd_action, shell=True, executable="/bin/bash", stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=30)
 
-        threading.Thread(target=_exec_dock, daemon=True).start()
-        return {"status": "success", "message": "Comando de Docking disparado! Processando manobra no robô..."}
+        full_output = res.stdout.strip()
+        print(f"[INFO TB4] Resultado do Docking: {full_output}")
+
+        if "SUCCEEDED" in full_output or "is_docked: true" in full_output:
+            node.is_docked = True
+            return {"status": "success", "message": "Docking físico concluído com SUCESSO no TurtleBot 4!"}
+        else:
+            raise HTTPException(status_code=500, detail=f"Ação /dock não reportou sucesso: {full_output}")
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Tempo limite esgotado (30s) aguardando o servidor de ação /dock no robô.")
+    except HTTPException:
+        raise
     except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao executar Docking: {e}")
+    finally:
         _dock_lock.release()
-        raise HTTPException(status_code=500, detail=f"Falha ao acionar Docking: {e}")
 
 @router.post("/undock")
 def trigger_undock():
-    """Envia o comando de Undocking (Sair da Estação) com recuo físico imediato dos motores e sem travamento de fila."""
+    """Envia o comando de Undocking ao TurtleBot 4 e aguarda a confirmação real da manobra."""
     if not _undock_lock.acquire(blocking=False):
-        return {"status": "busy", "message": "Um comando de Undock já está em processamento. Aguarde a manobra."}
+        raise HTTPException(
+            status_code=409,
+            detail="Um comando de Undock já está em processamento no robô. Aguarde a manobra finalizar."
+        )
 
     try:
-        def _exec_undock():
-            try:
-                node = get_turtlebot_node()
-                print("[INFO TB4] Disparando recuo físico dos motores e ação /undock...")
-                node.send_reverse_undock_burst(duration_sec=3.0, speed=-0.25)
-                cmd_action = f'{JAZZY_ENV_CMD} && ros2 action send_goal /undock irobot_create_msgs/action/Undock "{{}}"'
-                try:
-                    res = subprocess.run(cmd_action, shell=True, executable="/bin/bash", capture_output=True, text=True, timeout=10)
-                    if "SUCCEEDED" in res.stdout or "is_docked: false" in res.stdout:
-                        print("[INFO TB4] Manobra física de Undock concluída com SUCESSO!")
-                        node.is_docked = False
-                except Exception as e:
-                    print(f"[WARN TB4] Ação de undock expirou ou não respondeu: {e}")
-            except Exception as e:
-                print(f"[ERROR TB4] Exceção na manobra de Undock: {e}")
-            finally:
-                _undock_lock.release()
+        node = get_turtlebot_node()
+        print("[INFO TB4] Disparando ação /undock no TurtleBot 4...")
+        cmd_action = f'{JAZZY_ENV_CMD} && ros2 action send_goal /undock irobot_create_msgs/action/Undock "{{}}"'
+        res = subprocess.run(cmd_action, shell=True, executable="/bin/bash", stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=25)
 
-        threading.Thread(target=_exec_undock, daemon=True).start()
-        return {"status": "success", "message": "Comando de Undocking disparado! Recuando motores fisicamente por 3 segundos..."}
+        full_output = res.stdout.strip()
+        print(f"[INFO TB4] Resultado do Undock: {full_output}")
+
+        if "SUCCEEDED" in full_output or "is_docked: false" in full_output:
+            node.is_docked = False
+            return {"status": "success", "message": "Undock físico concluído com SUCESSO no TurtleBot 4!"}
+        else:
+            raise HTTPException(status_code=500, detail=f"Ação /undock não reportou sucesso: {full_output}")
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Tempo limite esgotado (25s) aguardando o servidor de ação /undock no robô.")
+    except HTTPException:
+        raise
     except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao executar Undock: {e}")
+    finally:
         _undock_lock.release()
-        raise HTTPException(status_code=500, detail=f"Falha ao acionar Undocking: {e}")
 
 class DockStatusPayload(BaseModel):
     is_docked: bool
