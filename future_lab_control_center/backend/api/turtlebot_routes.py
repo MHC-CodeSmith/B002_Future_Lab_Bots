@@ -48,7 +48,29 @@ class TeleopPayload(BaseModel):
 from backend.api.health_routes import ping_host
 
 class SimulationStartSchema(BaseModel):
-    item: str = "blue"  # "blue" ou "red"
+    item: str = "blue"  # "blue", "red", "invalid", "restock"
+
+@router.get("/ros_env")
+def get_ros_env():
+    """Reporta o ambiente ROS efetivo do processo e o que o nó rclpy enxerga."""
+    from rclpy.utilities import get_rmw_implementation_identifier
+    node = get_turtlebot_node()
+    topics = node.get_topic_names_and_types()
+    bat_pubs = node.get_publishers_info_by_topic("/battery_state")
+    dock_pubs = node.get_publishers_info_by_topic("/dock_status")
+    return {
+        "rmw": get_rmw_implementation_identifier(),
+        "domain_id": os.environ.get("ROS_DOMAIN_ID"),
+        "discovery_server": os.environ.get("ROS_DISCOVERY_SERVER"),
+        "super_client": os.environ.get("ROS_SUPER_CLIENT"),
+        "auto_discovery_range": os.environ.get("ROS_AUTOMATIC_DISCOVERY_RANGE"),
+        "fastdds_builtin_transports": os.environ.get("FASTDDS_BUILTIN_TRANSPORTS"),
+        "topics_visible": len(topics),
+        "sees_battery": any(t[0] == "/battery_state" for t in topics),
+        "sees_dock_status": any(t[0] == "/dock_status" for t in topics),
+        "battery_pub_qos": [str(p.qos_profile.reliability) for p in bat_pubs],
+        "dock_pub_qos": [str(p.qos_profile.reliability) for p in dock_pubs],
+    }
 
 sim_state = {
     "active": False,
