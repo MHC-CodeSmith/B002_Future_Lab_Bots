@@ -355,15 +355,32 @@ export default function TurtleBotDashboardTab({
                   <p className="text-xs text-slate-400">{t('teleopDpadSub')}</p>
                 </div>
               </div>
-              {isDocked && (
+              <div className="flex gap-1.5">
                 <button
                   onClick={onUndock}
-                  className="py-1.5 px-3 bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded-lg text-xs font-bold hover:bg-amber-500/30 transition-all flex items-center gap-1"
+                  title="Forçar Saída da Dock e Destravar Motores"
+                  className={`py-1.5 px-3 border rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+                    !isDocked 
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-sm' 
+                      : 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30'
+                  }`}
                 >
                   <Play className="w-3.5 h-3.5" />
-                  <span>{t('btnUndockShort')}</span>
+                  <span>UNDOCK</span>
                 </button>
-              )}
+                <button
+                  onClick={onDock}
+                  title="Forçar Entrada na Dock"
+                  className={`py-1.5 px-3 border rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+                    isDocked 
+                      ? 'bg-blue-500/20 text-blue-300 border-blue-500/40 shadow-sm' 
+                      : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                  }`}
+                >
+                  <Square className="w-3.5 h-3.5" />
+                  <span>DOCK</span>
+                </button>
+              </div>
             </div>
             {isDocked && (
               <div className="mt-3 p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs text-amber-300 flex items-center gap-2">

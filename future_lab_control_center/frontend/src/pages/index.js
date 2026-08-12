@@ -326,6 +326,11 @@ export default function Dashboard() {
   // Handlers TurtleBot 4
   const handleTbDock = async () => {
     const apiBase = getApiBase();
+    await safeApiCall(`${apiBase}/turtlebot/set_dock_status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_docked: true })
+    }, t('tbDockTitle'));
     const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/dock`, { method: 'POST' }, t('tbDockTitle'));
     if (ok) {
       setNotification({
@@ -339,6 +344,11 @@ export default function Dashboard() {
 
   const handleTbUndock = async () => {
     const apiBase = getApiBase();
+    await safeApiCall(`${apiBase}/turtlebot/set_dock_status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_docked: false })
+    }, t('tbUndockTitle'));
     const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/undock`, { method: 'POST' }, t('tbUndockTitle'));
     if (ok) {
       setNotification({
