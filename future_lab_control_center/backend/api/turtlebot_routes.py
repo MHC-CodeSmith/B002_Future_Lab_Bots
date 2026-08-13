@@ -995,3 +995,31 @@ def proxy_oakd_stream():
         generate_frames(),
         media_type="multipart/x-mixed-replace; boundary=frame"
     )
+
+# ============================================================
+# Rotas de Recuperação do Sistema (Fase 13d)
+# ============================================================
+@router.get("/system/inventory")
+def get_system_inventory():
+    """Consulta o inventário de saúde do sistema de 10 itens via Agente do Host."""
+    return _call_host_agent("/system/inventory", method="GET")
+
+@router.post("/system/restart_backend")
+def system_restart_backend():
+    """Reinicia o container do backend via Agente do Host."""
+    return _call_host_agent("/system/restart_backend", method="POST")
+
+@router.post("/system/restart_cobot_discovery")
+def system_restart_cobot_discovery():
+    """Reinicia o Discovery Server do myCobot (:11888) via Agente do Host."""
+    return _call_host_agent("/system/restart_cobot_discovery", method="POST")
+
+@router.post("/robot/restart_bringup")
+def robot_restart_bringup():
+    """Reinicia o serviço turtlebot4.service no RPi4 via SSH através do Agente do Host."""
+    return _call_host_agent("/robot/restart_bringup", method="POST")
+
+@router.post("/robot/start_oakd")
+def robot_start_oakd():
+    """Desperta a câmera OAK-D no RPi4 via SSH através do Agente do Host."""
+    return _call_host_agent("/robot/start_oakd", method="POST")
