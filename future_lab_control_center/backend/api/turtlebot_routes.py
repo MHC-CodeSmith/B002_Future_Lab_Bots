@@ -784,7 +784,7 @@ def start_oakd_camera():
     """Desperta a câmera OAK-D-PRO no TurtleBot 4 chamando o serviço ROS 2 /oakd/start_camera."""
     try:
         node = get_turtlebot_node()
-        cmd = f'ssh -o ConnectTimeout=8 -o StrictHostKeyChecking=no ubuntu@192.168.0.129 "source /etc/turtlebot4/setup.bash && ros2 service call /oakd/start_camera std_srvs/srv/Trigger {{}}"'
+        cmd = f'ssh -o BatchMode=yes -o ConnectTimeout=3 -o StrictHostKeyChecking=no ubuntu@192.168.0.129 "source /etc/turtlebot4/setup.bash && ros2 service call /oakd/start_camera std_srvs/srv/Trigger {{}}"'
         res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=15)
         if res.returncode != 0 and "success=True" not in res.stdout:
             # Tenta via container se o SSH falhou
@@ -831,12 +831,15 @@ from fastapi.responses import StreamingResponse
 
 @router.get("/oakd_stream")
 def proxy_oakd_stream():
-    """Streaming MJPEG ao vivo da Câmera OAK-D-PRO do TurtleBot 4 com timeout de 5s e placeholder."""
+    """Streaming MJPEG ao vivo da Câmera OAK-D-PRO do TurtleBot 4 com timeout de 5s e limite de 300s por conexão."""
     node = get_turtlebot_node()
 
     def generate_frames():
         start_wait = time.time()
+        t_start = time.time()
         while True:
+            if time.time() - t_start > 300.0:
+                break
             frame = node.latest_jpeg_frame
             last_frame = getattr(node, 'last_frame_time', 0.0)
             if frame and (time.time() - last_frame < 3.0):
