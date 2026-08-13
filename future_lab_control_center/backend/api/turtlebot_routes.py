@@ -191,6 +191,7 @@ def get_nav_readiness():
         # Localização
         "map":                   node.count_publishers("/map") > 0,
         "amcl_pose":             node.count_publishers("/amcl_pose") > 0,
+        "amcl_converged":        node.get_amcl()["converged"],
         # Navegação
         "navigate_to_pose":      "/navigate_to_pose" in actions,
         "global_costmap":        node.count_publishers("/global_costmap/costmap") > 0,
@@ -215,6 +216,78 @@ def get_nav_readiness():
     _nav_readiness_cache["timestamp"] = now
     _nav_readiness_cache["data"] = out
     return out
+
+@router.get("/amcl_status")
+def get_amcl_status():
+    """Pose e covariância do AMCL. Somente leitura."""
+    return get_turtlebot_node().get_amcl()
+
+@router.get("/nav_poses")
+def get_nav_poses():
+    """Retorna as poses configuradas em nav_poses.yaml."""
+    try:
+        import yaml
+        nav_poses_file = "/app/backend/config/nav_poses.yaml"
+        if not os.path.exists(nav_poses_file):
+            nav_poses_file = os.path.join(os.path.dirname(__file__), "../config/nav_poses.yaml")
+        if os.path.exists(nav_poses_file):
+            with open(nav_poses_file, "r") as f:
+                data = yaml.safe_load(f)
+                return data or {"dock_pose": None}
+        return {"dock_pose": None}
+    except Exception as e:
+        return {"dock_pose": None, "error": str(e)}
+
+@router.post("/save_dock_pose")
+def save_dock_pose():
+    """Grava a pose atual do AMCL como pose da dock em nav_poses.yaml. Exige convergência e robô docado."""
+    from datetime import datetime
+    import yaml
+    node = get_turtlebot_node()
+    a = node.get_amcl()
+    if not a["amcl_ok"]:
+        raise HTTPException(
+            status_code=409,
+            detail="AMCL não está publicando. Inicie a Localização primeiro."
+        )
+    if not a["converged"]:
+        raise HTTPException(
+            status_code=409,
+            detail=f"AMCL ainda não convergiu (covariância {a['covariance']}). "
+                   f"Gire o robô alguns graus e tente de novo."
+        )
+    if not node.is_docked:
+        raise HTTPException(
+            status_code=409,
+            detail="O robô precisa estar acoplado na dock para gravar a dock_pose."
+        )
+
+    nav_poses_file = "/app/backend/config/nav_poses.yaml"
+    if not os.path.exists(os.path.dirname(nav_poses_file)):
+        nav_poses_file = os.path.join(os.path.dirname(__file__), "../config/nav_poses.yaml")
+
+    dock_data = {
+        "dock_pose": {
+            "x": a["pose"]["x"],
+            "y": a["pose"]["y"],
+            "yaw": a["pose"]["yaw"],
+            "measured": True,
+            "measured_at": datetime.now().isoformat(),
+            "covariance": a["covariance"],
+        }
+    }
+
+    try:
+        os.makedirs(os.path.dirname(nav_poses_file), exist_ok=True)
+        with open(nav_poses_file, "w") as f:
+            yaml.dump(dock_data, f, default_flow_style=False)
+        return {
+            "status": "success",
+            "message": f"Pose real da dock gravada com sucesso em {nav_poses_file}!",
+            "dock_pose": dock_data["dock_pose"]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao salvar nav_poses.yaml: {e}")
 
 def _require_live_telemetry():
     node = get_turtlebot_node()

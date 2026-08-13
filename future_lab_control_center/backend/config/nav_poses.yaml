@@ -1,0 +1,10 @@
+# Pose do TurtleBot 4 quando acoplado na dock, no frame "map" do B002_map.yaml.
+# Preenchido por POST /api/v1/turtlebot/save_dock_pose com o AMCL convergido.
+# NAO editar a mao — o valor abaixo e apenas semente para a primeira convergencia.
+dock_pose:
+  x: -0.4044
+  y: -0.0024
+  yaw: 3.1363
+  measured: false
+  measured_at: null
+  covariance: null
