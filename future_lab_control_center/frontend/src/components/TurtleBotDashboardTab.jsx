@@ -906,7 +906,7 @@ export default function TurtleBotDashboardTab({
                 >
                   <Compass className="w-3.5 h-3.5" />
                   <span>
-                    {navPoses?.dock_pose?.measured ? 'Usar Pose da Dock' : 'Usar Semente (não medida)'}
+                    {navPoses?.dock_pose?.measured ? 'Usar Pose da Dock' : 'Usar Pose da Dock (Semente)'}
                   </span>
                 </button>
 
