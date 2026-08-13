@@ -765,13 +765,33 @@ def launch_integrated_3d():
 def start_oakd_camera():
     """Desperta a câmera OAK-D-PRO no TurtleBot 4 chamando o serviço ROS 2 /oakd/start_camera."""
     try:
-        cmd = f'{JAZZY_ENV_CMD} && ros2 service call /oakd/start_camera std_srvs/srv/Trigger {{}}'
-        subprocess.Popen(cmd, shell=True, executable="/bin/bash")
+        node = get_turtlebot_node()
+        cmd = f'ssh -o ConnectTimeout=8 -o StrictHostKeyChecking=no ubuntu@192.168.0.129 "source /etc/turtlebot4/setup.bash && ros2 service call /oakd/start_camera std_srvs/srv/Trigger {{}}"'
+        res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=15)
+        if res.returncode != 0 and "success=True" not in res.stdout:
+            # Tenta via container se o SSH falhou
+            cmd_container = f'{JAZZY_ENV_CMD} && ros2 service call /oakd/start_camera std_srvs/srv/Trigger {{}}'
+            res = subprocess.run(cmd_container, shell=True, executable="/bin/bash", capture_output=True, text=True, timeout=10)
+
+        out_text = (res.stdout or "") + (res.stderr or "")
+        if res.returncode != 0 and "success=True" not in out_text:
+            raise HTTPException(status_code=503, detail=f"Serviço /oakd/start_camera falhou ou indisponível: {out_text.strip()[:200]}")
+
+        # Aguarda até 5s para confirmar recepção de frames
+        t0 = time.time()
+        while time.time() - t0 < 5.0:
+            if (time.time() - node.last_frame_time) < 3.0:
+                break
+            time.sleep(0.3)
+
         return {
             "status": "success",
-            "message": "Câmera OAK-D-PRO despertada e ativada no TurtleBot 4 com sucesso!",
+            "message": "Câmera OAK-D-PRO despertada com sucesso!",
+            "oakd_streaming": (time.time() - node.last_frame_time) < 3.0,
             "stream_url": "/api/v1/turtlebot/oakd_stream"
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Falha ao acionar câmera OAK-D: {e}")
 
@@ -800,13 +820,13 @@ def proxy_oakd_stream():
         start_wait = time.time()
         while True:
             frame = node.latest_jpeg_frame
-            last_msg = getattr(node, 'last_msg_time', 0)
-            if frame and (time.time() - last_msg < 5.0):
+            last_frame = getattr(node, 'last_frame_time', 0.0)
+            if frame and (time.time() - last_frame < 3.0):
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
                 time.sleep(0.04)  # ~25 FPS
             else:
-                if time.time() - start_wait > 5.0 or (frame and time.time() - last_msg >= 5.0):
+                if time.time() - start_wait > 5.0 or (frame and time.time() - last_frame >= 3.0):
                     try:
                         import cv2, numpy as np
                         img = np.zeros((240, 320, 3), dtype=np.uint8)

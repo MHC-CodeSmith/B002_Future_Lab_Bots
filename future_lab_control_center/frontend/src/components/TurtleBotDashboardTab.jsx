@@ -37,17 +37,23 @@ export default function TurtleBotDashboardTab({
   onStopMissionManagerProcess
 }) {
   const { t } = useLanguage();
-  const isOnline = tbStatus?.status === 'ready' && tbStatus?.ping_ok !== false;
-  const batteryPct = isOnline && tbStatus?.battery_percentage != null ? tbStatus.battery_percentage : null;
-  const isDocked = tbStatus?.is_docked;
+  const telemetryOk = tbStatus?.telemetry_ok === true;
+  const isOnline = tbStatus?.ping_ok !== false && tbStatus?.status !== 'offline';
+  const batteryPct = telemetryOk && tbStatus?.battery_percentage != null ? tbStatus.battery_percentage : null;
+  const batteryCurrent = telemetryOk && tbStatus?.battery_current != null ? tbStatus.battery_current : null;
+  const isCharging = telemetryOk && tbStatus?.charging === true;
+  const isDocked = telemetryOk ? tbStatus?.is_docked : null;
   const simState = tbStatus?.sim_state;
-  const pose = tbStatus?.current_pose || { x: 0.0, y: 0.0, yaw: 0.0 };
+  const pose = (telemetryOk && tbStatus?.current_pose) ? tbStatus.current_pose : null;
+  const oakdStreaming = tbStatus?.oakd_streaming === true;
+  const navReady = tbNavReadiness?.ready === true;
+  const motionAllowed = telemetryOk && navReady;
+
   const [selectedSimItem, setSelectedSimItem] = useState('blue');
   const [loadingDiag, setLoadingDiag] = useState(false);
   const [logs, setLogs] = useState([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [logSource, setLogSource] = useState('localization');
-  const [oakdOnline, setOakdOnline] = useState(true);
   const [streamKey, setStreamKey] = useState(Date.now());
   const [restartingOakd, setRestartingOakd] = useState(false);
 
@@ -117,6 +123,17 @@ export default function TurtleBotDashboardTab({
           </div>
         </div>
 
+        {/* 🚨 BANNER ALERTA DE TELEMETRIA INATIVA */}
+        {!telemetryOk && (
+          <div className="mt-4 p-4 rounded-xl bg-red-950/60 border border-red-500/60 flex items-center gap-3 text-red-200 font-bold shadow-lg animate-pulse">
+            <ShieldAlert className="w-6 h-6 text-red-400 shrink-0" />
+            <div>
+              <p className="text-sm font-black text-red-100">🔴 SEM TELEMETRIA DA BASE (Create 3)</p>
+              <p className="text-xs font-normal text-red-300">As leituras da Create 3 estão inativas há mais de 5s. Os comandos de movimento foram bloqueados automaticamente por segurança.</p>
+            </div>
+          </div>
+        )}
+
         {/* 🚦 PAINEL DE PRONTIDÃO DA NAVEGAÇÃO & SEMÁFORO ROS 2 */}
         {tbNavReadiness && (
           <div className={`mt-4 p-4 rounded-xl border transition-all ${
@@ -181,8 +198,14 @@ export default function TurtleBotDashboardTab({
             <div className="flex items-center gap-2">
               {!simState?.active ? (
                 <button
+                  disabled={!motionAllowed}
+                  title={!motionAllowed ? "Simulação bloqueada: requer telemetria fresca e stack pronta" : ""}
                   onClick={() => onStartSim && onStartSim(selectedSimItem)}
-                  className="py-2.5 px-5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold rounded-xl shadow-lg flex items-center gap-2 transition-all active:scale-95 text-xs"
+                  className={`py-2.5 px-5 font-extrabold rounded-xl shadow-lg flex items-center gap-2 transition-all active:scale-95 text-xs ${
+                    motionAllowed 
+                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white' 
+                      : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
+                  }`}
                 >
                   <Play className="w-4 h-4" />
                   <span>{t('btnStartSim')}</span>
@@ -261,8 +284,13 @@ export default function TurtleBotDashboardTab({
               {/* BOTÃO INTERATIVO OK / PRÓXIMO PASSO */}
               {simState.waiting_confirmation && (
                 <button
+                  disabled={!motionAllowed}
                   onClick={() => onNextSimStep && onNextSimStep()}
-                  className="w-full py-3.5 bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black rounded-xl shadow-xl shadow-emerald-500/20 flex items-center justify-center gap-3 transition-all active:scale-98 text-sm border-2 border-emerald-300 uppercase tracking-wide mt-2"
+                  className={`w-full py-3.5 font-black rounded-xl shadow-xl flex items-center justify-center gap-3 transition-all text-sm border-2 uppercase tracking-wide mt-2 ${
+                    motionAllowed 
+                      ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 hover:to-teal-400 text-slate-950 border-emerald-300 active:scale-98' 
+                      : 'bg-slate-800 text-slate-500 border-slate-700 cursor-not-allowed'
+                  }`}
                 >
                   <CheckCircle2 className="w-5 h-5 text-slate-950" />
                   <span>{t('btnConfirmNext')}</span>
@@ -275,37 +303,42 @@ export default function TurtleBotDashboardTab({
         {/* Cards de Métricas */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-5">
           <div className="p-4 bg-slate-800/80 rounded-xl border border-slate-700/60 flex items-center gap-3">
-            <div className={`p-3 rounded-lg ${isOnline ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+            <div className={`p-3 rounded-lg ${telemetryOk ? (isCharging ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400') : 'bg-red-500/20 text-red-400'}`}>
               <Battery className="w-6 h-6" />
             </div>
             <div>
               <p className="text-xs text-slate-400">{t('batteryCreate3')}</p>
-              <p className={`text-base font-extrabold ${isOnline ? 'text-emerald-400' : 'text-red-400'}`}>
-                {isOnline && batteryPct !== null ? `${batteryPct}%` : '🔴 DESCONECTADO (0%)'}
+              <p className={`text-base font-extrabold ${telemetryOk ? (isCharging ? 'text-emerald-400' : 'text-amber-400') : 'text-red-400'}`}>
+                {telemetryOk && batteryPct !== null ? `${batteryPct}%` : '—'}
               </p>
+              {telemetryOk && (
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold inline-block mt-0.5 ${isCharging ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'}`} title={`Corrente elétrica: ${batteryCurrent != null ? batteryCurrent + ' A' : 'N/A'}`}>
+                  {isCharging ? '⚡ Carregando' : '🔋 Descarregando'} ({batteryCurrent != null ? `${batteryCurrent} A` : ''})
+                </span>
+              )}
             </div>
           </div>
 
           <div className="p-4 bg-slate-800/80 rounded-xl border border-slate-700/60 flex items-center gap-3">
-            <div className={`p-3 rounded-lg ${isOnline ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-700 text-slate-400'}`}>
+            <div className={`p-3 rounded-lg ${telemetryOk ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-700 text-slate-400'}`}>
               <Anchor className="w-6 h-6" />
             </div>
             <div>
               <p className="text-xs text-slate-400">{t('dockStation')}</p>
-              <p className={`text-sm font-bold ${isOnline ? 'text-slate-100' : 'text-slate-400'}`}>
-                {isOnline ? (isDocked ? t('dockedRec') : t('undockedField')) : t('noTelemetry')}
+              <p className={`text-sm font-bold ${telemetryOk ? 'text-slate-100' : 'text-slate-400'}`}>
+                {telemetryOk ? (isDocked ? t('dockedRec') : t('undockedField')) : '—'}
               </p>
             </div>
           </div>
 
           <div className="p-4 bg-slate-800/80 rounded-xl border border-slate-700/60 flex items-center gap-3">
-            <div className={`p-3 rounded-lg ${isOnline ? 'bg-purple-500/20 text-purple-400' : 'bg-slate-700 text-slate-400'}`}>
+            <div className={`p-3 rounded-lg ${telemetryOk ? 'bg-purple-500/20 text-purple-400' : 'bg-slate-700 text-slate-400'}`}>
               <MapPin className="w-6 h-6" />
             </div>
             <div>
               <p className="text-xs text-slate-400">{t('coordinatesOdom')}</p>
-              <p className={`text-sm font-bold ${isOnline ? 'text-purple-300' : 'text-slate-400'}`}>
-                {isOnline ? `X: ${pose.x}m | Y: ${pose.y}m` : t('noSignal')}
+              <p className={`text-sm font-bold ${telemetryOk ? 'text-purple-300' : 'text-slate-400'}`}>
+                {telemetryOk && pose ? `X: ${pose.x}m | Y: ${pose.y}m` : '—'}
               </p>
             </div>
           </div>
@@ -727,8 +760,14 @@ export default function TurtleBotDashboardTab({
             <p className="text-xs font-bold text-slate-300 mb-2">{t('triggerRoutineTitle')}</p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <button
+                disabled={!motionAllowed}
+                title={!motionAllowed ? "Rotina bloqueada: requer telemetria fresca e stack pronta" : ""}
                 onClick={onTriggerDelivery}
-                className="py-3 px-2 bg-slate-800 hover:bg-blue-900/40 hover:border-blue-500/50 text-slate-100 font-bold rounded-xl border border-slate-700 flex flex-col items-center justify-center gap-1 transition-all text-xs"
+                className={`py-3 px-2 font-bold rounded-xl border flex flex-col items-center justify-center gap-1 transition-all text-xs ${
+                  motionAllowed 
+                    ? 'bg-slate-800 hover:bg-blue-900/40 hover:border-blue-500/50 text-slate-100 border-slate-700' 
+                    : 'bg-slate-900 text-slate-600 border-slate-800 cursor-not-allowed'
+                }`}
               >
                 <Truck className="w-5 h-5 text-blue-400" />
                 <span>/start_delivery</span>
@@ -736,8 +775,14 @@ export default function TurtleBotDashboardTab({
               </button>
 
               <button
+                disabled={!motionAllowed}
+                title={!motionAllowed ? "Rotina bloqueada: requer telemetria fresca e stack pronta" : ""}
                 onClick={onTriggerFailure}
-                className="py-3 px-2 bg-slate-800 hover:bg-red-900/40 hover:border-red-500/50 text-slate-100 font-bold rounded-xl border border-slate-700 flex flex-col items-center justify-center gap-1 transition-all text-xs"
+                className={`py-3 px-2 font-bold rounded-xl border flex flex-col items-center justify-center gap-1 transition-all text-xs ${
+                  motionAllowed 
+                    ? 'bg-slate-800 hover:bg-red-900/40 hover:border-red-500/50 text-slate-100 border-slate-700' 
+                    : 'bg-slate-900 text-slate-600 border-slate-800 cursor-not-allowed'
+                }`}
               >
                 <ShieldAlert className="w-5 h-5 text-red-400" />
                 <span>/start_failure</span>
@@ -745,8 +790,14 @@ export default function TurtleBotDashboardTab({
               </button>
 
               <button
+                disabled={!motionAllowed}
+                title={!motionAllowed ? "Rotina bloqueada: requer telemetria fresca e stack pronta" : ""}
                 onClick={onTriggerRestock}
-                className="py-3 px-2 bg-slate-800 hover:bg-amber-900/40 hover:border-amber-500/50 text-slate-100 font-bold rounded-xl border border-slate-700 flex flex-col items-center justify-center gap-1 transition-all text-xs"
+                className={`py-3 px-2 font-bold rounded-xl border flex flex-col items-center justify-center gap-1 transition-all text-xs ${
+                  motionAllowed 
+                    ? 'bg-slate-800 hover:bg-amber-900/40 hover:border-amber-500/50 text-slate-100 border-slate-700' 
+                    : 'bg-slate-900 text-slate-600 border-slate-800 cursor-not-allowed'
+                }`}
               >
                 <Box className="w-5 h-5 text-amber-400" />
                 <span>/start_restock</span>
@@ -754,8 +805,14 @@ export default function TurtleBotDashboardTab({
               </button>
 
               <button
+                disabled={!motionAllowed}
+                title={!motionAllowed ? "Rotina bloqueada: requer telemetria fresca e stack pronta" : ""}
                 onClick={onTriggerPatrol}
-                className="py-3 px-2 bg-slate-800 hover:bg-purple-900/40 hover:border-purple-500/50 text-slate-100 font-bold rounded-xl border border-slate-700 flex flex-col items-center justify-center gap-1 transition-all text-xs"
+                className={`py-3 px-2 font-bold rounded-xl border flex flex-col items-center justify-center gap-1 transition-all text-xs ${
+                  motionAllowed 
+                    ? 'bg-slate-800 hover:bg-purple-900/40 hover:border-purple-500/50 text-slate-100 border-slate-700' 
+                    : 'bg-slate-900 text-slate-600 border-slate-800 cursor-not-allowed'
+                }`}
               >
                 <RefreshCw className="w-5 h-5 text-purple-400" />
                 <span>/start_patrol</span>
