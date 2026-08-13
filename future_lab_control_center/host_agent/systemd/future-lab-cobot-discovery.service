@@ -1,0 +1,11 @@
+[Unit]
+Description=Fast DDS Discovery Server do myCobot (porta 11888)
+
+[Service]
+Type=simple
+ExecStart=/bin/bash -lc 'source /opt/ros/jazzy/setup.bash && exec fast-discovery-server -i 0 -l 0.0.0.0 -p 11888'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

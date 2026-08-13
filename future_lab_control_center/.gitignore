@@ -8,6 +8,7 @@
 .env.development.local
 .env.test.local
 .env.production.local
+.agent_token
 *.pem
 *.key
 *.cert
