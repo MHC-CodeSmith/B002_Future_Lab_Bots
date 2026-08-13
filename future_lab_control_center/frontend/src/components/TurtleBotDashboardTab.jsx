@@ -68,6 +68,9 @@ export default function TurtleBotDashboardTab({
   const [savingDockPose, setSavingDockPose] = useState(false);
   const [clearingCostmaps, setClearingCostmaps] = useState(false);
 
+  const [inventoryItems, setInventoryItems] = useState([]);
+  const [actionLoading, setActionLoading] = useState(null);
+
   const fetchAmclAndPoses = async () => {
     try {
       const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
@@ -80,11 +83,45 @@ export default function TurtleBotDashboardTab({
     } catch (e) {}
   };
 
+  const fetchInventory = async () => {
+    try {
+      const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+      const res = await fetch(`http://${host}:8000/api/v1/turtlebot/system/inventory`).catch(() => null);
+      if (res && res.ok) {
+        setInventoryItems(await res.json());
+      }
+    } catch (e) {}
+  };
+
   React.useEffect(() => {
     fetchAmclAndPoses();
+    fetchInventory();
     const interval = setInterval(fetchAmclAndPoses, 2000);
-    return () => clearInterval(interval);
+    const invInterval = setInterval(fetchInventory, 5000);
+    return () => {
+      clearInterval(interval);
+      clearInterval(invInterval);
+    };
   }, []);
+
+  const handleSystemAction = async (action, name) => {
+    const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+    if (action === 'restart_backend') {
+      if (!window.confirm('Deseja realmente reiniciar o container do Backend? A operação em curso poderá ser pausada por ~10s.')) return;
+      setActionLoading(name);
+      await fetch(`http://${host}:8000/api/v1/turtlebot/system/restart_backend`, { method: 'POST' }).catch(() => null);
+      setTimeout(() => setActionLoading(null), 3000);
+    } else if (action === 'restart_cobot_discovery') {
+      setActionLoading(name);
+      await fetch(`http://${host}:8000/api/v1/turtlebot/system/restart_cobot_discovery`, { method: 'POST' }).catch(() => null);
+      setTimeout(() => setActionLoading(null), 2000);
+    } else if (action === 'restart_tb4_bringup') {
+      if (!window.confirm('Deseja realmente reiniciar o serviço turtlebot4.service no robô? OAK-D e LiDAR ficarão indisponíveis por ~40s.')) return;
+      setActionLoading(name);
+      await fetch(`http://${host}:8000/api/v1/turtlebot/robot/restart_bringup`, { method: 'POST' }).catch(() => null);
+      setTimeout(() => setActionLoading(null), 4000);
+    }
+  };
 
   const handleClearCostmaps = async () => {
     setClearingCostmaps(true);
@@ -457,6 +494,52 @@ export default function TurtleBotDashboardTab({
             </div>
           </div>
         </div>
+
+        {/* Card de Saúde do Sistema & Inventário */}
+        {inventoryItems && inventoryItems.length > 0 && (
+          <div className="glass-card p-5 rounded-2xl border border-slate-700/60 space-y-4 shadow-xl">
+            <div className="flex items-center justify-between border-b border-slate-700/60 pb-3">
+              <div className="flex items-center gap-2.5">
+                <Activity className="w-5 h-5 text-emerald-400" />
+                <div>
+                  <h3 className="text-base font-bold text-slate-100">Painel de Saúde do Sistema & Inventário</h3>
+                  <p className="text-xs text-slate-400">Monitoramento em tempo de execução dos 10 serviços do laboratório</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+              {inventoryItems.map((item) => (
+                <div key={item.id} className="p-3 bg-slate-800/80 rounded-xl border border-slate-700/60 flex flex-col justify-between space-y-2">
+                  <div className="flex items-start justify-between gap-1">
+                    <div>
+                      <span className="text-[10px] font-mono text-slate-400">{item.host}</span>
+                      <p className="text-xs font-bold text-slate-200 line-clamp-2">{item.name}</p>
+                    </div>
+                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 mt-1 ${item.ok ? 'bg-emerald-400 shadow-sm shadow-emerald-400/50' : 'bg-red-500 shadow-sm shadow-red-500/50 animate-ping'}`} title={item.ok ? 'Serviço OK' : 'Inativo / Indisponível'} />
+                  </div>
+
+                  <div>
+                    {item.action === 'none' ? (
+                      <span className="text-[10px] text-slate-400 italic block leading-tight">
+                        Use o ícone <strong>Future Lab Control Center</strong> na área de trabalho.
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => handleSystemAction(item.action, item.name)}
+                        disabled={actionLoading === item.name}
+                        className="w-full py-1.5 px-2 bg-slate-700 hover:bg-slate-600 text-slate-200 border border-slate-600 rounded-lg text-[10px] font-bold transition-all active:scale-95 flex items-center justify-center gap-1 disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3 h-3 text-amber-400 ${actionLoading === item.name ? 'animate-spin' : ''}`} />
+                        <span>{actionLoading === item.name ? 'Reiniciando...' : 'Reiniciar'}</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Seção Lado a Lado: Câmera OAK-D Lite ao Vivo + Teleoperação Manual por D-Pad */}
