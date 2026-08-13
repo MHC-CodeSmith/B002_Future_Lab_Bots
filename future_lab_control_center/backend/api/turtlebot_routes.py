@@ -581,53 +581,48 @@ def stop_mission_manager_process():
 @router.post("/trigger_delivery")
 def trigger_delivery():
     """Aciona o serviço ROS 2 de entrega de peças (/start_delivery)."""
-    try:
-        node = get_turtlebot_node()
-        node.call_trigger_service("start_delivery")
-        return {"status": "success", "message": "Rotina de Entrega (/start_delivery) acionada!"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Falha ao acionar rotina de entrega: {e}")
+    node = get_turtlebot_node()
+    ok, msg = node.call_trigger_service("start_delivery")
+    if not ok:
+        raise HTTPException(status_code=503, detail=msg)
+    return {"status": "success", "message": msg or "Rotina de Entrega acionada!"}
 
 @router.post("/trigger_failure")
 def trigger_failure():
     """Aciona o serviço ROS 2 de recolhimento de peça com defeito / descarte (/start_failure)."""
-    try:
-        node = get_turtlebot_node()
-        node.call_trigger_service("start_failure")
-        return {"status": "success", "message": "Rotina de Falha/Descarte (/start_failure) acionada!"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Falha ao acionar rotina de falha: {e}")
+    node = get_turtlebot_node()
+    ok, msg = node.call_trigger_service("start_failure")
+    if not ok:
+        raise HTTPException(status_code=503, detail=msg)
+    return {"status": "success", "message": msg or "Rotina de Falha/Descarte acionada!"}
 
 @router.post("/trigger_restock")
 def trigger_restock():
     """Aciona o serviço ROS 2 de reabastecimento de matéria-prima (/start_restock)."""
-    try:
-        node = get_turtlebot_node()
-        node.call_trigger_service("start_restock")
-        return {"status": "success", "message": "Rotina de Reabastecimento (/start_restock) acionada!"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Falha ao acionar rotina de reabastecimento: {e}")
+    node = get_turtlebot_node()
+    ok, msg = node.call_trigger_service("start_restock")
+    if not ok:
+        raise HTTPException(status_code=503, detail=msg)
+    return {"status": "success", "message": msg or "Rotina de Reabastecimento acionada!"}
 
 @router.post("/trigger_patrol")
 def trigger_patrol():
-    """Aciona o serviço ROS 2 de ronda/patrulha (/start_patrol)."""
-    try:
-        node = get_turtlebot_node()
-        node.call_trigger_service("start_patrol")
-        return {"status": "success", "message": "Rotina de Patrulha (/start_patrol) acionada!"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Falha ao acionar rotina de patrulha: {e}")
+    raise HTTPException(
+        status_code=501,
+        detail="Rotina de patrulha não implementada: o mission_manager não expõe /start_patrol."
+    )
 
 @router.post("/stop_mission")
 def stop_mission():
-    """Interrompe e cancela qualquer missão ativa no Mission Manager e força parada dos motores."""
-    try:
-        node = get_turtlebot_node()
-        node.call_trigger_service("stop_mission")
-        node.send_cmd_vel(0.0, 0.0)
-        return {"status": "success", "message": "🛑 Missão interrompida! Robô parado e Mission Manager desocupado."}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Falha ao interromper missão: {e}")
+    """Interrompe a missão ativa e força parada dos motores. Nunca falha."""
+    node = get_turtlebot_node()
+    ok, msg = node.call_trigger_service("stop_mission")
+    node.send_cmd_vel(0.0, 0.0)
+    return {
+        "status": "success",
+        "service_ok": ok,
+        "message": "🛑 Motores parados." + ("" if ok else f" Aviso: {msg}")
+    }
 
 @router.post("/launch_integrated_3d")
 def launch_integrated_3d():

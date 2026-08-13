@@ -180,6 +180,34 @@ class TurtleBotNode(Node):
         except Exception as e:
             print(f"[WARN TB4] DockStatus callback error: {e}")
 
+    def call_trigger_service(self, srv_name: str, timeout_sec: float = 2.0):
+        """Chama um serviço Trigger do mission_manager e devolve (sucesso, mensagem) reais.
+        Usa os clientes rclpy criados no __init__ em vez de subprocess fire-and-forget,
+        para que o dashboard saiba de fato se a missão foi aceita."""
+        cli_map = {
+            "start_delivery": self.start_delivery_cli,
+            "start_failure": self.start_failure_cli,
+            "start_restock": self.start_restock_cli,
+            "stop_mission": self.stop_mission_cli,
+        }
+        cli = cli_map.get(srv_name)
+        if cli is None:
+            return False, f"Serviço '/{srv_name}' não tem cliente registrado no backend."
+        if not cli.wait_for_service(timeout_sec=timeout_sec):
+            return False, (f"Serviço '/{srv_name}' indisponível — o Mission Manager não está "
+                           f"rodando. Use o botão 'Iniciar Mission Manager' no painel.")
+        try:
+            fut = cli.call_async(Trigger.Request())
+            t0 = time.time()
+            while not fut.done() and (time.time() - t0) < (timeout_sec + 3.0):
+                time.sleep(0.02)
+            if not fut.done():
+                return False, f"Timeout aguardando resposta de '/{srv_name}'."
+            res = fut.result()
+            return bool(res.success), (res.message or "")
+        except Exception as e:
+            return False, f"Erro ao chamar '/{srv_name}': {e}"
+
     def send_cmd_vel(self, linear_x: float, angular_z: float):
         if HAS_RCLPY and self.cmd_vel_pub:
             t = Twist()
