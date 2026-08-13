@@ -110,24 +110,41 @@ _PROCESS_PATTERNS = {
     "mission_manager": "scripts/mission_manager.py",
 }
 
+_processes_cache = {"timestamp": 0.0, "data": {}}
+
 @router.get("/processes")
 def get_processes():
-    """Estado dos processos da stack de navegação iniciados pelo backend.
+    """Estado dos processos da stack de navegação iniciados pelo backend."""
+    now = time.time()
+    if (now - _processes_cache["timestamp"]) < 3.0:
+        return _processes_cache["data"]
 
-    Limitação conhecida: o backend roda em container com PID namespace próprio.
-    O pgrep enxerga apenas os processos que o próprio backend lançou. Uma stack
-    iniciada manualmente no terminal do host NÃO aparece aqui — para esse caso,
-    use /nav_readiness, que verifica pelo barramento ROS e independe de quem lançou.
-    """
+    node = get_turtlebot_node()
+    services = set()
+    try:
+        services = {s[0] for s in node.get_service_names_and_types()}
+    except Exception:
+        pass
+
     out = {}
     for nome, padrao in _PROCESS_PATTERNS.items():
         try:
             res = subprocess.run(["pgrep", "-f", padrao],
                                  capture_output=True, text=True, timeout=2)
             pids = [p for p in res.stdout.split() if p.strip()]
-            out[nome] = {"running": bool(pids), "pids": pids, "pattern": padrao}
+            item = {
+                "launched_by_dashboard": bool(pids),
+                "pids": pids,
+                "pattern": padrao
+            }
+            if nome == "mission_manager":
+                item["visible_on_ros_graph"] = "/start_delivery" in services
+            out[nome] = item
         except Exception as e:
-            out[nome] = {"running": None, "pids": [], "pattern": padrao, "error": str(e)}
+            out[nome] = {"launched_by_dashboard": None, "pids": [], "pattern": padrao, "error": str(e)}
+
+    _processes_cache["timestamp"] = now
+    _processes_cache["data"] = out
     return out
 
 def _nav_hint(faltando: list) -> str:
@@ -139,7 +156,7 @@ def _nav_hint(faltando: list) -> str:
         return "Nav2 não está no ar. Use '2. Lançar Nav2 Stack'."
     if "start_delivery" in faltando or "stop_mission" in faltando:
         return "Mission Manager não está no ar. Use 'Iniciar Mission Manager'."
-    if "odom" in faltando or "scan" in faltando:
+    if "create3_alive" in faltando or "odom" in faltando or "scan" in faltando:
         return "Sensores da base não estão publicando. Verifique o TurtleBot 4 e o Discovery Server."
     return "Verifique os itens em 'missing'."
 
@@ -148,6 +165,8 @@ def get_nav_readiness():
     """Prontidão da navegação, verificada por introspecção ROS. Somente leitura."""
     from rclpy.action import get_action_names_and_types
     node = get_turtlebot_node()
+
+    create3_alive = node.telemetry_fresh()
 
     topics = {t[0] for t in node.get_topic_names_and_types()}
     services = {s[0] for s in node.get_service_names_and_types()}
@@ -158,10 +177,11 @@ def get_nav_readiness():
 
     checks = {
         # Base física (Create 3)
-        "create3_dock_action":   "/dock" in actions,
-        "create3_undock_action": "/undock" in actions,
-        "odom":                  "/odom" in topics,
-        "scan":                  "/scan" in topics,
+        "create3_alive":         create3_alive,
+        "create3_dock_action":   ("/dock" in actions) if create3_alive else None,
+        "create3_undock_action": ("/undock" in actions) if create3_alive else None,
+        "odom":                  ("/odom" in topics) if create3_alive else None,
+        "scan":                  ("/scan" in topics) if create3_alive else None,
         # Localização
         "map":                   node.count_publishers("/map") > 0,
         "amcl_pose":             node.count_publishers("/amcl_pose") > 0,
@@ -175,9 +195,10 @@ def get_nav_readiness():
         "stop_mission":          "/stop_mission" in services,
     }
 
-    obrigatorios = ["odom", "scan", "map", "amcl_pose",
-                    "navigate_to_pose", "start_delivery", "stop_mission"]
-    faltando = [k for k in obrigatorios if not checks[k]]
+    obrigatorios = ["create3_alive", "odom", "scan", "map", "amcl_pose",
+                    "navigate_to_pose", "global_costmap", "create3_undock_action",
+                    "start_delivery", "stop_mission"]
+    faltando = [k for k in obrigatorios if not checks.get(k)]
 
     return {
         "ready": not faltando,
@@ -185,6 +206,15 @@ def get_nav_readiness():
         "checks": checks,
         "hint": _nav_hint(faltando),
     }
+
+def _require_live_telemetry():
+    node = get_turtlebot_node()
+    if not node.telemetry_fresh():
+        raise HTTPException(
+            status_code=409,
+            detail="Sem telemetria da base há mais de 5 s. Comando de movimento bloqueado — "
+                   "verifique a Create 3 antes de operar o robô."
+        )
 
 sim_state = {
     "active": False,
@@ -226,6 +256,7 @@ def get_turtlebot_status():
 
 @router.post("/simulation/start")
 def start_simulation(payload: SimulationStartSchema):
+    _require_live_telemetry()
     node = get_turtlebot_node()
     st = node.get_status()
     is_docked = bool(st.get("is_docked", False))
@@ -271,6 +302,7 @@ def start_simulation(payload: SimulationStartSchema):
 
 @router.post("/simulation/next_step")
 def next_simulation_step():
+    _require_live_telemetry()
     if not sim_state["active"]:
         raise HTTPException(status_code=400, detail="Simulação não está ativa.")
 
@@ -465,6 +497,7 @@ def get_turtlebot_logs(source: str = "all", lines: int = 60):
 @router.post("/teleop")
 def send_teleop(payload: TeleopPayload):
     """Envia controle manual de velocidade linear e angular (/cmd_vel)."""
+    _require_live_telemetry()
     try:
         node = get_turtlebot_node()
         node.send_cmd_vel(payload.linear_x, payload.angular_z)
@@ -510,6 +543,7 @@ def trigger_dock():
 @router.post("/undock")
 def trigger_undock():
     """Envia o comando de Undocking ao TurtleBot 4 e aguarda a confirmação real da manobra."""
+    _require_live_telemetry()
     if not _undock_lock.acquire(blocking=False):
         raise HTTPException(
             status_code=409,
@@ -669,6 +703,7 @@ def stop_mission_manager_process():
 @router.post("/trigger_delivery")
 def trigger_delivery():
     """Aciona o serviço ROS 2 de entrega de peças (/start_delivery)."""
+    _require_live_telemetry()
     node = get_turtlebot_node()
     ok, msg = node.call_trigger_service("start_delivery")
     if not ok:
@@ -678,6 +713,7 @@ def trigger_delivery():
 @router.post("/trigger_failure")
 def trigger_failure():
     """Aciona o serviço ROS 2 de recolhimento de peça com defeito / descarte (/start_failure)."""
+    _require_live_telemetry()
     node = get_turtlebot_node()
     ok, msg = node.call_trigger_service("start_failure")
     if not ok:
@@ -687,6 +723,7 @@ def trigger_failure():
 @router.post("/trigger_restock")
 def trigger_restock():
     """Aciona o serviço ROS 2 de reabastecimento de matéria-prima (/start_restock)."""
+    _require_live_telemetry()
     node = get_turtlebot_node()
     ok, msg = node.call_trigger_service("start_restock")
     if not ok:
