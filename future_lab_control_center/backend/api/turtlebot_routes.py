@@ -18,7 +18,6 @@ _EXPECTED_ROS_ENV = {
     "ROS_DOMAIN_ID": "0",
     "RMW_IMPLEMENTATION": "rmw_fastrtps_cpp",
     "ROS_SUPER_CLIENT": "True",
-    "ROS_AUTOMATIC_DISCOVERY_RANGE": "SUBNET",
 }
 
 def _container_env() -> dict:
@@ -774,118 +773,92 @@ def set_dock_status(payload: DockStatusPayload):
         detail="O estado de dock vem da telemetria da Create 3 e não pode ser forçado."
     )
 
+HOST_AGENT_URL = "http://127.0.0.1:8100"
+
+def _load_agent_token() -> str:
+    token_file = Path(__file__).resolve().parent.parent / ".agent_token"
+    if not token_file.exists():
+        token_file = Path("/home/future-lab/B002_Future_Lab_Bots/future_lab_control_center/.agent_token")
+    if token_file.exists():
+        return token_file.read_text().strip()
+    return "futurelab_agent_secret_token_2026_x8100"
+
+AGENT_TOKEN = _load_agent_token()
+
+def _call_host_agent(path: str, method: str = "POST", json_body: dict = None, timeout: float = 10.0):
+    import json
+    import urllib.request
+    import urllib.error
+    url = f"{HOST_AGENT_URL}{path}"
+    headers = {"X-Agent-Token": AGENT_TOKEN}
+    try:
+        req = urllib.request.Request(url, headers=headers, method=method)
+        if json_body is not None:
+            headers["Content-Type"] = "application/json"
+            req.data = json.dumps(json_body).encode("utf-8")
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        err_msg = e.read().decode("utf-8", "replace")
+        try:
+            err_json = json.loads(err_msg)
+            msg = err_json.get("detail") or err_json.get("message") or str(e)
+        except Exception:
+            msg = str(e)
+        raise HTTPException(status_code=e.code, detail=msg)
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Agente do host (127.0.0.1:8100) inacessível: {e}. Execute 'systemctl --user start future-lab-agent' ou o ícone da Área de Trabalho."
+        )
+
 @router.post("/launch_localization")
 def launch_localization():
-    """Lança o módulo de Localização Nav2 com o mapa B002 e bond_timeout=30.0. Limpa processos antigos primeiro."""
-    try:
-        # Limpa processos antigos de localização para evitar zumbis
-        subprocess.run(
-            "pkill -9 -f 'localization.launch.py' 2>/dev/null ; "
-            "pkill -9 -f 'map_server' 2>/dev/null ; "
-            "pkill -9 -f 'amcl' 2>/dev/null ; "
-            "pkill -9 -f 'lifecycle_manager_localization' 2>/dev/null ; "
-            "sleep 3 || true",
-            shell=True, timeout=8
-        )
-        tb4_ws = get_tb4_workspace()
-        map_path = os.path.join(tb4_ws, "maps/B002_map.yaml")
-        subprocess.run("xhost +local:root 2>/dev/null || xhost + 2>/dev/null || true", shell=True, timeout=3)
-        cmd = f'cd {tb4_ws} && export DISPLAY=:0 && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_navigation localization.launch.py map:={map_path} use_sim_time:=false autostart:=true bond_timeout:=30.0 > /tmp/nav2_localization.log 2>&1'
-        subprocess.Popen(cmd, shell=True, executable="/bin/bash", start_new_session=True)
-        return {"status": "success", "message": "Localização Nav2 (B002_map.yaml) iniciada com sucesso!"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Falha ao iniciar Localização: {e}")
+    """Lança o módulo de Localização Nav2 no host via Agente."""
+    _call_host_agent("/launch/localization", method="POST")
+    return {"status": "success", "message": "Localização Nav2 (B002_map.yaml) iniciada com sucesso!"}
 
 @router.post("/launch_nav2")
 def launch_nav2():
-    """Lança o Stack de Navegação Nav2 com as configurações do projeto. Limpa processos antigos primeiro."""
-    try:
-        # Limpa processos antigos de navegação para evitar zumbis
-        subprocess.run(
-            "pkill -9 -f 'nav2.launch.py' 2>/dev/null ; "
-            "pkill -9 -f 'controller_server' 2>/dev/null ; "
-            "pkill -9 -f 'planner_server' 2>/dev/null ; "
-            "pkill -9 -f 'bt_navigator' 2>/dev/null ; "
-            "pkill -9 -f 'smoother_server' 2>/dev/null ; "
-            "pkill -9 -f 'behavior_server' 2>/dev/null ; "
-            "pkill -9 -f 'route_server' 2>/dev/null ; "
-            "pkill -9 -f 'waypoint_follower' 2>/dev/null ; "
-            "pkill -9 -f 'velocity_smoother' 2>/dev/null ; "
-            "pkill -9 -f 'collision_monitor' 2>/dev/null ; "
-            "pkill -9 -f 'opennav_docking' 2>/dev/null ; "
-            "pkill -9 -f 'lifecycle_manager_navigation' 2>/dev/null ; "
-            "sleep 3 || true",
-            shell=True, timeout=8
-        )
-        tb4_ws = get_tb4_workspace()
-        params_path = os.path.join(tb4_ws, "config/nav2_custom.yaml")
-        subprocess.run("xhost +local:root 2>/dev/null || xhost + 2>/dev/null || true", shell=True, timeout=3)
-        cmd = f'cd {tb4_ws} && export DISPLAY=:0 && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_navigation nav2.launch.py params_file:={params_path} use_sim_time:=false autostart:=true bond_timeout:=30.0 > /tmp/nav2_stack.log 2>&1'
-        subprocess.Popen(cmd, shell=True, executable="/bin/bash", start_new_session=True)
-        return {"status": "success", "message": "Stack Nav2 (nav2_custom.yaml) iniciado com sucesso!"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Falha ao iniciar Nav2: {e}")
+    """Lança o Stack de Navegação Nav2 no host via Agente."""
+    _call_host_agent("/launch/nav2", method="POST")
+    return {"status": "success", "message": "Stack Nav2 (nav2_custom.yaml) iniciado com sucesso!"}
 
 @router.post("/launch_viz")
 def launch_viz():
-    """Abre a visualização de navegação do Nav2 (view_navigation.launch.py) no monitor do PC Host."""
-    try:
-        tb4_ws = get_tb4_workspace()
-        subprocess.run("xhost +local:root 2>/dev/null || xhost + 2>/dev/null || true", shell=True, timeout=3)
-        cmd_viz = f'cd {tb4_ws} && export DISPLAY=:0 && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_viz view_navigation.launch.py > /tmp/nav2_viz.log 2>&1'
-        subprocess.Popen(cmd_viz, shell=True, executable="/bin/bash", start_new_session=True)
-        return {"status": "success", "message": "Janela do RViz Nav2 disparada no monitor do PC Host!"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Falha ao abrir RViz Nav2: {e}")
+    """Abre a visualização de navegação do Nav2 no monitor do PC Host via Agente."""
+    _call_host_agent("/launch/viz", method="POST")
+    return {"status": "success", "message": "Janela do RViz Nav2 disparada no monitor do PC Host!"}
 
 @router.post("/stop_localization")
 def stop_localization():
-    """Manda Ctrl+C / encerra o processo de Localização Nav2 (localization.launch.py, map_server, amcl)."""
-    try:
-        subprocess.run("pkill -9 -f 'localization.launch.py' 2>/dev/null || pkill -9 -f 'map_server' 2>/dev/null || true", shell=True)
-        return {"status": "success", "message": "Processo de Localização encerrado (Ctrl+C) com sucesso!"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Falha ao parar Localização: {e}")
+    """Encerra o processo de Localização Nav2 no host via Agente."""
+    _call_host_agent("/stop/localization", method="POST")
+    return {"status": "success", "message": "Processo de Localização encerrado (Ctrl+C) com sucesso!"}
 
 @router.post("/stop_nav2")
 def stop_nav2():
-    """Manda Ctrl+C / encerra o Stack de Navegação Nav2 (nav2.launch.py, bt_navigator, planner_server, etc) preservando o mapa."""
-    try:
-        subprocess.run("pkill -9 -f 'nav2.launch.py' 2>/dev/null || pkill -9 -f 'bt_navigator' 2>/dev/null || pkill -9 -f 'controller_server' 2>/dev/null || pkill -9 -f 'planner_server' 2>/dev/null || pkill -9 -f 'lifecycle_manager_navigation' 2>/dev/null || true", shell=True)
-        return {"status": "success", "message": "Stack de Navegação Nav2 encerrado preservando Mapa/Localização!"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Falha ao parar Nav2: {e}")
+    """Encerra o Stack de Navegação Nav2 no host via Agente."""
+    _call_host_agent("/stop/nav2", method="POST")
+    return {"status": "success", "message": "Stack de Navegação Nav2 encerrado preservando Mapa/Localização!"}
 
 @router.post("/stop_viz")
 def stop_viz():
-    """Manda Ctrl+C / encerra o RViz2 (view_navigation.launch.py, rviz2)."""
-    try:
-        subprocess.run("pkill -9 -f 'view_navigation.launch.py' 2>/dev/null || pkill -9 -f 'rviz2' 2>/dev/null || true", shell=True)
-        return {"status": "success", "message": "Janela do RViz2 encerrada (Ctrl+C) com sucesso!"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Falha ao fechar RViz2: {e}")
+    """Encerra o RViz2 no host via Agente."""
+    _call_host_agent("/stop/viz", method="POST")
+    return {"status": "success", "message": "Janela do RViz2 encerrada (Ctrl+C) com sucesso!"}
 
 @router.post("/launch_mission_manager")
 def launch_mission_manager():
-    """Inicializa o Gerenciador de Missões (mission_manager.py)."""
-    try:
-        tb4_ws = get_tb4_workspace()
-        subprocess.run("pkill -9 -f 'scripts/mission_manager.py' 2>/dev/null || true", shell=True)
-        time.sleep(0.3)
-        cmd = f'cd {tb4_ws} && {JAZZY_ENV_CMD_DS} && PYTHONUNBUFFERED=1 python3 -u scripts/mission_manager.py --ros-args --params-file params/waypoints.yaml > /tmp/nav2_mission_manager.log 2>&1'
-        subprocess.Popen(cmd, shell=True, executable="/bin/bash", start_new_session=True)
-        return {"status": "success", "message": "Nó Mestre do Mission Manager inicializado!"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Falha ao iniciar Mission Manager: {e}")
+    """Inicializa o Gerenciador de Missões no host via Agente."""
+    _call_host_agent("/launch/mission_manager", method="POST")
+    return {"status": "success", "message": "Nó Mestre do Mission Manager inicializado!"}
 
 @router.post("/stop_mission_manager_process")
 def stop_mission_manager_process():
-    """Manda Ctrl+C / encerra o processo do Mission Manager (mission_manager.py) para permitir reiniciar do zero."""
-    try:
-        subprocess.run("pkill -9 -f 'scripts/mission_manager.py' 2>/dev/null || true", shell=True)
-        return {"status": "success", "message": "Processo do Mission Manager finalizado (Ctrl+C) com sucesso!"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Falha ao encerrar Mission Manager: {e}")
+    """Encerra o processo do Mission Manager no host via Agente."""
+    _call_host_agent("/stop/mission_manager", method="POST")
+    return {"status": "success", "message": "Processo do Mission Manager finalizado (Ctrl+C) com sucesso!"}
 
 @router.post("/trigger_delivery")
 def trigger_delivery():
