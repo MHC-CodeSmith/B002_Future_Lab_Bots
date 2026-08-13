@@ -708,7 +708,8 @@ export default function TurtleBotDashboardTab({
           <p className="text-xs text-slate-400">{t('nav2SeqSub')}</p>
 
           {/* Badge de Aviso de Robô Acoplado na Dock */}
-          {tbNavReadiness?.checks?.undocked === false && (
+          {tbNavReadiness?.checks?.undocked === false &&
+           tbNavReadiness?.checks?.navigate_to_pose === true && (
             <div className="p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-300 text-xs flex items-start gap-2 font-sans">
               <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
               <span>

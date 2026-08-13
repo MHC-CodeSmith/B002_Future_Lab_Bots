@@ -148,12 +148,12 @@ def get_processes():
     return out
 
 def _nav_hint(faltando: list, checks: dict = None) -> str:
-    if checks and checks.get("undocked") is False:
-        return ("Robô acoplado na dock. Faça Undock antes de enviar metas diretas ao "
-                "Nav2 — a Create 3 ignora /cmd_vel na dock e o costmap nasce com a "
-                "estrutura da dock dentro da footprint. As rotinas de missão fazem o "
-                "undock sozinhas.")
     if not faltando:
+        if checks and checks.get("undocked") is False:
+            return ("Stack pronta, mas o robô está acoplado. Faça Undock (Passo 3) "
+                    "antes de enviar metas diretas ao Nav2 — a Create 3 ignora "
+                    "/cmd_vel na dock e o costmap nasce com a estrutura da dock "
+                    "dentro da footprint. As rotinas de missão fazem o undock sozinhas.")
         return "Stack de navegação pronta."
     if "map" in faltando or "amcl_pose" in faltando:
         return "Localização não está no ar. Use '1. Iniciar Localização', abra o RViz (Passo 2), faça Undock (Passo 3) e defina a pose inicial (Passo 4)."
