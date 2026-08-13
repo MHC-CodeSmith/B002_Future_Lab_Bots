@@ -37,12 +37,18 @@ except ImportError:
     HAS_CREATE_MSGS = False
 
 
+TELEMETRY_TTL = 5.0   # s sem mensagem da BASE = telemetria inválida
+FRAME_TTL = 3.0       # s sem frame da OAK-D = câmera sem sinal
+
+
 class TurtleBotNode(Node):
     def __init__(self):
         self.battery_percentage: Optional[float] = None
+        self.battery_current: Optional[float] = None
         self.is_docked: bool = False
         self.current_pose: Dict[str, float] = {"x": 0.0, "y": 0.0, "yaw": 0.0}
-        self.last_msg_time: float = time.time()
+        self.last_telemetry_time: float = 0.0
+        self.last_frame_time: float = 0.0
         self.latest_jpeg_frame: Optional[bytes] = None
 
         self._dock_raw_last: Optional[bool] = None
@@ -67,7 +73,11 @@ class TurtleBotNode(Node):
                 self.cmd_vel_stamped_pub = self.create_publisher(TwistStamped, "/cmd_vel", 10)
                 self.create_subscription(BatteryState, "/battery_state", self._battery_callback, qos_profile_sensor_data)
                 self.create_subscription(Odometry, "/odom", self._odom_callback, qos_profile_sensor_data)
+                qos_reliable = QoSProfile(depth=10, reliability=QoSReliabilityPolicy.RELIABLE)
+                self.create_subscription(Image, "/oakd/rgb/preview/image_raw", self._raw_image_callback, qos_profile_sensor_data)
                 self.create_subscription(CompressedImage, "/oakd/rgb/preview/image_raw/compressed", self._compressed_image_callback, qos_profile_sensor_data)
+                self.create_subscription(Image, "/oakd/rgb/preview/image_raw", self._raw_image_callback, qos_reliable)
+                self.create_subscription(CompressedImage, "/oakd/rgb/preview/image_raw/compressed", self._compressed_image_callback, qos_reliable)
                 if HAS_CREATE_MSGS:
                     try:
                         self.create_subscription(DockStatus, "/dock_status", self._dock_status_callback, qos_profile_sensor_data)
@@ -99,7 +109,25 @@ class TurtleBotNode(Node):
     def _compressed_image_callback(self, msg):
         try:
             self.latest_jpeg_frame = bytes(msg.data)
-            self.last_msg_time = time.time()
+            self.last_frame_time = time.time()
+        except Exception:
+            pass
+
+    def _raw_image_callback(self, msg):
+        try:
+            import cv2
+            import numpy as np
+            height = msg.height
+            width = msg.width
+            if height > 0 and width > 0:
+                channels = 3
+                img = np.frombuffer(msg.data, dtype=np.uint8).reshape((height, width, channels))
+                if "rgb" in msg.encoding.lower():
+                    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+                success, encoded_img = cv2.imencode('.jpg', img, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+                if success:
+                    self.latest_jpeg_frame = encoded_img.tobytes()
+                    self.last_frame_time = time.time()
         except Exception:
             pass
 
@@ -115,18 +143,24 @@ class TurtleBotNode(Node):
             self.is_docked = value
 
     def _poll_fallback_loop(self):
-        """Consulta preventiva de telemetria (bateria e docking) com Discovery Server e UDPv4 ativos."""
+        """Consulta preventiva de telemetria (bateria e docking) com Discovery Server ativo."""
         while True:
             try:
                 # 1. Leitura Real da Bateria
                 cmd_bat = JAZZY_ENV_CMD + "ros2 topic echo /battery_state --once"
                 res_bat = subprocess.run(cmd_bat, shell=True, executable="/bin/bash", capture_output=True, text=True, timeout=12)
                 if res_bat.returncode == 0:
+                    got_bat = False
                     for line in res_bat.stdout.splitlines():
                         if "percentage:" in line:
                             val = float(line.split(":")[-1].strip())
                             self.battery_percentage = round(val * (100.0 if val <= 1.0 else 1.0), 1)
-                            self.last_msg_time = time.time()
+                            got_bat = True
+                        elif "current:" in line:
+                            self.battery_current = float(line.split(":")[-1].strip())
+                            got_bat = True
+                    if got_bat:
+                        self.last_telemetry_time = time.time()
 
                 # 2. Leitura Real do Dock Status
                 cmd_dock = JAZZY_ENV_CMD + "ros2 topic echo /dock_status --once"
@@ -136,7 +170,7 @@ class TurtleBotNode(Node):
                         if "is_docked:" in line:
                             val_str = line.split(":")[-1].strip().lower()
                             self._set_docked_debounced(val_str == "true")
-                            self.last_msg_time = time.time()
+                            self.last_telemetry_time = time.time()
                             break
             except Exception:
                 pass
@@ -156,27 +190,28 @@ class TurtleBotNode(Node):
 
     def _battery_callback(self, msg):
         try:
-            self.last_msg_time = time.time()
             if hasattr(msg, 'percentage'):
                 self.battery_percentage = round(float(msg.percentage) * (100.0 if msg.percentage <= 1.0 else 1.0), 1)
+            if hasattr(msg, 'current'):
+                self.battery_current = float(msg.current)
+            self.last_telemetry_time = time.time()
         except Exception as e:
             print(f"[WARN TB4] Battery callback error: {e}")
 
     def _odom_callback(self, msg):
         try:
-            self.last_msg_time = time.time()
             pos = msg.pose.pose.position
             self.current_pose["x"] = round(float(pos.x), 2)
             self.current_pose["y"] = round(float(pos.y), 2)
+            self.last_telemetry_time = time.time()
         except Exception:
             pass
 
     def _dock_status_callback(self, msg):
         try:
-            self.last_msg_time = time.time()
             if hasattr(msg, 'is_docked'):
-                print(f"[DEBUG TB4] DockStatus callback: is_docked={msg.is_docked}")
                 self._set_docked_debounced(bool(msg.is_docked))
+                self.last_telemetry_time = time.time()
         except Exception as e:
             print(f"[WARN TB4] DockStatus callback error: {e}")
 
@@ -230,18 +265,27 @@ class TurtleBotNode(Node):
                     time.sleep(0.05)
             threading.Thread(target=_burst, daemon=True).start()
 
+    def telemetry_fresh(self) -> bool:
+        return (time.time() - self.last_telemetry_time) < TELEMETRY_TTL
+
     def get_status(self) -> Dict:
         # Se a telemetria não foi capturada recentemente pelos callbacks (> 5s), realiza uma tentativa síncrona
-        if self.battery_percentage is None or (time.time() - self.last_msg_time) > 5.0:
+        if not self.telemetry_fresh():
             try:
                 cmd = JAZZY_ENV_CMD + "ros2 topic echo /battery_state --once"
                 res = subprocess.run(cmd, shell=True, executable="/bin/bash", capture_output=True, text=True, timeout=2)
                 if res.returncode == 0:
+                    got_bat = False
                     for line in res.stdout.splitlines():
                         if "percentage:" in line:
                             val = float(line.split(":")[-1].strip())
                             self.battery_percentage = round(val * (100.0 if val <= 1.0 else 1.0), 1)
-                            self.last_msg_time = time.time()
+                            got_bat = True
+                        elif "current:" in line:
+                            self.battery_current = float(line.split(":")[-1].strip())
+                            got_bat = True
+                    if got_bat:
+                        self.last_telemetry_time = time.time()
             except Exception:
                 pass
 
@@ -253,16 +297,27 @@ class TurtleBotNode(Node):
                         if "is_docked:" in line:
                             val_str = line.split(":")[-1].strip().lower()
                             self._set_docked_debounced(val_str == "true")
-                            self.last_msg_time = time.time()
+                            self.last_telemetry_time = time.time()
                             break
             except Exception:
                 pass
 
+        fresh = self.telemetry_fresh()
+        age = None if self.last_telemetry_time == 0.0 else round(time.time() - self.last_telemetry_time, 1)
+        charging = None
+        if fresh and self.battery_current is not None:
+            charging = self.battery_current > 0.05
+
         return {
-            "battery_percentage": self.battery_percentage if self.battery_percentage is not None else 50.0,
-            "is_docked": self.is_docked,
-            "current_pose": self.current_pose,
-            "status": "ready"
+            "telemetry_ok": fresh,
+            "telemetry_age_s": age,
+            "status": "ready" if fresh else "no_telemetry",
+            "battery_percentage": self.battery_percentage if fresh else None,
+            "battery_current": round(self.battery_current, 3) if (fresh and self.battery_current is not None) else None,
+            "charging": charging,
+            "is_docked": self.is_docked if fresh else None,
+            "current_pose": self.current_pose if fresh else None,
+            "oakd_streaming": bool(self.latest_jpeg_frame and (time.time() - self.last_frame_time) < FRAME_TTL),
         }
 
 _tb_node: Optional[TurtleBotNode] = None

@@ -207,10 +207,15 @@ def get_turtlebot_status():
     if not ping_ok:
         return {
             "status": "offline",
-            "battery_percentage": None,
-            "is_docked": node.is_docked,
-            "current_pose": node.current_pose,
             "ping_ok": False,
+            "telemetry_ok": False,
+            "telemetry_age_s": None,
+            "battery_percentage": None,
+            "battery_current": None,
+            "charging": None,
+            "is_docked": None,
+            "current_pose": None,
+            "oakd_streaming": False,
             "sim_state": sim_state,
         }
 
@@ -751,17 +756,31 @@ from fastapi.responses import StreamingResponse
 
 @router.get("/oakd_stream")
 def proxy_oakd_stream():
-    """Streaming MJPEG ao vivo da Câmera OAK-D-PRO do TurtleBot 4."""
+    """Streaming MJPEG ao vivo da Câmera OAK-D-PRO do TurtleBot 4 com timeout de 5s e placeholder."""
     node = get_turtlebot_node()
 
     def generate_frames():
+        start_wait = time.time()
         while True:
             frame = node.latest_jpeg_frame
-            if frame:
+            last_msg = getattr(node, 'last_msg_time', 0)
+            if frame and (time.time() - last_msg < 5.0):
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
                 time.sleep(0.04)  # ~25 FPS
             else:
+                if time.time() - start_wait > 5.0 or (frame and time.time() - last_msg >= 5.0):
+                    try:
+                        import cv2, numpy as np
+                        img = np.zeros((240, 320, 3), dtype=np.uint8)
+                        cv2.putText(img, "CAMERA SEM SINAL", (30, 125), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                        _, jpeg = cv2.imencode('.jpg', img)
+                        placeholder = jpeg.tobytes()
+                        yield (b'--frame\r\n'
+                               b'Content-Type: image/jpeg\r\n\r\n' + placeholder + b'\r\n')
+                    except Exception:
+                        pass
+                    break
                 time.sleep(0.1)
 
     return StreamingResponse(
