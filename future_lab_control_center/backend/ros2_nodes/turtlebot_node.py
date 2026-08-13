@@ -1,5 +1,6 @@
 import os
 import time
+import math
 import threading
 import subprocess
 from typing import Dict, Optional
@@ -41,6 +42,9 @@ except ImportError:
 
 TELEMETRY_TTL = 5.0   # s sem mensagem da BASE = telemetria inválida
 FRAME_TTL = 3.0       # s sem frame da OAK-D = câmera sem sinal
+AMCL_TTL = 5.0        # s sem mensagem de /amcl_pose = AMCL inativo
+COV_XY_MAX = 0.05      # m²
+COV_YAW_MAX = 0.06     # rad²
 
 
 class TurtleBotNode(Node if HAS_RCLPY else object):
@@ -49,6 +53,9 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
         self.battery_current: Optional[float] = None
         self.is_docked: bool = False
         self.current_pose: Dict[str, float] = {"x": 0.0, "y": 0.0, "yaw": 0.0}
+        self.amcl_pose: Optional[Dict[str, float]] = None
+        self.amcl_cov: Optional[Dict[str, float]] = None
+        self.last_amcl_time: float = 0.0
         self.last_telemetry_time: float = 0.0
         self.last_frame_time: float = 0.0
         self.latest_jpeg_frame: Optional[bytes] = None
@@ -77,6 +84,7 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
                 self.initialpose_pub = self.create_publisher(PoseWithCovarianceStamped, "/initialpose", 10)
                 self.create_subscription(BatteryState, "/battery_state", self._battery_callback, qos_profile_sensor_data)
                 self.create_subscription(Odometry, "/odom", self._odom_callback, qos_profile_sensor_data)
+                self.create_subscription(PoseWithCovarianceStamped, "/amcl_pose", self._amcl_callback, qos_profile_sensor_data)
                 self.create_subscription(Image, "/oakd/rgb/preview/image_raw", self._raw_image_callback, qos_profile_sensor_data)
                 self.create_subscription(CompressedImage, "/oakd/rgb/preview/image_raw/compressed", self._compressed_image_callback, qos_profile_sensor_data)
                 if HAS_CREATE_MSGS:
@@ -226,6 +234,36 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
                 self.last_telemetry_time = time.time()
         except Exception as e:
             print(f"[WARN TB4] DockStatus callback error: {e}")
+
+    def _amcl_callback(self, msg):
+        try:
+            import math
+            p = msg.pose.pose.position
+            q = msg.pose.pose.orientation
+            yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
+                             1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+            self.amcl_pose = {"x": round(float(p.x), 4),
+                              "y": round(float(p.y), 4),
+                              "yaw": round(float(yaw), 4)}
+            cov = list(msg.pose.covariance)
+            self.amcl_cov = {"x": round(cov[0], 5),
+                             "y": round(cov[7], 5),
+                             "yaw": round(cov[35], 5)}
+            self.last_amcl_time = time.time()
+        except Exception as e:
+            print(f"[WARN TB4] AMCL callback error: {e}")
+
+    def get_amcl(self) -> Dict:
+        fresh = (time.time() - self.last_amcl_time) < AMCL_TTL
+        if not fresh or self.amcl_pose is None or self.amcl_cov is None:
+            return {"amcl_ok": False, "converged": False, "pose": None,
+                    "covariance": None, "age_s": None}
+        c = self.amcl_cov
+        converged = (c["x"] < COV_XY_MAX and c["y"] < COV_XY_MAX
+                     and c["yaw"] < COV_YAW_MAX)
+        return {"amcl_ok": True, "converged": converged, "pose": self.amcl_pose,
+                "covariance": c,
+                "age_s": round(time.time() - self.last_amcl_time, 1)}
 
     def call_trigger_service(self, srv_name: str, timeout_sec: float = 2.0):
         """Chama um serviço Trigger do mission_manager e devolve (sucesso, mensagem) reais.
