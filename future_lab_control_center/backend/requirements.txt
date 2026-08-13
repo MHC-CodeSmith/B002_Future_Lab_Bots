@@ -10,3 +10,5 @@ websockets>=11.0.0
 requests>=2.31.0
 opencv-python-headless
 ultralytics
+PyYAML>=6.0
+

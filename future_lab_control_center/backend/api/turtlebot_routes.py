@@ -283,10 +283,16 @@ def save_dock_pose():
         }
     }
 
+    HEADER = (
+        "# Pose do TurtleBot 4 quando acoplado na dock, no frame \"map\" do B002_map.yaml.\n"
+        "# Gravado por POST /api/v1/turtlebot/save_dock_pose com o AMCL convergido.\n"
+        "# NAO editar a mao.\n"
+    )
     try:
         os.makedirs(os.path.dirname(nav_poses_file), exist_ok=True)
         with open(nav_poses_file, "w") as f:
-            yaml.dump(dock_data, f, default_flow_style=False)
+            f.write(HEADER)
+            yaml.dump(dock_data, f, default_flow_style=False, allow_unicode=True)
         return {
             "status": "success",
             "message": f"Pose real da dock gravada com sucesso em {nav_poses_file}!",

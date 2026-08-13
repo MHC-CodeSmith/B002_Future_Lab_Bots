@@ -213,7 +213,6 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
 
     def _odom_callback(self, msg):
         try:
-            import math
             pos = msg.pose.pose.position
             ori = msg.pose.pose.orientation
             self.current_pose["x"] = round(float(pos.x), 2)
@@ -221,7 +220,7 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
 
             siny_cosp = 2.0 * (float(ori.w) * float(ori.z) + float(ori.x) * float(ori.y))
             cosy_cosp = 1.0 - 2.0 * (float(ori.y) * float(ori.y) + float(ori.z) * float(ori.z))
-            self.current_pose["yaw"] = round(math.atan2(siny_cosp, cosy_cosp), 2)
+            self.current_pose["yaw"] = round(math.atan2(siny_cosp, cosy_cosp), 3)
 
             self.last_telemetry_time = time.time()
         except Exception:
@@ -237,7 +236,6 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
 
     def _amcl_callback(self, msg):
         try:
-            import math
             p = msg.pose.pose.position
             q = msg.pose.pose.orientation
             yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
@@ -320,7 +318,6 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
             return False, "rclpy não inicializado no nó para publicar /initialpose"
 
         try:
-            import math
             msg = PoseWithCovarianceStamped()
             msg.header.frame_id = "map"
             msg.header.stamp = self.get_clock().now().to_msg()
