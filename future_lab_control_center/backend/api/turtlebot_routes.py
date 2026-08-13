@@ -263,17 +263,29 @@ def clear_costmaps():
 
 @router.get("/nav_poses")
 def get_nav_poses():
-    """Retorna as poses configuradas em nav_poses.yaml."""
+    """Retorna a dock_pose de nav_poses.yaml e os waypoints reais de waypoints.yaml."""
     try:
         import yaml
         nav_poses_file = "/app/backend/config/nav_poses.yaml"
         if not os.path.exists(nav_poses_file):
             nav_poses_file = os.path.join(os.path.dirname(__file__), "../config/nav_poses.yaml")
+        out = {"dock_pose": None}
         if os.path.exists(nav_poses_file):
             with open(nav_poses_file, "r") as f:
                 data = yaml.safe_load(f)
-                return data or {"dock_pose": None}
-        return {"dock_pose": None}
+                if isinstance(data, dict):
+                    out.update(data)
+        
+        # Acrescenta waypoints do waypoints.yaml
+        try:
+            wp_params = _waypoints()
+            for key, val in wp_params.items():
+                if isinstance(val, (list, tuple)) and len(val) >= 3:
+                    out[key] = [float(val[0]), float(val[1]), float(val[2])]
+        except Exception as wp_err:
+            out["waypoints_error"] = str(wp_err)
+
+        return out
     except Exception as e:
         return {"dock_pose": None, "error": str(e)}
 
@@ -351,8 +363,90 @@ sim_state = {
     "step_title": "Simulação Inativa",
     "step_description": "Selecione a peça e inicie o modo simulado.",
     "waiting_confirmation": False,
-    "busy": False
+    "busy": False,
+    "last_nav_result": None
 }
+
+_simulation_popens = []
+_simulation_popens_lock = threading.Lock()
+
+def _register_sim_popen(proc: subprocess.Popen):
+    with _simulation_popens_lock:
+        _simulation_popens.append(proc)
+
+def _kill_sim_popens() -> int:
+    killed_count = 0
+    with _simulation_popens_lock:
+        while _simulation_popens:
+            p = _simulation_popens.pop()
+            try:
+                if p.poll() is None:
+                    p.terminate()
+                    try:
+                        p.wait(timeout=1.0)
+                    except Exception:
+                        p.kill()
+                    killed_count += 1
+            except Exception:
+                try:
+                    p.kill()
+                    killed_count += 1
+                except Exception:
+                    pass
+    return killed_count
+
+_WAYPOINTS_CACHE = {"timestamp": 0.0, "data": None}
+
+def _waypoints() -> dict:
+    """Lê turtlebot4_jazzy/params/waypoints.yaml. Somente leitura, cache de 30 s."""
+    now = time.time()
+    if _WAYPOINTS_CACHE["data"] is not None and (now - _WAYPOINTS_CACHE["timestamp"]) < 30.0:
+        return _WAYPOINTS_CACHE["data"]
+
+    wp_file = os.path.join(get_tb4_workspace(), "params", "waypoints.yaml")
+
+    if not os.path.exists(wp_file):
+        raise HTTPException(
+            status_code=503,
+            detail=f"Arquivo de waypoints {wp_file} não encontrado."
+        )
+
+    try:
+        import yaml
+        with open(wp_file, "r") as f:
+            raw = yaml.safe_load(f)
+        
+        params = raw.get("/**", {}).get("ros__parameters", {})
+        _WAYPOINTS_CACHE["timestamp"] = now
+        _WAYPOINTS_CACHE["data"] = params
+        return params
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Erro ao ler waypoints de {wp_file}: {e}"
+        )
+
+def _get_waypoint_pose(name: str) -> tuple:
+    """Obtém (x, y, yaw) do waypoint lido de waypoints.yaml. Lança HTTP 503 se a chave não existir."""
+    params = _waypoints()
+    if name not in params:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Waypoint '{name}' não configurado em waypoints.yaml."
+        )
+    val = params[name]
+    if not isinstance(val, (list, tuple)) or len(val) < 3:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Waypoint '{name}' em waypoints.yaml inválido (esperado [x, y, yaw])."
+        )
+    return float(val[0]), float(val[1]), float(val[2])
+
+def _yaw_to_quaternion(yaw: float) -> tuple:
+    half_yaw = yaw * 0.5
+    return math.sin(half_yaw), math.cos(half_yaw)
 
 _ping_cache = {"timestamp": 0.0, "ok": False}
 
@@ -451,28 +545,48 @@ def next_simulation_step():
 
     if step == "at_dock":
         # Passo 2: Undock & Ir para Ponto de Coleta (pickup_point)
+        px, py, pyaw = _get_waypoint_pose("pickup_point")
+        pz, pw = _yaw_to_quaternion(pyaw)
+
         sim_state["current_step"] = "going_pickup"
         sim_state["step_index"] = 2
         sim_state["step_title"] = "Undock & Indo para Ponto de Coleta"
-        sim_state["step_description"] = "Desengatando da dock e navegando até 'pickup_point'..."
+        sim_state["step_description"] = f"Desengatando da dock e navegando até 'pickup_point' ({px}, {py})..."
         sim_state["waiting_confirmation"] = False
         sim_state["busy"] = True
 
         def _step_pickup():
             try:
                 trigger_undock()
-                time.sleep(4.0)
-                cmd = f'{JAZZY_ENV_CMD} && ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose "{{pose: {{header: {{frame_id: map}}, pose: {{position: {{x: -1.078, y: 0.130, z: 0.0}}, orientation: {{w: 1.0}}}}}}}}"'
-                subprocess.Popen(cmd, shell=True, executable="/bin/bash")
-                time.sleep(12.0)
-                sim_state["current_step"] = "at_pickup"
-                sim_state["step_index"] = 3
-                sim_state["step_title"] = "Chegou ao Ponto de Coleta (pickup_point)"
-                sim_state["step_description"] = f"Robô posicionado no Ponto de Coleta. Clique em 'CONFIRMAR E IR PARA O PRÓXIMO PASSO' para navegar até a estação de entrega ({'Azul' if item=='blue' else 'Vermelha'})."
-                sim_state["waiting_confirmation"] = True
+                time.sleep(3.0)
+                cmd = f'{JAZZY_ENV_CMD} && ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose "{{pose: {{header: {{frame_id: map}}, pose: {{position: {{x: {px}, y: {py}, z: 0.0}}, orientation: {{z: {pz}, w: {pw}}}}}}}}}"'
+                proc = subprocess.Popen(cmd, shell=True, executable="/bin/bash", stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                _register_sim_popen(proc)
+                try:
+                    stdout, _ = proc.communicate(timeout=90.0)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    stdout = "Timeout (90s) aguardando chegada ao pickup_point."
+                
+                output = stdout or ""
+                is_succeeded = ("STATUS_SUCCEEDED" in output or "Goal finished with status SUCCEEDED" in output or "SUCCEEDED" in output) and proc.returncode == 0
+                sim_state["last_nav_result"] = "SUCCEEDED" if is_succeeded else "FAILED"
+
+                if is_succeeded:
+                    sim_state["current_step"] = "at_pickup"
+                    sim_state["step_index"] = 3
+                    sim_state["step_title"] = "Chegou ao Ponto de Coleta (pickup_point)"
+                    sim_state["step_description"] = f"Robô posicionado no Ponto de Coleta. Clique em 'CONFIRMAR E IR PARA O PRÓXIMO PASSO' para navegar até o destino ({item.upper()})."
+                    sim_state["waiting_confirmation"] = True
+                else:
+                    sim_state["step_title"] = "Falha na navegação (pickup_point)"
+                    sim_state["step_description"] = f"Navegação para pickup_point não reportou SUCESSO: {output.strip()[:250]}"
+                    sim_state["waiting_confirmation"] = False
             except Exception as e:
                 sim_state["step_title"] = "Falha no Undock / Coleta"
                 sim_state["step_description"] = f"Erro no passo de coleta: {e}"
+                sim_state["last_nav_result"] = "ERROR"
+                sim_state["waiting_confirmation"] = False
             finally:
                 sim_state["busy"] = False
 
@@ -480,31 +594,54 @@ def next_simulation_step():
         return {"status": "success", "message": "Avançando para o Ponto de Coleta..."}
 
     elif step == "at_pickup":
-        # Passo 3: Ir para Estação de Entrega (delivery_blue ou delivery_red)
-        target_wp = "delivery_blue" if item == "blue" else "delivery_red"
-        target_x = 0.50 if item == "blue" else -0.50
-        target_y = 1.20 if item == "blue" else 1.20
+        # Passo 3: Ir para Estação de Entrega / Destino real
+        item_map = {
+            "blue": "delivery_blue",
+            "red": "delivery_red",
+            "invalid": "failure_zone",
+            "restock": "supply_point"
+        }
+        target_wp = item_map.get(item, "delivery_blue")
+        dx, dy, dyaw = _get_waypoint_pose(target_wp)
+        dz, dw = _yaw_to_quaternion(dyaw)
 
         sim_state["current_step"] = "going_delivery"
         sim_state["step_index"] = 4
-        sim_state["step_title"] = f"Indo para Estação de Entrega ({item.upper()})"
-        sim_state["step_description"] = f"Navegando até o destino '{target_wp}'..."
+        sim_state["step_title"] = f"Indo para Destino ({item.upper()}: {target_wp})"
+        sim_state["step_description"] = f"Navegando até o destino '{target_wp}' ({dx}, {dy})..."
         sim_state["waiting_confirmation"] = False
         sim_state["busy"] = True
 
         def _step_delivery():
             try:
-                cmd = f'{JAZZY_ENV_CMD} && ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose "{{pose: {{header: {{frame_id: map}}, pose: {{position: {{x: {target_x}, y: {target_y}, z: 0.0}}, orientation: {{w: 1.0}}}}}}}}"'
-                subprocess.Popen(cmd, shell=True, executable="/bin/bash")
-                time.sleep(15.0)
-                sim_state["current_step"] = "at_delivery"
-                sim_state["step_index"] = 5
-                sim_state["step_title"] = f"Entrega Concluída ({item.upper()})"
-                sim_state["step_description"] = "Peça entregue no destino. Clique em 'CONFIRMAR E IR PARA O PRÓXIMO PASSO' para retornar à Estação de Carga."
-                sim_state["waiting_confirmation"] = True
+                cmd = f'{JAZZY_ENV_CMD} && ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose "{{pose: {{header: {{frame_id: map}}, pose: {{position: {{x: {dx}, y: {dy}, z: 0.0}}, orientation: {{z: {dz}, w: {dw}}}}}}}}}"'
+                proc = subprocess.Popen(cmd, shell=True, executable="/bin/bash", stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                _register_sim_popen(proc)
+                try:
+                    stdout, _ = proc.communicate(timeout=90.0)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    stdout = f"Timeout (90s) aguardando chegada a {target_wp}."
+
+                output = stdout or ""
+                is_succeeded = ("STATUS_SUCCEEDED" in output or "Goal finished with status SUCCEEDED" in output or "SUCCEEDED" in output) and proc.returncode == 0
+                sim_state["last_nav_result"] = "SUCCEEDED" if is_succeeded else "FAILED"
+
+                if is_succeeded:
+                    sim_state["current_step"] = "at_delivery"
+                    sim_state["step_index"] = 5
+                    sim_state["step_title"] = f"Entrega Concluída ({item.upper()})"
+                    sim_state["step_description"] = f"Robô chegou a '{target_wp}'. Clique em 'CONFIRMAR E IR PARA O PRÓXIMO PASSO' para retornar à Estação de Carga."
+                    sim_state["waiting_confirmation"] = True
+                else:
+                    sim_state["step_title"] = f"Falha na navegação ({target_wp})"
+                    sim_state["step_description"] = f"Navegação para '{target_wp}' não reportou SUCESSO: {output.strip()[:250]}"
+                    sim_state["waiting_confirmation"] = False
             except Exception as e:
                 sim_state["step_title"] = "Falha na Entrega"
                 sim_state["step_description"] = f"Erro no passo de entrega: {e}"
+                sim_state["last_nav_result"] = "ERROR"
+                sim_state["waiting_confirmation"] = False
             finally:
                 sim_state["busy"] = False
 
@@ -542,8 +679,13 @@ def next_simulation_step():
 
 @router.post("/simulation/stop")
 def stop_simulation():
+    _kill_sim_popens()
     sim_state["active"] = False
     sim_state["current_step"] = "idle"
+    sim_state["step_title"] = "Simulação Encerrada"
+    sim_state["step_description"] = "Modo simulado desativado."
+    sim_state["waiting_confirmation"] = False
+    sim_state["busy"] = False
     sim_state["step_title"] = "Simulação Encerrada"
     sim_state["step_description"] = "Modo simulado desativado."
     sim_state["waiting_confirmation"] = False
@@ -887,14 +1029,44 @@ def trigger_patrol():
 
 @router.post("/stop_mission")
 def stop_mission():
-    """Interrompe a missão ativa e força parada dos motores. Nunca falha."""
+    """Interrompe a missão ativa e força parada dos motores. Retorna status transparente."""
     node = get_turtlebot_node()
-    ok, msg = node.call_trigger_service("stop_mission")
-    node.send_cmd_vel(0.0, 0.0)
+    avisos = []
+
+    # 1. Cancelar todas as metas do /navigate_to_pose
+    cancel_ok, cancel_count, cancel_err = node.cancel_all_nav_goals(timeout_sec=2.0)
+    if cancel_err:
+        avisos.append(cancel_err)
+
+    # 2. Matar subprocessos Popen do modo simulado
+    killed_sim_procs = _kill_sim_popens()
+
+    # 3. Desativar estado do modo simulado
+    sim_state["active"] = False
+    sim_state["busy"] = False
+    sim_state["waiting_confirmation"] = False
+
+    # 4. Chamar serviço /stop_mission do Mission Manager
+    mm_ok, mm_msg = node.call_trigger_service("stop_mission", timeout_sec=2.0)
+    if not mm_ok:
+        avisos.append(f"Mission Manager não estava no ar — nenhuma missão para cancelar.")
+
+    # 5. Rajada de zero sustentada: 20 Hz por 2.0 s (40 mensagens)
+    node.send_cmd_vel(0.0, 0.0, duration_sec=2.0, hz=20.0)
+
+    overall_status = "success" if cancel_ok else "partial"
+    msg = "🛑 Motores parados e metas canceladas."
+    if overall_status == "partial":
+        msg = "⚠️ Parada executada parcialmente. Verifique os avisos."
+
     return {
-        "status": "success",
-        "service_ok": ok,
-        "message": "🛑 Motores parados." + ("" if ok else f" Aviso: {msg}")
+        "status": overall_status,
+        "message": msg,
+        "nav_goal_cancelada": cancel_ok,
+        "processos_simulacao_mortos": killed_sim_procs,
+        "mission_manager_ok": mm_ok,
+        "cmd_vel_zerado": True,
+        "avisos": avisos
     }
 
 @router.post("/launch_integrated_3d")
