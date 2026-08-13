@@ -100,6 +100,14 @@ export default function Dashboard() {
     }
   };
 
+  // Atualização sob demanda depois de uma ação do operador.
+  // refreshFastStatus e refreshSlowStatus são os dois laços de polling;
+  // esta função dispara os dois de uma vez e é chamada no fim de cada handler.
+  const refreshStatus = () => {
+    refreshFastStatus();
+    refreshSlowStatus();
+  };
+
   useEffect(() => {
     refreshFastStatus();
     refreshSlowStatus();

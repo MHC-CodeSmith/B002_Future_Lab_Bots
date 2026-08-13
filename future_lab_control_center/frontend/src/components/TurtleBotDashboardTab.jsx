@@ -3,7 +3,7 @@ import {
   Bot, Battery, Anchor, Navigation, MapPin, Play, Square, 
   ArrowUp, ArrowDown, ArrowLeft, ArrowRight, ShieldAlert,
   Box, Truck, RefreshCw, Eye, Layers, Compass, Search, Wifi,
-  CheckCircle2, XCircle, Activity, Trash2
+  CheckCircle2, XCircle, Activity, Trash2, AlertTriangle
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 
@@ -476,7 +476,6 @@ export default function TurtleBotDashboardTab({
                 onClick={async () => {
                   if (onStartOakdCamera) await onStartOakdCamera();
                   setStreamKey(Date.now());
-                  setOakdOnline(true);
                 }}
                 className="py-2 px-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 text-xs"
               >
@@ -486,11 +485,9 @@ export default function TurtleBotDashboardTab({
               <button
                 onClick={async () => {
                   setRestartingOakd(true);
-                  setOakdOnline(false);
                   if (onStartOakdCamera) await onStartOakdCamera();
                   setTimeout(() => {
                     setStreamKey(Date.now());
-                    setOakdOnline(true);
                     setRestartingOakd(false);
                   }, 300);
                 }}
