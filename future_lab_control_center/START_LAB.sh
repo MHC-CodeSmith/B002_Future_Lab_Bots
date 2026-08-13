@@ -149,7 +149,7 @@ if ping -c 1 -w 2 192.168.0.129 >/dev/null 2>&1; then
     log_ok "TurtleBot 4 acessível via Ping."
     if [ "$MODE" == "reset" ]; then
         log_info "Reiniciando bringup do TurtleBot 4 no RPi4..."
-        ssh -o ConnectTimeout=5 ubuntu@192.168.0.129 "echo turtlebot4 | sudo -S systemctl restart turtlebot4.service" || true
+        ssh -o ConnectTimeout=5 ubuntu@192.168.0.129 "echo turtlebot4 | sudo -S -p '' systemctl restart turtlebot4.service" || true
     fi
 else
     log_warn "TurtleBot 4 (192.168.0.129) não responde ao Ping."
