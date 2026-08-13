@@ -89,7 +89,6 @@ if [ "$MODE" == "reset" ]; then
     pkill -9 -f 'nav2.launch.py' 2>/dev/null || true
     pkill -9 -f 'view_navigation.launch.py' 2>/dev/null || true
     pkill -9 -f 'scripts/mission_manager.py' 2>/dev/null || true
-    pkill -9 -f 'opt/ros/jazzy/lib' 2>/dev/null || true
     docker compose down --remove-orphans || true
     systemctl --user restart future-lab-agent future-lab-cobot-discovery || true
     sleep 2

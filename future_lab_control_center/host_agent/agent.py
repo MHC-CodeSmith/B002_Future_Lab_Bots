@@ -49,8 +49,8 @@ ALLOWED_LAUNCHES = {
 }
 
 ALLOWED_PKILLS = {
-    "localization": "pkill -9 -f 'localization.launch.py' 2>/dev/null ; pkill -9 -f 'map_server' 2>/dev/null ; pkill -9 -f 'amcl' 2>/dev/null ; pkill -9 -f 'lifecycle_manager_localization' 2>/dev/null ; pkill -9 -f 'opt/ros/jazzy/lib' 2>/dev/null || true",
-    "nav2": "pkill -9 -f 'nav2.launch.py' 2>/dev/null ; pkill -9 -f 'controller_server' 2>/dev/null ; pkill -9 -f 'planner_server' 2>/dev/null ; pkill -9 -f 'bt_navigator' 2>/dev/null ; pkill -9 -f 'smoother_server' 2>/dev/null ; pkill -9 -f 'behavior_server' 2>/dev/null ; pkill -9 -f 'route_server' 2>/dev/null ; pkill -9 -f 'waypoint_follower' 2>/dev/null ; pkill -9 -f 'velocity_smoother' 2>/dev/null ; pkill -9 -f 'collision_monitor' 2>/dev/null ; pkill -9 -f 'opennav_docking' 2>/dev/null ; pkill -9 -f 'lifecycle_manager_navigation' 2>/dev/null ; pkill -9 -f 'opt/ros/jazzy/lib' 2>/dev/null || true",
+    "localization": "pkill -9 -f 'localization.launch.py' 2>/dev/null ; pkill -9 -f 'map_server' 2>/dev/null ; pkill -9 -f 'amcl' 2>/dev/null ; pkill -9 -f 'lifecycle_manager_localization' 2>/dev/null || true",
+    "nav2": "pkill -9 -f 'nav2.launch.py' 2>/dev/null ; pkill -9 -f 'controller_server' 2>/dev/null ; pkill -9 -f 'planner_server' 2>/dev/null ; pkill -9 -f 'bt_navigator' 2>/dev/null ; pkill -9 -f 'smoother_server' 2>/dev/null ; pkill -9 -f 'behavior_server' 2>/dev/null ; pkill -9 -f 'route_server' 2>/dev/null ; pkill -9 -f 'waypoint_follower' 2>/dev/null ; pkill -9 -f 'velocity_smoother' 2>/dev/null ; pkill -9 -f 'collision_monitor' 2>/dev/null ; pkill -9 -f 'opennav_docking' 2>/dev/null ; pkill -9 -f 'lifecycle_manager_navigation' 2>/dev/null || true",
     "viz": "pkill -9 -f 'view_navigation.launch.py' 2>/dev/null ; pkill -9 -f 'rviz2' 2>/dev/null || true",
     "mission_manager": "pkill -9 -f 'scripts/mission_manager.py' 2>/dev/null || true"
 }
