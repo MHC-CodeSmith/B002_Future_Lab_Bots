@@ -6,7 +6,6 @@ import subprocess
 from typing import Dict, Optional
 
 os.environ["ROS_DOMAIN_ID"] = "0"
-os.environ["ROS_AUTOMATIC_DISCOVERY_RANGE"] = "SUBNET"
 os.environ["RMW_IMPLEMENTATION"] = "rmw_fastrtps_cpp"
 os.environ["ROS_SUPER_CLIENT"] = "True"
 os.environ["ROS_DISCOVERY_SERVER"] = "192.168.0.129:11811;"
@@ -14,7 +13,6 @@ os.environ["ROS_DISCOVERY_SERVER"] = "192.168.0.129:11811;"
 JAZZY_ENV_CMD = (
     "source /opt/ros/jazzy/setup.bash && "
     "source /home/future-lab/B002_Future_Lab_Bots/turtlebot4_jazzy/setup.bash && "
-    "export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET && "
     "export ROS_SUPER_CLIENT=True && "
     "export ROS_DISCOVERY_SERVER='192.168.0.129:11811;' && "
     "export DISPLAY=:0 && "
@@ -103,7 +101,6 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
                     print(f"[WARN TB4] Erro ao assinar /amcl_pose: {e}")
 
                 try:
-                    self.create_subscription(Image, "/oakd/rgb/preview/image_raw", self._raw_image_callback, qos_profile_sensor_data)
                     self.create_subscription(CompressedImage, "/oakd/rgb/preview/image_raw/compressed", self._compressed_image_callback, qos_profile_sensor_data)
                 except Exception as e:
                     print(f"[WARN TB4] Erro ao assinar topicos OAK-D: {e}")
@@ -179,41 +176,9 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
             self.is_docked = value
 
     def _poll_fallback_loop(self):
-        """Consulta preventiva de telemetria (bateria e docking) com Discovery Server ativo."""
+        """Loop de monitoramento passivo de telemetria."""
         while True:
-            if not self.telemetry_fresh():
-                try:
-                    # 1. Leitura Real da Bateria
-                    cmd_bat = JAZZY_ENV_CMD + "ros2 topic echo /battery_state --once"
-                    res_bat = subprocess.run(cmd_bat, shell=True, executable="/bin/bash", capture_output=True, text=True, timeout=6)
-                    if res_bat.returncode == 0:
-                        got_bat = False
-                        for line in res_bat.stdout.splitlines():
-                            if "percentage:" in line:
-                                val = float(line.split(":")[-1].strip())
-                                self.battery_percentage = round(val * (100.0 if val <= 1.0 else 1.0), 1)
-                                got_bat = True
-                            elif "current:" in line:
-                                self.battery_current = float(line.split(":")[-1].strip())
-                                got_bat = True
-                        if got_bat:
-                            self.last_telemetry_time = time.time()
-                    else:
-                        print(f"[WARN TB4] Fallback battery echo failed: code={res_bat.returncode}, err={res_bat.stderr.strip() or res_bat.stdout.strip()}")
-
-                    # 2. Leitura Real do Dock Status
-                    cmd_dock = JAZZY_ENV_CMD + "ros2 topic echo /dock_status --once"
-                    res_dock = subprocess.run(cmd_dock, shell=True, executable="/bin/bash", capture_output=True, text=True, timeout=6)
-                    if res_dock.returncode == 0:
-                        for line in res_dock.stdout.splitlines():
-                            if "is_docked:" in line:
-                                val_str = line.split(":")[-1].strip().lower()
-                                self._set_docked_debounced(val_str == "true")
-                                self.last_telemetry_time = time.time()
-                                break
-                except Exception as e:
-                    print(f"[WARN TB4] Fallback poll exception: {e}")
-            time.sleep(2.0)
+            time.sleep(5.0)
 
     def set_dock_override(self, is_docked: bool, duration_sec: float = 5.0):
         pass

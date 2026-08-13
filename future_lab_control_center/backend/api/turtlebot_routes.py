@@ -45,8 +45,10 @@ def _assert_ros_env():
 _assert_ros_env()
 
 JAZZY_ENV_CMD = (
+    "source /opt/ros/jazzy/setup.bash && "
     "source /home/future-lab/B002_Future_Lab_Bots/turtlebot4_jazzy/setup.bash && "
-    "export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET && "
+    "export ROS_SUPER_CLIENT=True && "
+    "export ROS_DISCOVERY_SERVER='192.168.0.129:11811;' && "
     "export DISPLAY=:0 && "
     "export LIBGL_ALWAYS_SOFTWARE=1 && "
     "export QT_X11_NO_MITSHM=1"
@@ -195,12 +197,12 @@ def get_nav_readiness():
         "odom":                  ("/odom" in topics) if create3_alive else None,
         "scan":                  ("/scan" in topics) if create3_alive else None,
         # Localização
-        "map":                   node.count_publishers("/map") > 0,
-        "amcl_pose":             node.count_publishers("/amcl_pose") > 0,
+        "map":                   ("/map" in topics) or node.count_publishers("/map") > 0,
+        "amcl_pose":             ("/amcl_pose" in topics) or node.count_publishers("/amcl_pose") > 0,
         "amcl_converged":        node.get_amcl()["converged"],
         # Navegação
         "navigate_to_pose":      "/navigate_to_pose" in actions,
-        "global_costmap":        node.count_publishers("/global_costmap/costmap") > 0,
+        "global_costmap":        ("/global_costmap/costmap" in topics) or node.count_publishers("/global_costmap/costmap") > 0,
         # Missões
         "start_delivery":        "/start_delivery" in services,
         "start_failure":         "/start_failure" in services,
@@ -648,7 +650,6 @@ class InitialPosePayload(BaseModel):
 @router.post("/set_initial_pose")
 def set_initial_pose(payload: InitialPosePayload):
     """Define a pose inicial do TurtleBot 4 no mapa (/initialpose) para convergência do AMCL."""
-    _require_live_telemetry()
     node = get_turtlebot_node()
     ok, msg = node.publish_initial_pose(payload.x, payload.y, payload.yaw)
     if not ok:
@@ -789,7 +790,7 @@ def launch_localization():
         tb4_ws = get_tb4_workspace()
         map_path = os.path.join(tb4_ws, "maps/B002_map.yaml")
         subprocess.run("xhost +local:root 2>/dev/null || xhost + 2>/dev/null || true", shell=True, timeout=3)
-        cmd = f'cd {tb4_ws} && export DISPLAY=:0 && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_navigation localization.launch.py map:={map_path} use_sim_time:=false bond_timeout:=30.0 > /tmp/nav2_localization.log 2>&1'
+        cmd = f'cd {tb4_ws} && export DISPLAY=:0 && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_navigation localization.launch.py map:={map_path} use_sim_time:=false autostart:=true bond_timeout:=30.0 > /tmp/nav2_localization.log 2>&1'
         subprocess.Popen(cmd, shell=True, executable="/bin/bash", start_new_session=True)
         return {"status": "success", "message": "Localização Nav2 (B002_map.yaml) iniciada com sucesso!"}
     except Exception as e:
@@ -819,7 +820,7 @@ def launch_nav2():
         tb4_ws = get_tb4_workspace()
         params_path = os.path.join(tb4_ws, "config/nav2_custom.yaml")
         subprocess.run("xhost +local:root 2>/dev/null || xhost + 2>/dev/null || true", shell=True, timeout=3)
-        cmd = f'cd {tb4_ws} && export DISPLAY=:0 && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_navigation nav2.launch.py params_file:={params_path} use_sim_time:=false bond_timeout:=30.0 > /tmp/nav2_stack.log 2>&1'
+        cmd = f'cd {tb4_ws} && export DISPLAY=:0 && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_navigation nav2.launch.py params_file:={params_path} use_sim_time:=false autostart:=true bond_timeout:=30.0 > /tmp/nav2_stack.log 2>&1'
         subprocess.Popen(cmd, shell=True, executable="/bin/bash", start_new_session=True)
         return {"status": "success", "message": "Stack Nav2 (nav2_custom.yaml) iniciado com sucesso!"}
     except Exception as e:
