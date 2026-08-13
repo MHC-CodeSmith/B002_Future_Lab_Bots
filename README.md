@@ -277,3 +277,19 @@ docker compose down && docker compose up --build -d
 
 Acesse no navegador: **`http://localhost:3000`** (Frontend) ou **`http://localhost:8000/docs`** (API REST Swagger).
 
+---
+
+## Nunca alterar os transportes do Fast DDS
+
+Não definir FASTDDS_BUILTIN_TRANSPORTS (env, compose ou linha de comando) e não
+usar <useBuiltinTransports>false</useBuiltinTransports> em perfil RMW — nem no
+host, nem no container, nem no RMW Profile Override da Create 3.
+
+Substituir a lista de transportes embutidos derruba o registro no Discovery
+Server (192.168.0.129:11811). Sintoma: o robô responde a ping, mas /dock_status,
+/battery_state e /odom param de chegar; o dashboard mostra valores default e as
+actions /dock e /undock ficam sem action server — inclusive quando executadas
+diretamente no próprio robô.
+
+Isso já derrubou o sistema duas vezes.
+
