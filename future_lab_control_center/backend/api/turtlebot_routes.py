@@ -43,9 +43,16 @@ def _assert_ros_env():
 
 _assert_ros_env()
 
+os.environ["ROS_DOMAIN_ID"] = "0"
+os.environ["RMW_IMPLEMENTATION"] = "rmw_fastrtps_cpp"
+os.environ["ROS_AUTOMATIC_DISCOVERY_RANGE"] = "SUBNET"
+os.environ["ROS_SUPER_CLIENT"] = "True"
+os.environ["ROS_DISCOVERY_SERVER"] = "192.168.0.129:11811;"
+
 JAZZY_ENV_CMD = (
     "source /opt/ros/jazzy/setup.bash && "
     "source /home/future-lab/B002_Future_Lab_Bots/turtlebot4_jazzy/setup.bash && "
+    "export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET && "
     "export ROS_SUPER_CLIENT=True && "
     "export ROS_DISCOVERY_SERVER='192.168.0.129:11811;' && "
     "export DISPLAY=:0 && "

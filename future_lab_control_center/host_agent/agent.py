@@ -25,6 +25,7 @@ DOCKER_COMPOSE_FILE = REPO_DIR / "future_lab_control_center" / "docker-compose.y
 JAZZY_ENV_CMD = (
     "source /opt/ros/jazzy/setup.bash && "
     "source /home/future-lab/B002_Future_Lab_Bots/turtlebot4_jazzy/setup.bash && "
+    "export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET && "
     "export ROS_SUPER_CLIENT=True && "
     "export ROS_DISCOVERY_SERVER='192.168.0.129:11811;' && "
     "export DISPLAY=:0 && "

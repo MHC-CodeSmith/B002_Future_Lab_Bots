@@ -18,6 +18,11 @@ exec > >(tee -i "$LOG_FILE") 2>&1
 echo "============================================================"
 echo "  🚀 Future Lab Control Center — Modo: [${MODE^^}]"
 echo "  📅 Data: $(date)"
+export ROS_DOMAIN_ID=0
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
+export ROS_SUPER_CLIENT=True
+export ROS_DISCOVERY_SERVER="192.168.0.129:11811;"
 echo "  📄 Log: $LOG_FILE"
 echo "============================================================"
 
