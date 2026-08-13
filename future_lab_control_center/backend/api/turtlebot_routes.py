@@ -103,6 +103,89 @@ def get_ros_env():
         "dock_pub_qos": [str(p.qos_profile.reliability) for p in dock_pubs],
     }
 
+_PROCESS_PATTERNS = {
+    "localization": "localization.launch.py",
+    "nav2": "nav2.launch.py",
+    "viz": "view_navigation.launch.py",
+    "mission_manager": "scripts/mission_manager.py",
+}
+
+@router.get("/processes")
+def get_processes():
+    """Estado dos processos da stack de navegação iniciados pelo backend.
+
+    Limitação conhecida: o backend roda em container com PID namespace próprio.
+    O pgrep enxerga apenas os processos que o próprio backend lançou. Uma stack
+    iniciada manualmente no terminal do host NÃO aparece aqui — para esse caso,
+    use /nav_readiness, que verifica pelo barramento ROS e independe de quem lançou.
+    """
+    out = {}
+    for nome, padrao in _PROCESS_PATTERNS.items():
+        try:
+            res = subprocess.run(["pgrep", "-f", padrao],
+                                 capture_output=True, text=True, timeout=2)
+            pids = [p for p in res.stdout.split() if p.strip()]
+            out[nome] = {"running": bool(pids), "pids": pids, "pattern": padrao}
+        except Exception as e:
+            out[nome] = {"running": None, "pids": [], "pattern": padrao, "error": str(e)}
+    return out
+
+def _nav_hint(faltando: list) -> str:
+    if not faltando:
+        return "Stack de navegação pronta."
+    if "map" in faltando or "amcl_pose" in faltando:
+        return "Localização não está no ar. Use '1. Iniciar Localização' e defina a pose inicial no RViz (2D Pose Estimate)."
+    if "navigate_to_pose" in faltando or "global_costmap" in faltando:
+        return "Nav2 não está no ar. Use '2. Lançar Nav2 Stack'."
+    if "start_delivery" in faltando or "stop_mission" in faltando:
+        return "Mission Manager não está no ar. Use 'Iniciar Mission Manager'."
+    if "odom" in faltando or "scan" in faltando:
+        return "Sensores da base não estão publicando. Verifique o TurtleBot 4 e o Discovery Server."
+    return "Verifique os itens em 'missing'."
+
+@router.get("/nav_readiness")
+def get_nav_readiness():
+    """Prontidão da navegação, verificada por introspecção ROS. Somente leitura."""
+    from rclpy.action import get_action_names_and_types
+    node = get_turtlebot_node()
+
+    topics = {t[0] for t in node.get_topic_names_and_types()}
+    services = {s[0] for s in node.get_service_names_and_types()}
+    try:
+        actions = {a[0] for a in get_action_names_and_types(node=node)}
+    except Exception:
+        actions = set()
+
+    checks = {
+        # Base física (Create 3)
+        "create3_dock_action":   "/dock" in actions,
+        "create3_undock_action": "/undock" in actions,
+        "odom":                  "/odom" in topics,
+        "scan":                  "/scan" in topics,
+        # Localização
+        "map":                   node.count_publishers("/map") > 0,
+        "amcl_pose":             node.count_publishers("/amcl_pose") > 0,
+        # Navegação
+        "navigate_to_pose":      "/navigate_to_pose" in actions,
+        "global_costmap":        node.count_publishers("/global_costmap/costmap") > 0,
+        # Missões
+        "start_delivery":        "/start_delivery" in services,
+        "start_failure":         "/start_failure" in services,
+        "start_restock":         "/start_restock" in services,
+        "stop_mission":          "/stop_mission" in services,
+    }
+
+    obrigatorios = ["odom", "scan", "map", "amcl_pose",
+                    "navigate_to_pose", "start_delivery", "stop_mission"]
+    faltando = [k for k in obrigatorios if not checks[k]]
+
+    return {
+        "ready": not faltando,
+        "missing": faltando,
+        "checks": checks,
+        "hint": _nav_hint(faltando),
+    }
+
 sim_state = {
     "active": False,
     "selected_item": "blue",

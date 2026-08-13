@@ -18,6 +18,8 @@ export default function Dashboard() {
   const [cellStatus, setCellStatus] = useState(null);
   const [poses, setPoses] = useState(null);
   const [tbStatus, setTbStatus] = useState(null);
+  const [tbNavReadiness, setTbNavReadiness] = useState(null);
+  const [tbProcesses, setTbProcesses] = useState(null);
   const [notification, setNotification] = useState(null);
   const [isRebooting, setIsRebooting] = useState(false);
 
@@ -62,11 +64,13 @@ export default function Dashboard() {
   const refreshStatus = async () => {
     const apiBase = getApiBase();
     try {
-      const [hRes, cRes, pRes, tbRes] = await Promise.all([
+      const [hRes, cRes, pRes, tbRes, navRes, procRes] = await Promise.all([
         fetch(`${apiBase}/health/`).catch(() => null),
         fetch(`${apiBase}/cell/status`).catch(() => null),
         fetch(`${apiBase}/cobot/poses`).catch(() => null),
-        fetch(`${apiBase}/turtlebot/status`).catch(() => null)
+        fetch(`${apiBase}/turtlebot/status`).catch(() => null),
+        fetch(`${apiBase}/turtlebot/nav_readiness`).catch(() => null),
+        fetch(`${apiBase}/turtlebot/processes`).catch(() => null)
       ]);
 
       if (hRes && hRes.ok) setHealth(await hRes.json());
@@ -78,6 +82,8 @@ export default function Dashboard() {
       }
       if (pRes && pRes.ok) setPoses(await pRes.json());
       if (tbRes && tbRes.ok) setTbStatus(await tbRes.json());
+      if (navRes && navRes.ok) setTbNavReadiness(await navRes.json());
+      if (procRes && procRes.ok) setTbProcesses(await procRes.json());
     } catch (err) {
       console.error("Erro ao atualizar status:", err);
     }
@@ -767,6 +773,8 @@ export default function Dashboard() {
         <TurtleBotDashboardTab
           tbStatus={tbStatus}
           tbDiag={tbDiag}
+          tbNavReadiness={tbNavReadiness}
+          tbProcesses={tbProcesses}
           onDiagnose={handleTbDiagnose}
           onDock={handleTbDock}
           onUndock={handleTbUndock}

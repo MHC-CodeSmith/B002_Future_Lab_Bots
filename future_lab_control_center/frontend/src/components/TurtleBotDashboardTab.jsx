@@ -10,6 +10,8 @@ import { useLanguage } from '../context/LanguageContext';
 export default function TurtleBotDashboardTab({ 
   tbStatus, 
   tbDiag,
+  tbNavReadiness,
+  tbProcesses,
   onDiagnose,
   onDock, 
   onUndock, 
@@ -114,6 +116,50 @@ export default function TurtleBotDashboardTab({
             </span>
           </div>
         </div>
+
+        {/* 🚦 PAINEL DE PRONTIDÃO DA NAVEGAÇÃO & SEMÁFORO ROS 2 */}
+        {tbNavReadiness && (
+          <div className={`mt-4 p-4 rounded-xl border transition-all ${
+            tbNavReadiness.ready 
+              ? 'bg-emerald-950/30 border-emerald-500/40' 
+              : 'bg-amber-950/30 border-amber-500/40'
+          }`}>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className={`p-2 rounded-lg ${tbNavReadiness.ready ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
+                  <Activity className="w-5 h-5 animate-pulse" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-slate-200">Prontidão da Navegação:</span>
+                    <span className={`text-xs px-2.5 py-0.5 rounded-full font-black ${
+                      tbNavReadiness.ready 
+                        ? 'bg-emerald-500/30 text-emerald-300 border border-emerald-500/50' 
+                        : 'bg-amber-500/30 text-amber-300 border border-amber-500/50'
+                    }`}>
+                      {tbNavReadiness.ready ? '✅ STACK PRONTA' : '⚠️ NÃO PRONTA'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-300 mt-0.5 font-medium">{tbNavReadiness.hint}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Badges de Introspecção de Tópicos, Ações e Serviços */}
+            {tbNavReadiness.checks && (
+              <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2 text-xs">
+                {Object.entries(tbNavReadiness.checks).map(([key, val]) => (
+                  <div key={key} className={`px-2 py-1 rounded-md border flex items-center justify-between ${
+                    val ? 'bg-slate-800/80 text-emerald-300 border-emerald-500/30' : 'bg-slate-900/80 text-slate-400 border-slate-700/50'
+                  }`}>
+                    <span className="truncate font-mono text-[10px]">{key}</span>
+                    <span className={`w-2 h-2 rounded-full ${val ? 'bg-emerald-400' : 'bg-red-500/80'}`}></span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* 🎭 MODO SIMULADO INTERATIVO EXCLUSIVO TURTLEBOT 4 */}
         <div className="p-5 rounded-2xl border-2 border-indigo-500/50 bg-gradient-to-br from-slate-900/95 via-indigo-950/30 to-slate-900/95 shadow-2xl space-y-4 my-4">
