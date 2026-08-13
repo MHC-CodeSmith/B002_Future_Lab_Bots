@@ -1,0 +1,18 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Future Lab Control Center
+Comment=Sobe o dashboard e tudo o que os robôs precisam
+Exec=/home/future-lab/B002_Future_Lab_Bots/future_lab_control_center/START_LAB.sh
+Icon=utilities-terminal
+Terminal=true
+Categories=Development;Robotics;
+Actions=Reset;Check;
+
+[Desktop Action Reset]
+Name=Reset completo (derruba e sobe tudo)
+Exec=/home/future-lab/B002_Future_Lab_Bots/future_lab_control_center/START_LAB.sh --reset
+
+[Desktop Action Check]
+Name=Somente diagnóstico
+Exec=/home/future-lab/B002_Future_Lab_Bots/future_lab_control_center/START_LAB.sh --check
