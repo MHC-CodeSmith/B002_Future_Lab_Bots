@@ -404,12 +404,11 @@ export default function TurtleBotDashboardTab({
 
           {/* Video Player Frame */}
           <div className="relative aspect-video bg-slate-950 rounded-xl overflow-hidden border border-slate-800 flex items-center justify-center">
-            {oakdOnline ? (
+            {oakdStreaming ? (
               <img
                 src={typeof window !== 'undefined' ? `http://${window.location.hostname}:8000/api/v1/turtlebot/oakd_stream?t=${streamKey}` : `http://localhost:8000/api/v1/turtlebot/oakd_stream?t=${streamKey}`}
                 alt="Stream da Câmera OAK-D"
                 className="w-full h-full object-contain"
-                onError={() => setOakdOnline(false)}
               />
             ) : (
               <div className="text-center p-6 space-y-3">
