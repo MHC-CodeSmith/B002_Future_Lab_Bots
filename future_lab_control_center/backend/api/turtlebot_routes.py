@@ -115,38 +115,39 @@ _processes_cache = {"timestamp": 0.0, "data": {}}
 
 @router.get("/processes")
 def get_processes():
-    """Estado dos processos da stack de navegação iniciados pelo backend."""
+    """Estado dos processos da stack de navegação consultados via Agente do Host."""
     now = time.time()
-    if (now - _processes_cache["timestamp"]) < 3.0:
+    if (now - _processes_cache["timestamp"]) < 2.0:
         return _processes_cache["data"]
 
-    node = get_turtlebot_node()
-    services = set()
     try:
-        services = {s[0] for s in node.get_service_names_and_types()}
-    except Exception:
-        pass
-
-    out = {}
-    for nome, padrao in _PROCESS_PATTERNS.items():
+        host_status = _call_host_agent("/status", method="GET", timeout=3.0)
+        node = get_turtlebot_node()
+        services = set()
         try:
-            res = subprocess.run(["pgrep", "-f", padrao],
-                                 capture_output=True, text=True, timeout=2)
-            pids = [p for p in res.stdout.split() if p.strip()]
+            services = {s[0] for s in node.get_service_names_and_types()}
+        except Exception:
+            pass
+
+        out = {}
+        for nome, padrao in _PROCESS_PATTERNS.items():
+            is_active = bool(host_status.get(nome))
             item = {
-                "launched_by_dashboard": bool(pids),
-                "pids": pids,
+                "launched_by_dashboard": is_active,
+                "pids": ["host_active"] if is_active else [],
                 "pattern": padrao
             }
             if nome == "mission_manager":
                 item["visible_on_ros_graph"] = "/start_delivery" in services
             out[nome] = item
-        except Exception as e:
-            out[nome] = {"launched_by_dashboard": None, "pids": [], "pattern": padrao, "error": str(e)}
-
-    _processes_cache["timestamp"] = now
-    _processes_cache["data"] = out
-    return out
+        _processes_cache["timestamp"] = now
+        _processes_cache["data"] = out
+        return out
+    except Exception as e:
+        out = {}
+        for nome, padrao in _PROCESS_PATTERNS.items():
+            out[nome] = {"launched_by_dashboard": False, "pids": [], "pattern": padrao, "error": str(e)}
+        return out
 
 def _nav_hint(faltando: list, checks: dict = None) -> str:
     if not faltando:
@@ -594,41 +595,28 @@ def diagnose_turtlebot_network():
 
 @router.get("/logs")
 def get_turtlebot_logs(source: str = "all", lines: int = 60):
-    """Retorna os últimos logs do console de Localização, Nav2 Stack, RViz2 ou Missões."""
+    """Retorna os últimos logs consultando o Agente do Host."""
     try:
-        log_file_map = {
-            "localization": "/tmp/nav2_localization.log",
-            "nav2": "/tmp/nav2_stack.log",
-            "viz": "/tmp/nav2_viz.log",
-            "mission": "/tmp/nav2_mission_manager.log"
+        source_map = {
+            "localization": "localization",
+            "nav2": "nav2",
+            "viz": "viz",
+            "mission": "mission_manager",
+            "mission_manager": "mission_manager"
         }
-        
-        target_file = log_file_map.get(source)
-        if target_file:
-            if os.path.exists(target_file):
-                with open(target_file, "r") as f:
-                    raw = [l.strip() for l in f.readlines() if l.strip()]
-                    return {"status": "success", "source": source, "logs": raw[-lines:] if raw else [f"[{source.upper()}] O arquivo {target_file} está vazio."]}
-            else:
-                return {"status": "success", "source": source, "logs": [f"[{source.upper()}] Nenhum log gerado ainda em {target_file}. Clique no botão correspondente para iniciar!"]}
-        
-        # Se for "all", consolida de todos os arquivos ou docker
-        consolidated = []
-        for src, filepath in log_file_map.items():
-            if os.path.exists(filepath):
-                with open(filepath, "r") as f:
-                    file_lines = [f"[{src.upper()}] {l.strip()}" for l in f.readlines() if l.strip()]
-                    consolidated.extend(file_lines[-20:])
-        
-        if not consolidated:
-            cmd = f"docker logs --tail {lines} future_lab_backend 2>&1"
-            res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=3)
-            log_text = res.stdout if res.returncode == 0 else "Nenhum log disponível no momento."
-            consolidated = [l.strip() for l in log_text.splitlines() if l.strip()]
-            
-        return {"status": "success", "source": source, "logs": consolidated[-lines:]}
+        target_source = source_map.get(source, "localization")
+        res = _call_host_agent(f"/logs/{target_source}?lines={lines}", method="GET", timeout=4.0)
+        return {
+            "status": "success",
+            "source": source,
+            "logs": res.get("logs", [f"Nenhum log retornado pelo agente para {source}."])
+        }
     except Exception as e:
-        return {"status": "error", "source": source, "logs": [f"Erro ao ler logs: {e}"]}
+        return {
+            "status": "error",
+            "source": source,
+            "logs": [f"Erro ao obter logs do agente do host: {e}"]
+        }
 
 @router.post("/teleop")
 def send_teleop(payload: TeleopPayload):

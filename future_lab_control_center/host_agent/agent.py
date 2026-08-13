@@ -43,7 +43,7 @@ AGENT_TOKEN = load_token()
 ALLOWED_LAUNCHES = {
     "localization": f"cd {TB4_WS} && export DISPLAY=:0 && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_navigation localization.launch.py map:={TB4_WS}/maps/B002_map.yaml use_sim_time:=false autostart:=true bond_timeout:=30.0 > /tmp/nav2_localization.log 2>&1",
     "nav2": f"cd {TB4_WS} && export DISPLAY=:0 && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_navigation nav2.launch.py params_file:={TB4_WS}/config/nav2_custom.yaml use_sim_time:=false autostart:=true bond_timeout:=30.0 > /tmp/nav2_stack.log 2>&1",
-    "viz": f"cd {TB4_WS} && export DISPLAY=:0 && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_navigation view_navigation.launch.py use_sim_time:=false > /tmp/nav2_viz.log 2>&1",
+    "viz": f"cd {TB4_WS} && export DISPLAY=:0 && {JAZZY_ENV_CMD} && ros2 launch turtlebot4_viz view_navigation.launch.py use_sim_time:=false > /tmp/nav2_viz.log 2>&1",
     "mission_manager": f"cd {TB4_WS} && {JAZZY_ENV_CMD} && PYTHONUNBUFFERED=1 python3 -u scripts/mission_manager.py --ros-args --params-file params/waypoints.yaml > /tmp/nav2_mission_manager.log 2>&1"
 }
 
