@@ -13,13 +13,15 @@ os.environ["ROS_DISCOVERY_SERVER"] = "192.168.0.129:11811;"
 JAZZY_ENV_CMD = (
     "source /home/future-lab/B002_Future_Lab_Bots/turtlebot4_jazzy/setup.bash && "
     "export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET && "
+    "export ROS_SUPER_CLIENT=True && "
+    "export ROS_DISCOVERY_SERVER='192.168.0.129:11811;' && "
     "export DISPLAY=:0 && "
 )
 
 try:
     import rclpy
     from rclpy.node import Node
-    from rclpy.qos import qos_profile_sensor_data
+    from rclpy.qos import QoSProfile, QoSReliabilityPolicy, qos_profile_sensor_data
     from geometry_msgs.msg import Twist, TwistStamped
     from sensor_msgs.msg import BatteryState, CompressedImage, Image
     from nav_msgs.msg import Odometry
@@ -73,11 +75,8 @@ class TurtleBotNode(Node):
                 self.cmd_vel_stamped_pub = self.create_publisher(TwistStamped, "/cmd_vel", 10)
                 self.create_subscription(BatteryState, "/battery_state", self._battery_callback, qos_profile_sensor_data)
                 self.create_subscription(Odometry, "/odom", self._odom_callback, qos_profile_sensor_data)
-                qos_reliable = QoSProfile(depth=10, reliability=QoSReliabilityPolicy.RELIABLE)
                 self.create_subscription(Image, "/oakd/rgb/preview/image_raw", self._raw_image_callback, qos_profile_sensor_data)
                 self.create_subscription(CompressedImage, "/oakd/rgb/preview/image_raw/compressed", self._compressed_image_callback, qos_profile_sensor_data)
-                self.create_subscription(Image, "/oakd/rgb/preview/image_raw", self._raw_image_callback, qos_reliable)
-                self.create_subscription(CompressedImage, "/oakd/rgb/preview/image_raw/compressed", self._compressed_image_callback, qos_reliable)
                 if HAS_CREATE_MSGS:
                     try:
                         self.create_subscription(DockStatus, "/dock_status", self._dock_status_callback, qos_profile_sensor_data)
@@ -102,7 +101,10 @@ class TurtleBotNode(Node):
     def _spin_loop(self):
         if HAS_RCLPY:
             try:
-                rclpy.spin(self)
+                from rclpy.executors import SingleThreadedExecutor
+                executor = SingleThreadedExecutor()
+                executor.add_node(self)
+                executor.spin()
             except Exception as e:
                 print(f"[WARN TB4] Spin loop finalizado: {e}")
 
@@ -145,35 +147,36 @@ class TurtleBotNode(Node):
     def _poll_fallback_loop(self):
         """Consulta preventiva de telemetria (bateria e docking) com Discovery Server ativo."""
         while True:
-            try:
-                # 1. Leitura Real da Bateria
-                cmd_bat = JAZZY_ENV_CMD + "ros2 topic echo /battery_state --once"
-                res_bat = subprocess.run(cmd_bat, shell=True, executable="/bin/bash", capture_output=True, text=True, timeout=12)
-                if res_bat.returncode == 0:
-                    got_bat = False
-                    for line in res_bat.stdout.splitlines():
-                        if "percentage:" in line:
-                            val = float(line.split(":")[-1].strip())
-                            self.battery_percentage = round(val * (100.0 if val <= 1.0 else 1.0), 1)
-                            got_bat = True
-                        elif "current:" in line:
-                            self.battery_current = float(line.split(":")[-1].strip())
-                            got_bat = True
-                    if got_bat:
-                        self.last_telemetry_time = time.time()
-
-                # 2. Leitura Real do Dock Status
-                cmd_dock = JAZZY_ENV_CMD + "ros2 topic echo /dock_status --once"
-                res_dock = subprocess.run(cmd_dock, shell=True, executable="/bin/bash", capture_output=True, text=True, timeout=12)
-                if res_dock.returncode == 0:
-                    for line in res_dock.stdout.splitlines():
-                        if "is_docked:" in line:
-                            val_str = line.split(":")[-1].strip().lower()
-                            self._set_docked_debounced(val_str == "true")
+            if not self.telemetry_fresh():
+                try:
+                    # 1. Leitura Real da Bateria
+                    cmd_bat = JAZZY_ENV_CMD + "ros2 topic echo /battery_state --once"
+                    res_bat = subprocess.run(cmd_bat, shell=True, executable="/bin/bash", capture_output=True, text=True, timeout=3)
+                    if res_bat.returncode == 0:
+                        got_bat = False
+                        for line in res_bat.stdout.splitlines():
+                            if "percentage:" in line:
+                                val = float(line.split(":")[-1].strip())
+                                self.battery_percentage = round(val * (100.0 if val <= 1.0 else 1.0), 1)
+                                got_bat = True
+                            elif "current:" in line:
+                                self.battery_current = float(line.split(":")[-1].strip())
+                                got_bat = True
+                        if got_bat:
                             self.last_telemetry_time = time.time()
-                            break
-            except Exception:
-                pass
+
+                    # 2. Leitura Real do Dock Status
+                    cmd_dock = JAZZY_ENV_CMD + "ros2 topic echo /dock_status --once"
+                    res_dock = subprocess.run(cmd_dock, shell=True, executable="/bin/bash", capture_output=True, text=True, timeout=3)
+                    if res_dock.returncode == 0:
+                        for line in res_dock.stdout.splitlines():
+                            if "is_docked:" in line:
+                                val_str = line.split(":")[-1].strip().lower()
+                                self._set_docked_debounced(val_str == "true")
+                                self.last_telemetry_time = time.time()
+                                break
+                except Exception:
+                    pass
             time.sleep(2.0)
 
     def set_dock_override(self, is_docked: bool, duration_sec: float = 5.0):
