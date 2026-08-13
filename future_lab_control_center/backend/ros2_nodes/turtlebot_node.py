@@ -22,7 +22,7 @@ try:
     import rclpy
     from rclpy.node import Node
     from rclpy.qos import QoSProfile, QoSReliabilityPolicy, qos_profile_sensor_data
-    from geometry_msgs.msg import Twist, TwistStamped
+    from geometry_msgs.msg import Twist, TwistStamped, PoseWithCovarianceStamped
     from sensor_msgs.msg import BatteryState, CompressedImage, Image
     from nav_msgs.msg import Odometry
     from std_srvs.srv import Trigger
@@ -43,7 +43,7 @@ TELEMETRY_TTL = 5.0   # s sem mensagem da BASE = telemetria inválida
 FRAME_TTL = 3.0       # s sem frame da OAK-D = câmera sem sinal
 
 
-class TurtleBotNode(Node):
+class TurtleBotNode(Node if HAS_RCLPY else object):
     def __init__(self):
         self.battery_percentage: Optional[float] = None
         self.battery_current: Optional[float] = None
@@ -58,6 +58,7 @@ class TurtleBotNode(Node):
 
         self.cmd_vel_pub = None
         self.cmd_vel_stamped_pub = None
+        self.initialpose_pub = None
         self.start_delivery_cli = None
         self.start_failure_cli = None
         self.start_restock_cli = None
@@ -73,6 +74,7 @@ class TurtleBotNode(Node):
                 super().__init__("future_lab_turtlebot_node")
                 self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel_unstamped", 10)
                 self.cmd_vel_stamped_pub = self.create_publisher(TwistStamped, "/cmd_vel", 10)
+                self.initialpose_pub = self.create_publisher(PoseWithCovarianceStamped, "/initialpose", 10)
                 self.create_subscription(BatteryState, "/battery_state", self._battery_callback, qos_profile_sensor_data)
                 self.create_subscription(Odometry, "/odom", self._odom_callback, qos_profile_sensor_data)
                 self.create_subscription(Image, "/oakd/rgb/preview/image_raw", self._raw_image_callback, qos_profile_sensor_data)
@@ -267,6 +269,38 @@ class TurtleBotNode(Node):
                         pass
                     time.sleep(0.05)
             threading.Thread(target=_burst, daemon=True).start()
+
+    def publish_initial_pose(self, x: float = 0.0, y: float = 0.0, yaw: float = 0.0) -> tuple:
+        if not HAS_RCLPY or not self.initialpose_pub:
+            return False, "rclpy não inicializado no nó para publicar /initialpose"
+
+        try:
+            import math
+            msg = PoseWithCovarianceStamped()
+            msg.header.frame_id = "map"
+            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.pose.pose.position.x = float(x)
+            msg.pose.pose.position.y = float(y)
+            msg.pose.pose.position.z = 0.0
+
+            half_yaw = float(yaw) * 0.5
+            msg.pose.pose.orientation.z = math.sin(half_yaw)
+            msg.pose.pose.orientation.w = math.cos(half_yaw)
+
+            cov = [0.0] * 36
+            cov[0] = 0.25
+            cov[7] = 0.25
+            cov[35] = 0.06853891945200942
+            msg.pose.covariance = cov
+
+            for _ in range(3):
+                msg.header.stamp = self.get_clock().now().to_msg()
+                self.initialpose_pub.publish(msg)
+                time.sleep(0.2)
+
+            return True, f"Pose inicial (x={x}, y={y}, yaw={yaw}) publicada com sucesso em /initialpose!"
+        except Exception as e:
+            return False, f"Erro ao publicar /initialpose: {e}"
 
     def telemetry_fresh(self) -> bool:
         return (time.time() - self.last_telemetry_time) < TELEMETRY_TTL

@@ -524,6 +524,21 @@ def send_teleop(payload: TeleopPayload):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Falha ao enviar teleop: {e}")
 
+class InitialPosePayload(BaseModel):
+    x: float = 0.0
+    y: float = 0.0
+    yaw: float = 0.0
+
+@router.post("/set_initial_pose")
+def set_initial_pose(payload: InitialPosePayload):
+    """Define a pose inicial do TurtleBot 4 no mapa (/initialpose) para convergência do AMCL."""
+    _require_live_telemetry()
+    node = get_turtlebot_node()
+    ok, msg = node.publish_initial_pose(payload.x, payload.y, payload.yaw)
+    if not ok:
+        raise HTTPException(status_code=503, detail=msg)
+    return {"status": "success", "message": msg}
+
 _dock_lock = threading.Lock()
 _undock_lock = threading.Lock()
 

@@ -57,6 +57,34 @@ export default function TurtleBotDashboardTab({
   const [streamKey, setStreamKey] = useState(Date.now());
   const [restartingOakd, setRestartingOakd] = useState(false);
 
+  const [initX, setInitX] = useState(0.0);
+  const [initY, setInitY] = useState(0.0);
+  const [initYaw, setInitYaw] = useState(0.0);
+  const [settingPose, setSettingPose] = useState(false);
+  const [poseMsg, setPoseMsg] = useState(null);
+
+  const handleSetInitialPose = async () => {
+    setSettingPose(true);
+    setPoseMsg(null);
+    try {
+      const res = await fetch(`http://${window.location.hostname}:8000/api/v1/turtlebot/set_initial_pose`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ x: parseFloat(initX), y: parseFloat(initY), yaw: parseFloat(initYaw) })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setPoseMsg({ type: 'success', text: data.message || 'Pose inicial enviada!' });
+      } else {
+        setPoseMsg({ type: 'error', text: data.detail || 'Falha ao enviar pose inicial.' });
+      }
+    } catch (e) {
+      setPoseMsg({ type: 'error', text: e.message });
+    } finally {
+      setSettingPose(false);
+    }
+  };
+
   const fetchLogs = async (sourceParam = logSource) => {
     setLoadingLogs(true);
     try {
@@ -715,6 +743,66 @@ export default function TurtleBotDashboardTab({
               </span>
               <span className="text-xs text-purple-300/70 font-normal hidden sm:inline">ros2 daemon stop/start</span>
             </button>
+
+            {/* Bloco de Definir Pose Inicial (/initialpose) */}
+            <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-700/80 space-y-2 mt-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                  <MapPin className="w-3.5 h-3.5 text-purple-400" />
+                  Pose Inicial (2D Pose Estimate)
+                </span>
+                <span className="text-[10px] text-slate-500 font-mono">/initialpose</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="text-[10px] text-slate-400 block font-mono">X (m)</label>
+                  <input
+                    type="number"
+                    step="0.05"
+                    value={initX}
+                    onChange={(e) => setInitX(e.target.value)}
+                    className="w-full bg-slate-800 text-slate-100 text-xs px-2 py-1 rounded border border-slate-700 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-slate-400 block font-mono">Y (m)</label>
+                  <input
+                    type="number"
+                    step="0.05"
+                    value={initY}
+                    onChange={(e) => setInitY(e.target.value)}
+                    className="w-full bg-slate-800 text-slate-100 text-xs px-2 py-1 rounded border border-slate-700 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-slate-400 block font-mono">Yaw (rad)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={initYaw}
+                    onChange={(e) => setInitYaw(e.target.value)}
+                    className="w-full bg-slate-800 text-slate-100 text-xs px-2 py-1 rounded border border-slate-700 font-mono"
+                  />
+                </div>
+              </div>
+              <button
+                disabled={!telemetryOk || !tbNavReadiness?.checks?.map || settingPose}
+                onClick={handleSetInitialPose}
+                className={`w-full py-2 font-bold rounded-lg text-xs flex items-center justify-center gap-2 transition-all ${
+                  telemetryOk && tbNavReadiness?.checks?.map
+                    ? 'bg-purple-600 hover:bg-purple-500 text-white shadow'
+                    : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
+                }`}
+              >
+                <MapPin className="w-3.5 h-3.5" />
+                <span>{settingPose ? 'Enviando...' : 'Definir Pose Inicial'}</span>
+              </button>
+              {poseMsg && (
+                <p className={`text-[10px] font-bold ${poseMsg.type === 'success' ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {poseMsg.text}
+                </p>
+              )}
+            </div>
           </div>
         </div>
 
