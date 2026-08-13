@@ -272,39 +272,6 @@ class TurtleBotNode(Node):
         return (time.time() - self.last_telemetry_time) < TELEMETRY_TTL
 
     def get_status(self) -> Dict:
-        # Se a telemetria não foi capturada recentemente pelos callbacks (> 5s), realiza uma tentativa síncrona
-        if not self.telemetry_fresh():
-            try:
-                cmd = JAZZY_ENV_CMD + "ros2 topic echo /battery_state --once"
-                res = subprocess.run(cmd, shell=True, executable="/bin/bash", capture_output=True, text=True, timeout=2)
-                if res.returncode == 0:
-                    got_bat = False
-                    for line in res.stdout.splitlines():
-                        if "percentage:" in line:
-                            val = float(line.split(":")[-1].strip())
-                            self.battery_percentage = round(val * (100.0 if val <= 1.0 else 1.0), 1)
-                            got_bat = True
-                        elif "current:" in line:
-                            self.battery_current = float(line.split(":")[-1].strip())
-                            got_bat = True
-                    if got_bat:
-                        self.last_telemetry_time = time.time()
-            except Exception:
-                pass
-
-            try:
-                cmd_d = JAZZY_ENV_CMD + "ros2 topic echo /dock_status --once"
-                res_d = subprocess.run(cmd_d, shell=True, executable="/bin/bash", capture_output=True, text=True, timeout=2)
-                if res_d.returncode == 0:
-                    for line in res_d.stdout.splitlines():
-                        if "is_docked:" in line:
-                            val_str = line.split(":")[-1].strip().lower()
-                            self._set_docked_debounced(val_str == "true")
-                            self.last_telemetry_time = time.time()
-                            break
-            except Exception:
-                pass
-
         fresh = self.telemetry_fresh()
         age = None if self.last_telemetry_time == 0.0 else round(time.time() - self.last_telemetry_time, 1)
         charging = None

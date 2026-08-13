@@ -160,9 +160,15 @@ def _nav_hint(faltando: list) -> str:
         return "Sensores da base não estão publicando. Verifique o TurtleBot 4 e o Discovery Server."
     return "Verifique os itens em 'missing'."
 
+_nav_readiness_cache = {"timestamp": 0.0, "data": None}
+
 @router.get("/nav_readiness")
 def get_nav_readiness():
     """Prontidão da navegação, verificada por introspecção ROS. Somente leitura."""
+    now = time.time()
+    if _nav_readiness_cache["data"] is not None and (now - _nav_readiness_cache["timestamp"]) < 3.0:
+        return _nav_readiness_cache["data"]
+
     from rclpy.action import get_action_names_and_types
     node = get_turtlebot_node()
 
@@ -200,12 +206,15 @@ def get_nav_readiness():
                     "start_delivery", "stop_mission"]
     faltando = [k for k in obrigatorios if not checks.get(k)]
 
-    return {
+    out = {
         "ready": not faltando,
         "missing": faltando,
         "checks": checks,
         "hint": _nav_hint(faltando),
     }
+    _nav_readiness_cache["timestamp"] = now
+    _nav_readiness_cache["data"] = out
+    return out
 
 def _require_live_telemetry():
     node = get_turtlebot_node()
@@ -227,11 +236,21 @@ sim_state = {
     "busy": False
 }
 
+_ping_cache = {"timestamp": 0.0, "ok": False}
+
+def _ping_cached(ip: str) -> bool:
+    now = time.time()
+    if (now - _ping_cache["timestamp"]) < 5.0:
+        return _ping_cache["ok"]
+    _ping_cache["ok"] = ping_host(ip, timeout_sec=1)
+    _ping_cache["timestamp"] = now
+    return _ping_cache["ok"]
+
 @router.get("/status")
 def get_turtlebot_status():
     """Retorna o status do TurtleBot 4 (bateria, posição, docking e modo simulado)."""
     tb_ip = "192.168.0.129"
-    ping_ok = ping_host(tb_ip, timeout_sec=1)
+    ping_ok = _ping_cached(tb_ip)
     node = get_turtlebot_node()
 
     if not ping_ok:
