@@ -658,12 +658,31 @@ def set_initial_pose(payload: InitialPosePayload):
 _dock_lock = threading.Lock()
 _undock_lock = threading.Lock()
 
+def _run_create3_dock_action() -> tuple:
+    print("[INFO TB4] Disparando ação infravermelha /dock no TurtleBot 4...")
+    cmd_action = f'{JAZZY_ENV_CMD} && ros2 action send_goal /dock irobot_create_msgs/action/Dock "{{}}"'
+    res = subprocess.run(cmd_action, shell=True, executable="/bin/bash", stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=30)
+    full_output = res.stdout.strip()
+    print(f"[INFO TB4] Resultado do Docking infravermelho: {full_output}")
+    is_success = ("SUCCEEDED" in full_output) and not any(k in full_output for k in ["ABORTED", "CANCELED", "FAILED"])
+    return is_success, full_output
+
+def _run_create3_undock_action() -> tuple:
+    print("[INFO TB4] Disparando ação /undock no TurtleBot 4...")
+    cmd_action = f'{JAZZY_ENV_CMD} && ros2 action send_goal /undock irobot_create_msgs/action/Undock "{{}}"'
+    res = subprocess.run(cmd_action, shell=True, executable="/bin/bash", stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=25)
+    full_output = res.stdout.strip()
+    print(f"[INFO TB4] Resultado do Undock: {full_output}")
+    is_success = ("SUCCEEDED" in full_output) and not any(k in full_output for k in ["ABORTED", "CANCELED", "FAILED"])
+    return is_success, full_output
+
 @router.post("/dock")
 def trigger_dock():
-    """Envia o comando de Docking ao TurtleBot 4 e aguarda a confirmação real da manobra.
+    """Envia o comando de Docking ao TurtleBot 4.
     
-    Sem guarda de telemetria por decisão de projeto: dock é o caminho de recuperação
-    quando a base parou de publicar. Não adicionar _require_live_telemetry() aqui.
+    Se o robô estiver fora da dock e o Nav2 Stack estiver ativo, navega primeiro até 
+    o predock_point (-0.5201, -0.0704) e em seguida executa o acoplamento infravermelho.
+    Sem guarda de telemetria por decisão de projeto: dock é o caminho de recuperação.
     """
     if not _dock_lock.acquire(blocking=False):
         raise HTTPException(
@@ -673,19 +692,43 @@ def trigger_dock():
 
     try:
         node = get_turtlebot_node()
-        print("[INFO TB4] Disparando ação /dock no TurtleBot 4...")
-        cmd_action = f'{JAZZY_ENV_CMD} && ros2 action send_goal /dock irobot_create_msgs/action/Dock "{{}}"'
-        res = subprocess.run(cmd_action, shell=True, executable="/bin/bash", stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=30)
+        nav_readiness = get_nav_readiness()
+        nav_active = bool(nav_readiness.get("checks", {}).get("navigate_to_pose"))
+        already_docked = bool(node.is_docked)
 
-        full_output = res.stdout.strip()
-        print(f"[INFO TB4] Resultado do Docking: {full_output}")
+        # Se o robô não está dockado e o Nav2 está ativo, executa a Etapa 1 (Nav2 para predock_point)
+        if not already_docked and nav_active:
+            print("[INFO TB4] Robô fora da dock com Nav2 ativo. Etapa 1/2: Navegando para 'predock_point' (-0.5201, -0.0704)...")
+            predock_x = -0.5201
+            predock_y = -0.0704
+            cmd_nav = f'{JAZZY_ENV_CMD} && ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose "{{pose: {{header: {{frame_id: map}}, pose: {{position: {{x: {predock_x}, y: {predock_y}, z: 0.0}}, orientation: {{w: 1.0}}}}}}}}"'
+            try:
+                res_nav = subprocess.run(cmd_nav, shell=True, executable="/bin/bash", stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=45)
+                nav_out = res_nav.stdout.strip()
+                print(f"[INFO TB4] Resultado da navegação ao predock_point: {nav_out}")
+            except subprocess.TimeoutExpired:
+                print("[WARN TB4] Timeout (45s) na navegação ao predock_point. Tentando alinhamento infravermelho direto...")
 
-        if "SUCCEEDED" in full_output or "is_docked: true" in full_output:
+        # Etapa 2: Alinhamento Infravermelho Create 3 (/dock)
+        is_success, full_output = _run_create3_dock_action()
+
+        if is_success or node.is_docked:
             return {"status": "success", "message": "Docking físico concluído com SUCESSO no TurtleBot 4!"}
         else:
-            raise HTTPException(status_code=500, detail=f"Ação /dock não reportou sucesso: {full_output}")
+            if not nav_active:
+                raise HTTPException(
+                    status_code=500,
+                    detail="O alinhamento infravermelho local /dock não encontrou a estação de carga. "
+                           "O robô parece estar fora do alcance dos sensores infravermelhos da dock. "
+                           "Aproxime o robô da estação ou inicie a Localização + Nav2 Stack para navegação autônoma."
+                )
+            else:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Ação /dock infravermelha não reportou sucesso: {full_output}"
+                )
     except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=504, detail="Tempo limite esgotado (30s) aguardando o servidor de ação /dock no robô.")
+        raise HTTPException(status_code=504, detail="Tempo limite esgotado aguardando a manobra de Docking no robô.")
     except HTTPException:
         raise
     except Exception as e:
@@ -704,15 +747,9 @@ def trigger_undock():
         )
 
     try:
-        node = get_turtlebot_node()
-        print("[INFO TB4] Disparando ação /undock no TurtleBot 4...")
-        cmd_action = f'{JAZZY_ENV_CMD} && ros2 action send_goal /undock irobot_create_msgs/action/Undock "{{}}"'
-        res = subprocess.run(cmd_action, shell=True, executable="/bin/bash", stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=25)
+        is_success, full_output = _run_create3_undock_action()
 
-        full_output = res.stdout.strip()
-        print(f"[INFO TB4] Resultado do Undock: {full_output}")
-
-        if "SUCCEEDED" in full_output or "is_docked: false" in full_output:
+        if is_success or not get_turtlebot_node().is_docked:
             return {"status": "success", "message": "Undock físico concluído com SUCESSO no TurtleBot 4!"}
         else:
             raise HTTPException(status_code=500, detail=f"Ação /undock não reportou sucesso: {full_output}")
