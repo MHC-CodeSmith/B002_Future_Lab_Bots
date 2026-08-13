@@ -205,9 +205,16 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
 
     def _odom_callback(self, msg):
         try:
+            import math
             pos = msg.pose.pose.position
+            ori = msg.pose.pose.orientation
             self.current_pose["x"] = round(float(pos.x), 2)
             self.current_pose["y"] = round(float(pos.y), 2)
+
+            siny_cosp = 2.0 * (float(ori.w) * float(ori.z) + float(ori.x) * float(ori.y))
+            cosy_cosp = 1.0 - 2.0 * (float(ori.y) * float(ori.y) + float(ori.z) * float(ori.z))
+            self.current_pose["yaw"] = round(math.atan2(siny_cosp, cosy_cosp), 2)
+
             self.last_telemetry_time = time.time()
         except Exception:
             pass
