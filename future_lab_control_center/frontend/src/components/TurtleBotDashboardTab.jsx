@@ -707,7 +707,18 @@ export default function TurtleBotDashboardTab({
           </h3>
           <p className="text-xs text-slate-400">{t('nav2SeqSub')}</p>
 
+          {/* Badge de Aviso de Robô Acoplado na Dock */}
+          {tbNavReadiness?.checks?.undocked === false && (
+            <div className="p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-300 text-xs flex items-start gap-2 font-sans">
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <span>
+                <strong>Aviso de Robô Acoplado:</strong> Faça <em>UNDOCK</em> (Passo 3) antes de enviar metas diretas ao Nav2. A Create 3 ignora <code className="text-[10px] font-mono bg-amber-950/40 px-1 py-0.5 rounded border border-amber-500/20">/cmd_vel</code> na dock e o costmap nasce com a dock na footprint. As rotinas de missão executam o undock sozinhas.
+              </span>
+            </div>
+          )}
+
           <div className="space-y-3 pt-1">
+            {/* Passo 1: Localização */}
             <div className="flex gap-2">
               <button
                 onClick={() => {
@@ -733,31 +744,7 @@ export default function TurtleBotDashboardTab({
               </button>
             </div>
 
-            <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  if (onLaunchNav2) onLaunchNav2();
-                  handleSelectLogSource('nav2');
-                }}
-                className="flex-1 py-3 px-4 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold rounded-xl flex items-center justify-between transition-all active:scale-95 text-xs sm:text-sm"
-              >
-                <span className="flex items-center gap-2">
-                  <Navigation className="w-4 h-4 text-amber-400" />
-                  {t('step2Nav')}
-                </span>
-                <span className="text-[10px] sm:text-xs text-slate-400 font-normal hidden sm:inline">nav2.launch.py</span>
-              </button>
-              <button
-                onClick={() => {
-                  if (onStopNav2) onStopNav2();
-                }}
-                className="px-3 py-3 bg-red-950/60 hover:bg-red-900/80 text-red-300 border border-red-500/40 font-bold rounded-xl flex items-center gap-1.5 transition-all active:scale-95 text-xs"
-              >
-                <Square className="w-3.5 h-3.5 fill-current text-red-400" />
-                <span className="hidden sm:inline">Ctrl+C</span>
-              </button>
-            </div>
-
+            {/* Passo 2: RViz */}
             <div className="flex gap-2">
               <button
                 onClick={() => {
@@ -775,6 +762,41 @@ export default function TurtleBotDashboardTab({
               <button
                 onClick={() => {
                   if (onStopViz) onStopViz();
+                }}
+                className="px-3 py-3 bg-red-950/60 hover:bg-red-900/80 text-red-300 border border-red-500/40 font-bold rounded-xl flex items-center gap-1.5 transition-all active:scale-95 text-xs"
+              >
+                <Square className="w-3.5 h-3.5 fill-current text-red-400" />
+                <span className="hidden sm:inline">Ctrl+C</span>
+              </button>
+            </div>
+
+            {/* Lembrete de Passos Intermediários 3 & 4 */}
+            <div className="p-2 bg-slate-900/60 rounded-lg border border-slate-800 text-[11px] text-slate-400 flex items-center justify-between font-mono">
+              <span className="flex items-center gap-1.5">
+                <Compass className="w-3.5 h-3.5 text-amber-400" />
+                {t('step3Undock')} & {t('step4Pose')}
+              </span>
+              <span className="text-[10px] text-slate-500 hidden sm:inline">↓ veja abaixo / D-Pad</span>
+            </div>
+
+            {/* Passo 5: Nav2 Stack */}
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  if (onLaunchNav2) onLaunchNav2();
+                  handleSelectLogSource('nav2');
+                }}
+                className="flex-1 py-3 px-4 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold rounded-xl flex items-center justify-between transition-all active:scale-95 text-xs sm:text-sm"
+              >
+                <span className="flex items-center gap-2">
+                  <Navigation className="w-4 h-4 text-amber-400" />
+                  {t('step2Nav')}
+                </span>
+                <span className="text-[10px] sm:text-xs text-slate-400 font-normal hidden sm:inline">nav2.launch.py</span>
+              </button>
+              <button
+                onClick={() => {
+                  if (onStopNav2) onStopNav2();
                 }}
                 className="px-3 py-3 bg-red-950/60 hover:bg-red-900/80 text-red-300 border border-red-500/40 font-bold rounded-xl flex items-center gap-1.5 transition-all active:scale-95 text-xs"
               >
