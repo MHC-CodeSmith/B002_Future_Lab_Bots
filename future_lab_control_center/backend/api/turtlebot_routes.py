@@ -529,7 +529,11 @@ _undock_lock = threading.Lock()
 
 @router.post("/dock")
 def trigger_dock():
-    """Envia o comando de Docking ao TurtleBot 4 e aguarda a confirmação real da manobra."""
+    """Envia o comando de Docking ao TurtleBot 4 e aguarda a confirmação real da manobra.
+    
+    Sem guarda de telemetria por decisão de projeto: dock é o caminho de recuperação
+    quando a base parou de publicar. Não adicionar _require_live_telemetry() aqui.
+    """
     if not _dock_lock.acquire(blocking=False):
         raise HTTPException(
             status_code=409,
@@ -546,7 +550,6 @@ def trigger_dock():
         print(f"[INFO TB4] Resultado do Docking: {full_output}")
 
         if "SUCCEEDED" in full_output or "is_docked: true" in full_output:
-            node.is_docked = True
             return {"status": "success", "message": "Docking físico concluído com SUCESSO no TurtleBot 4!"}
         else:
             raise HTTPException(status_code=500, detail=f"Ação /dock não reportou sucesso: {full_output}")
@@ -579,7 +582,6 @@ def trigger_undock():
         print(f"[INFO TB4] Resultado do Undock: {full_output}")
 
         if "SUCCEEDED" in full_output or "is_docked: false" in full_output:
-            node.is_docked = False
             return {"status": "success", "message": "Undock físico concluído com SUCESSO no TurtleBot 4!"}
         else:
             raise HTTPException(status_code=500, detail=f"Ação /undock não reportou sucesso: {full_output}")
@@ -597,14 +599,11 @@ class DockStatusPayload(BaseModel):
 
 @router.post("/set_dock_status")
 def set_dock_status(payload: DockStatusPayload):
-    """Força manualmente o status de docking (True ou False) sobrescrevendo leituras presas da telemetria."""
-    try:
-        node = get_turtlebot_node()
-        node.set_dock_override(payload.is_docked, duration_sec=3600.0)
-        state_str = "DOCKED (Na Estação)" if payload.is_docked else "UNDOCKED (Livre / Fora da Estação)"
-        return {"status": "success", "is_docked": payload.is_docked, "message": f"Status alterado manualmente para {state_str}."}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Falha ao alterar status de dock: {e}")
+    """Obsoleto: O estado de dock vem da telemetria da Create 3 e não pode ser forçado."""
+    raise HTTPException(
+        status_code=410,
+        detail="O estado de dock vem da telemetria da Create 3 e não pode ser forçado."
+    )
 
 @router.post("/launch_localization")
 def launch_localization():

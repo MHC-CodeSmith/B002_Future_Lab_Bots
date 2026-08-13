@@ -180,7 +180,7 @@ class TurtleBotNode(Node):
             time.sleep(2.0)
 
     def set_dock_override(self, is_docked: bool, duration_sec: float = 5.0):
-        self.is_docked = is_docked
+        pass
 
     def clear_dock_override(self):
         pass
@@ -189,7 +189,7 @@ class TurtleBotNode(Node):
         pass
 
     def force_undock_override(self, duration_sec: float = 5.0):
-        self.is_docked = False
+        pass
 
     def _battery_callback(self, msg):
         try:
