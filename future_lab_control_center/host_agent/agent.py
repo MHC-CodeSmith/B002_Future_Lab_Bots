@@ -247,7 +247,7 @@ class AgentRequestHandler(BaseHTTPRequestHandler):
 
         if path == "/robot/restart_bringup":
             try:
-                cmd = "ssh -o ConnectTimeout=5 ubuntu@192.168.0.129 'echo turtlebot4 | sudo -S -p \"\" systemctl restart turtlebot4.service'"
+                cmd = "ssh -o ConnectTimeout=5 ubuntu@192.168.0.129 'sudo systemctl restart turtlebot4.service'"
                 res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=45)
                 if res.returncode == 0:
                     self._send_json({"status": "success", "message": "Serviço turtlebot4.service reiniciado no Raspberry Pi 4 com sucesso!"})
