@@ -147,13 +147,18 @@ def get_processes():
     _processes_cache["data"] = out
     return out
 
-def _nav_hint(faltando: list) -> str:
+def _nav_hint(faltando: list, checks: dict = None) -> str:
+    if checks and checks.get("undocked") is False:
+        return ("Robô acoplado na dock. Faça Undock antes de enviar metas diretas ao "
+                "Nav2 — a Create 3 ignora /cmd_vel na dock e o costmap nasce com a "
+                "estrutura da dock dentro da footprint. As rotinas de missão fazem o "
+                "undock sozinhas.")
     if not faltando:
         return "Stack de navegação pronta."
     if "map" in faltando or "amcl_pose" in faltando:
-        return "Localização não está no ar. Use '1. Iniciar Localização' e defina a pose inicial no RViz (2D Pose Estimate)."
+        return "Localização não está no ar. Use '1. Iniciar Localização', abra o RViz (Passo 2), faça Undock (Passo 3) e defina a pose inicial (Passo 4)."
     if "navigate_to_pose" in faltando or "global_costmap" in faltando:
-        return "Nav2 não está no ar. Use '2. Lançar Nav2 Stack'."
+        return "Nav2 não está no ar. Use '5. Lançar Nav2 Stack'."
     if "start_delivery" in faltando or "stop_mission" in faltando:
         return "Mission Manager não está no ar. Use 'Iniciar Mission Manager'."
     if "create3_alive" in faltando or "odom" in faltando or "scan" in faltando:
@@ -186,6 +191,7 @@ def get_nav_readiness():
         "create3_alive":         create3_alive,
         "create3_dock_action":   ("/dock" in actions) if create3_alive else None,
         "create3_undock_action": ("/undock" in actions) if create3_alive else None,
+        "undocked":              (not node.is_docked) if create3_alive else None,
         "odom":                  ("/odom" in topics) if create3_alive else None,
         "scan":                  ("/scan" in topics) if create3_alive else None,
         # Localização
@@ -211,7 +217,7 @@ def get_nav_readiness():
         "ready": not faltando,
         "missing": faltando,
         "checks": checks,
-        "hint": _nav_hint(faltando),
+        "hint": _nav_hint(faltando, checks),
     }
     _nav_readiness_cache["timestamp"] = now
     _nav_readiness_cache["data"] = out
