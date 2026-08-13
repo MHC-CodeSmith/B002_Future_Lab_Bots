@@ -228,6 +228,37 @@ def get_amcl_status():
     """Pose e covariância do AMCL. Somente leitura."""
     return get_turtlebot_node().get_amcl()
 
+@router.post("/clear_costmaps")
+def clear_costmaps():
+    """Limpa os costmaps global e local do Nav2. Caminho de recuperação —
+    sem guarda de telemetria, igual ao /dock."""
+    servicos = [
+        "/global_costmap/clear_entirely_global_costmap",
+        "/local_costmap/clear_entirely_local_costmap",
+    ]
+    resultados = {}
+    for srv in servicos:
+        try:
+            cmd = f'{JAZZY_ENV_CMD} && ros2 service call {srv} nav2_msgs/srv/ClearEntireCostmap "{{}}"'
+            res = subprocess.run(cmd, shell=True, executable="/bin/bash",
+                                 capture_output=True, text=True, timeout=10)
+            saida = (res.stdout or "") + (res.stderr or "")
+            resultados[srv] = ("response" in saida and res.returncode == 0)
+        except subprocess.TimeoutExpired:
+            resultados[srv] = False
+        except Exception:
+            resultados[srv] = False
+
+    algum_ok = any(resultados.values())
+    if not algum_ok:
+        raise HTTPException(
+            status_code=503,
+            detail="Nenhum costmap respondeu. O Nav2 está no ar? "
+                   "Confira '5. Lançar Nav2 Stack'."
+        )
+    return {"status": "success", "servicos": resultados,
+            "message": "Costmaps limpos. Reenvie a meta."}
+
 @router.get("/nav_poses")
 def get_nav_poses():
     """Retorna as poses configuradas em nav_poses.yaml."""

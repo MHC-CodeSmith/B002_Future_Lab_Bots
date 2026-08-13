@@ -3,7 +3,7 @@ import {
   Bot, Battery, Anchor, Navigation, MapPin, Play, Square, 
   ArrowUp, ArrowDown, ArrowLeft, ArrowRight, ShieldAlert,
   Box, Truck, RefreshCw, Eye, Layers, Compass, Search, Wifi,
-  CheckCircle2, XCircle, Activity
+  CheckCircle2, XCircle, Activity, Trash2
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 
@@ -66,6 +66,7 @@ export default function TurtleBotDashboardTab({
   const [amclStatus, setAmclStatus] = useState(null);
   const [navPoses, setNavPoses] = useState(null);
   const [savingDockPose, setSavingDockPose] = useState(false);
+  const [clearingCostmaps, setClearingCostmaps] = useState(false);
 
   const fetchAmclAndPoses = async () => {
     try {
@@ -84,6 +85,27 @@ export default function TurtleBotDashboardTab({
     const interval = setInterval(fetchAmclAndPoses, 2000);
     return () => clearInterval(interval);
   }, []);
+
+  const handleClearCostmaps = async () => {
+    setClearingCostmaps(true);
+    setPoseMsg(null);
+    try {
+      const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+      const res = await fetch(`http://${host}:8000/api/v1/turtlebot/clear_costmaps`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setPoseMsg({ type: 'success', text: data.message || 'Costmaps limpos!' });
+      } else {
+        setPoseMsg({ type: 'error', text: data.detail || 'Falha ao limpar costmaps.' });
+      }
+    } catch (e) {
+      setPoseMsg({ type: 'error', text: e.message });
+    } finally {
+      setClearingCostmaps(false);
+    }
+  };
 
   const handleUseDockPose = () => {
     if (navPoses?.dock_pose) {
@@ -806,18 +828,37 @@ export default function TurtleBotDashboardTab({
               </button>
             </div>
 
-            <button
-              onClick={() => {
-                if (onRestartDaemon) onRestartDaemon();
-              }}
-              className="w-full py-3 px-4 bg-purple-950/50 hover:bg-purple-900/60 text-purple-200 border border-purple-500/40 font-bold rounded-xl flex items-center justify-between transition-all active:scale-95 shadow-md shadow-purple-900/20 mt-2 text-xs sm:text-sm"
-            >
-              <span className="flex items-center gap-2">
-                <RefreshCw className="w-4 h-4 text-purple-400" />
-                {t('btnRestartDaemon')}
-              </span>
-              <span className="text-xs text-purple-300/70 font-normal hidden sm:inline">ros2 daemon stop/start</span>
-            </button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+              <button
+                onClick={() => {
+                  if (onRestartDaemon) onRestartDaemon();
+                }}
+                className="py-3 px-3 bg-purple-950/50 hover:bg-purple-900/60 text-purple-200 border border-purple-500/40 font-bold rounded-xl flex items-center justify-between transition-all active:scale-95 shadow-md shadow-purple-900/20 text-xs sm:text-sm"
+              >
+                <span className="flex items-center gap-1.5">
+                  <RefreshCw className="w-4 h-4 text-purple-400" />
+                  {t('btnRestartDaemon')}
+                </span>
+                <span className="text-[10px] text-purple-300/70 font-normal hidden sm:inline">daemon stop</span>
+              </button>
+
+              <button
+                disabled={!tbNavReadiness?.checks?.navigate_to_pose || clearingCostmaps}
+                onClick={handleClearCostmaps}
+                className={`py-3 px-3 border font-bold rounded-xl flex items-center justify-between transition-all active:scale-95 text-xs sm:text-sm ${
+                  tbNavReadiness?.checks?.navigate_to_pose
+                    ? 'bg-amber-950/50 hover:bg-amber-900/60 text-amber-200 border-amber-500/40 shadow-md shadow-amber-900/20'
+                    : 'bg-slate-900 text-slate-500 border-slate-800 cursor-not-allowed'
+                }`}
+                title={tbNavReadiness?.checks?.navigate_to_pose ? 'Limpa costmaps global e local do Nav2' : 'Requer Nav2 Stack ativo'}
+              >
+                <span className="flex items-center gap-1.5">
+                  <Trash2 className="w-4 h-4 text-amber-400" />
+                  {t('btnClearCostmaps')}
+                </span>
+                <span className="text-[10px] text-amber-300/70 font-normal hidden sm:inline">clear_entirely</span>
+              </button>
+            </div>
 
             {/* Bloco de Definir Pose Inicial (/initialpose) */}
             <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-700/80 space-y-2 mt-2">
