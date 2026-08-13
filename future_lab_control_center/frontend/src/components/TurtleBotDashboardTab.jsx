@@ -63,6 +63,58 @@ export default function TurtleBotDashboardTab({
   const [settingPose, setSettingPose] = useState(false);
   const [poseMsg, setPoseMsg] = useState(null);
 
+  const [amclStatus, setAmclStatus] = useState(null);
+  const [navPoses, setNavPoses] = useState(null);
+  const [savingDockPose, setSavingDockPose] = useState(false);
+
+  const fetchAmclAndPoses = async () => {
+    try {
+      const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+      const [amclRes, posesRes] = await Promise.all([
+        fetch(`http://${host}:8000/api/v1/turtlebot/amcl_status`).catch(() => null),
+        fetch(`http://${host}:8000/api/v1/turtlebot/nav_poses`).catch(() => null)
+      ]);
+      if (amclRes && amclRes.ok) setAmclStatus(await amclRes.json());
+      if (posesRes && posesRes.ok) setNavPoses(await posesRes.json());
+    } catch (e) {}
+  };
+
+  React.useEffect(() => {
+    fetchAmclAndPoses();
+    const interval = setInterval(fetchAmclAndPoses, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleUseDockPose = () => {
+    if (navPoses?.dock_pose) {
+      setInitX(navPoses.dock_pose.x);
+      setInitY(navPoses.dock_pose.y);
+      setInitYaw(navPoses.dock_pose.yaw);
+    }
+  };
+
+  const handleSaveDockPose = async () => {
+    setSavingDockPose(true);
+    setPoseMsg(null);
+    try {
+      const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+      const res = await fetch(`http://${host}:8000/api/v1/turtlebot/save_dock_pose`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setPoseMsg({ type: 'success', text: data.message || 'Pose da dock gravada com sucesso!' });
+        fetchAmclAndPoses();
+      } else {
+        setPoseMsg({ type: 'error', text: data.detail || 'Falha ao gravar pose da dock.' });
+      }
+    } catch (e) {
+      setPoseMsg({ type: 'error', text: e.message });
+    } finally {
+      setSavingDockPose(false);
+    }
+  };
+
   const handleSetInitialPose = async () => {
     setSettingPose(true);
     setPoseMsg(null);
@@ -753,7 +805,64 @@ export default function TurtleBotDashboardTab({
                 </span>
                 <span className="text-[10px] text-slate-500 font-mono">/initialpose</span>
               </div>
-              <div className="grid grid-cols-3 gap-2">
+
+              {/* Badge de Convergência do AMCL */}
+              <div className="flex items-center justify-between p-2 rounded-lg border border-slate-800 bg-slate-950/60 text-xs">
+                <span className="font-bold flex items-center gap-1.5 text-slate-300">
+                  <Activity className="w-3.5 h-3.5 text-blue-400" />
+                  AMCL:
+                </span>
+                {!amclStatus?.amcl_ok ? (
+                  <span className="px-2 py-0.5 bg-slate-800 text-slate-400 border border-slate-700 rounded-full font-bold text-[10px]">
+                    ⚪ AMCL fora do ar
+                  </span>
+                ) : !amclStatus?.converged ? (
+                  <span className="px-2 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded-full font-bold font-mono text-[10px]" title={`Covariância: σ²x=${amclStatus.covariance?.x} σ²y=${amclStatus.covariance?.y} σ²yaw=${amclStatus.covariance?.yaw}`}>
+                    🟡 Não Convergido (σ²x={amclStatus.covariance?.x}, σ²yaw={amclStatus.covariance?.yaw})
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-full font-bold font-mono text-[10px]" title={`Pose Real AMCL: x=${amclStatus.pose?.x} y=${amclStatus.pose?.y} yaw=${amclStatus.pose?.yaw}`}>
+                    🟢 Convergido (x={amclStatus.pose?.x}, y={amclStatus.pose?.y}, yaw={amclStatus.pose?.yaw})
+                  </span>
+                )}
+              </div>
+
+              {/* Botões "Usar pose da dock" e "Gravar pose da dock atual" */}
+              <div className="grid grid-cols-2 gap-2 pt-0.5">
+                <button
+                  type="button"
+                  onClick={handleUseDockPose}
+                  disabled={!navPoses?.dock_pose}
+                  className={`py-1.5 px-2 rounded-lg text-[11px] font-bold border transition-all flex items-center justify-center gap-1 ${
+                    navPoses?.dock_pose?.measured
+                      ? 'bg-slate-800 hover:bg-slate-700 text-blue-300 border-blue-500/40'
+                      : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border-amber-500/40'
+                  }`}
+                  title={navPoses?.dock_pose?.measured ? 'Preencher com pose medida da dock' : 'Preencher com semente estimada'}
+                >
+                  <Compass className="w-3.5 h-3.5" />
+                  <span>
+                    {navPoses?.dock_pose?.measured ? 'Usar Pose da Dock' : 'Usar Semente (não medida)'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSaveDockPose}
+                  disabled={!amclStatus?.converged || !isDocked || savingDockPose}
+                  className={`py-1.5 px-2 rounded-lg text-[11px] font-bold border transition-all flex items-center justify-center gap-1 ${
+                    amclStatus?.converged && isDocked
+                      ? 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-400 shadow'
+                      : 'bg-slate-800 text-slate-500 border-slate-700 cursor-not-allowed'
+                  }`}
+                  title={amclStatus?.converged && isDocked ? 'Gravar pose real no nav_poses.yaml' : 'Requer AMCL convergido e robô acoplado na dock'}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>{savingDockPose ? 'Gravando...' : 'Gravar Pose da Dock'}</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 pt-1">
                 <div>
                   <label className="text-[10px] text-slate-400 block font-mono">X (m)</label>
                   <input
