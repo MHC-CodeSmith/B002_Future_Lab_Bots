@@ -12,6 +12,7 @@ os.environ["ROS_SUPER_CLIENT"] = "True"
 os.environ["ROS_DISCOVERY_SERVER"] = "192.168.0.129:11811;"
 
 JAZZY_ENV_CMD = (
+    "source /opt/ros/jazzy/setup.bash && "
     "source /home/future-lab/B002_Future_Lab_Bots/turtlebot4_jazzy/setup.bash && "
     "export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET && "
     "export ROS_SUPER_CLIENT=True && "
@@ -79,24 +80,47 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
                     pass
             try:
                 super().__init__("future_lab_turtlebot_node")
-                self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel_unstamped", 10)
-                self.cmd_vel_stamped_pub = self.create_publisher(TwistStamped, "/cmd_vel", 10)
-                self.initialpose_pub = self.create_publisher(PoseWithCovarianceStamped, "/initialpose", 10)
-                self.create_subscription(BatteryState, "/battery_state", self._battery_callback, qos_profile_sensor_data)
-                self.create_subscription(Odometry, "/odom", self._odom_callback, qos_profile_sensor_data)
-                self.create_subscription(PoseWithCovarianceStamped, "/amcl_pose", self._amcl_callback, qos_profile_sensor_data)
-                self.create_subscription(Image, "/oakd/rgb/preview/image_raw", self._raw_image_callback, qos_profile_sensor_data)
-                self.create_subscription(CompressedImage, "/oakd/rgb/preview/image_raw/compressed", self._compressed_image_callback, qos_profile_sensor_data)
-                if HAS_CREATE_MSGS:
+                try:
+                    self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel_unstamped", 10)
+                    self.cmd_vel_stamped_pub = self.create_publisher(TwistStamped, "/cmd_vel", 10)
+                    self.initialpose_pub = self.create_publisher(PoseWithCovarianceStamped, "/initialpose", 10)
+                except Exception as e:
+                    print(f"[WARN TB4] Erro ao criar publishers: {e}")
+
+                try:
+                    self.create_subscription(BatteryState, "/battery_state", self._battery_callback, qos_profile_sensor_data)
+                except Exception as e:
+                    print(f"[WARN TB4] Erro ao assinar /battery_state: {e}")
+
+                try:
+                    self.create_subscription(Odometry, "/odom", self._odom_callback, qos_profile_sensor_data)
+                except Exception as e:
+                    print(f"[WARN TB4] Erro ao assinar /odom: {e}")
+
+                try:
+                    self.create_subscription(PoseWithCovarianceStamped, "/amcl_pose", self._amcl_callback, qos_profile_sensor_data)
+                except Exception as e:
+                    print(f"[WARN TB4] Erro ao assinar /amcl_pose: {e}")
+
+                try:
+                    self.create_subscription(Image, "/oakd/rgb/preview/image_raw", self._raw_image_callback, qos_profile_sensor_data)
+                    self.create_subscription(CompressedImage, "/oakd/rgb/preview/image_raw/compressed", self._compressed_image_callback, qos_profile_sensor_data)
+                except Exception as e:
+                    print(f"[WARN TB4] Erro ao assinar topicos OAK-D: {e}")
+
+                if HAS_CREATE_MSGS and hasattr(DockStatus, '_TYPE_SUPPORT'):
                     try:
                         self.create_subscription(DockStatus, "/dock_status", self._dock_status_callback, qos_profile_sensor_data)
                     except Exception as e:
                         print(f"[WARN TB4] Não foi possível se inscrever em /dock_status: {e}")
 
-                self.start_delivery_cli = self.create_client(Trigger, "/start_delivery")
-                self.start_failure_cli = self.create_client(Trigger, "/start_failure")
-                self.start_restock_cli = self.create_client(Trigger, "/start_restock")
-                self.stop_mission_cli = self.create_client(Trigger, "/stop_mission")
+                try:
+                    self.start_delivery_cli = self.create_client(Trigger, "/start_delivery")
+                    self.start_failure_cli = self.create_client(Trigger, "/start_failure")
+                    self.start_restock_cli = self.create_client(Trigger, "/start_restock")
+                    self.stop_mission_cli = self.create_client(Trigger, "/stop_mission")
+                except Exception as e:
+                    print(f"[WARN TB4] Erro ao criar clientes de missao: {e}")
 
                 # Thread de spin em background
                 t_spin = threading.Thread(target=self._spin_loop, daemon=True)
@@ -161,7 +185,7 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
                 try:
                     # 1. Leitura Real da Bateria
                     cmd_bat = JAZZY_ENV_CMD + "ros2 topic echo /battery_state --once"
-                    res_bat = subprocess.run(cmd_bat, shell=True, executable="/bin/bash", capture_output=True, text=True, timeout=3)
+                    res_bat = subprocess.run(cmd_bat, shell=True, executable="/bin/bash", capture_output=True, text=True, timeout=6)
                     if res_bat.returncode == 0:
                         got_bat = False
                         for line in res_bat.stdout.splitlines():
@@ -174,10 +198,12 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
                                 got_bat = True
                         if got_bat:
                             self.last_telemetry_time = time.time()
+                    else:
+                        print(f"[WARN TB4] Fallback battery echo failed: code={res_bat.returncode}, err={res_bat.stderr.strip() or res_bat.stdout.strip()}")
 
                     # 2. Leitura Real do Dock Status
                     cmd_dock = JAZZY_ENV_CMD + "ros2 topic echo /dock_status --once"
-                    res_dock = subprocess.run(cmd_dock, shell=True, executable="/bin/bash", capture_output=True, text=True, timeout=3)
+                    res_dock = subprocess.run(cmd_dock, shell=True, executable="/bin/bash", capture_output=True, text=True, timeout=6)
                     if res_dock.returncode == 0:
                         for line in res_dock.stdout.splitlines():
                             if "is_docked:" in line:
@@ -185,8 +211,8 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
                                 self._set_docked_debounced(val_str == "true")
                                 self.last_telemetry_time = time.time()
                                 break
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[WARN TB4] Fallback poll exception: {e}")
             time.sleep(2.0)
 
     def set_dock_override(self, is_docked: bool, duration_sec: float = 5.0):
