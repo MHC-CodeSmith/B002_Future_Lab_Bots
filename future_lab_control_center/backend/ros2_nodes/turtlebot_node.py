@@ -38,6 +38,13 @@ try:
 except ImportError:
     HAS_CREATE_MSGS = False
 
+try:
+    from nav2_msgs.action import NavigateToPose
+    from rclpy.action import ActionClient
+    HAS_NAV2_ACTION = True
+except ImportError:
+    HAS_NAV2_ACTION = False
+
 
 TELEMETRY_TTL = 5.0   # s sem mensagem da BASE = telemetria inválida
 FRAME_TTL = 3.0       # s sem frame da OAK-D = câmera sem sinal
@@ -69,6 +76,7 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
         self.start_failure_cli = None
         self.start_restock_cli = None
         self.stop_mission_cli = None
+        self.nav_action_client = None
 
         if HAS_RCLPY:
             if not rclpy.ok():
@@ -84,6 +92,12 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
                     self.initialpose_pub = self.create_publisher(PoseWithCovarianceStamped, "/initialpose", 10)
                 except Exception as e:
                     print(f"[WARN TB4] Erro ao criar publishers: {e}")
+
+                if HAS_NAV2_ACTION:
+                    try:
+                        self.nav_action_client = ActionClient(self, NavigateToPose, "/navigate_to_pose")
+                    except Exception as e:
+                        print(f"[WARN TB4] Erro ao criar ActionClient /navigate_to_pose: {e}")
 
                 try:
                     self.create_subscription(BatteryState, "/battery_state", self._battery_callback, qos_profile_sensor_data)
@@ -282,7 +296,33 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
         except Exception as e:
             return False, f"Erro ao chamar '/{srv_name}': {e}"
 
-    def send_cmd_vel(self, linear_x: float, angular_z: float):
+    def cancel_all_nav_goals(self, timeout_sec: float = 2.0) -> tuple:
+        """Cancela todas as metas ativas da action /navigate_to_pose via ActionClient.
+        Retorna (sucesso: bool, canceladas_count: int, mensagem_aviso: str).
+        """
+        if not HAS_RCLPY or not HAS_NAV2_ACTION or not self.nav_action_client:
+            return False, 0, "nav2_msgs ou ActionClient de navegação indisponível no backend."
+
+        try:
+            if not self.nav_action_client.wait_for_server(timeout_sec=timeout_sec):
+                return True, 0, "Servidor /navigate_to_pose indisponível (nenhuma meta do Nav2 no ar)."
+
+            if hasattr(self.nav_action_client, 'cancel_all_goals_async'):
+                fut = self.nav_action_client.cancel_all_goals_async()
+                t0 = time.time()
+                while not fut.done() and (time.time() - t0) < timeout_sec:
+                    time.sleep(0.02)
+                if fut.done():
+                    res = fut.result()
+                    goals_cancelled = len(getattr(res, 'goals_canceling', [])) if res else 1
+                    return True, goals_cancelled, ""
+                return False, 0, "Timeout aguardando confirmação de cancelamento da meta do Nav2."
+            return True, 0, ""
+        except Exception as e:
+            return False, 0, f"Falha ao cancelar meta do Nav2: {e}"
+
+    def send_cmd_vel(self, linear_x: float, angular_z: float, duration_sec: float = 0.5, hz: float = 20.0):
+        """Publica comandos de velocidade em rajada parametrizada (default 0.5s a 20 Hz)."""
         if HAS_RCLPY and self.cmd_vel_pub:
             t = Twist()
             t.linear.x = float(linear_x)
@@ -292,8 +332,11 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
             ts.header.frame_id = "base_link"
             ts.twist = t
 
+            iterations = max(10, int(duration_sec * hz))
+            sleep_dt = 1.0 / hz
+
             def _burst():
-                for _ in range(10):
+                for _ in range(iterations):
                     try:
                         self.cmd_vel_pub.publish(t)
                         if hasattr(self, 'cmd_vel_stamped_pub') and self.cmd_vel_stamped_pub:
@@ -301,7 +344,7 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
                             self.cmd_vel_stamped_pub.publish(ts)
                     except Exception:
                         pass
-                    time.sleep(0.05)
+                    time.sleep(sleep_dt)
             threading.Thread(target=_burst, daemon=True).start()
 
     def publish_initial_pose(self, x: float = 0.0, y: float = 0.0, yaw: float = 0.0) -> tuple:
