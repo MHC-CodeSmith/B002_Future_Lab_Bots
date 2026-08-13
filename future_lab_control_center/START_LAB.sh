@@ -76,11 +76,18 @@ else
     fi
 fi
 
-# 5. Containers Docker
+# 5. Containers Docker e Processos do Host
 cd "$CONTROL_DIR"
 if [ "$MODE" == "reset" ]; then
-    log_info "Modo RESET: Reiniciando containers Docker..."
-    docker compose down || true
+    log_info "Modo RESET: Encerrando todos os processos do host e containers..."
+    pkill -9 -f 'localization.launch.py' 2>/dev/null || true
+    pkill -9 -f 'nav2.launch.py' 2>/dev/null || true
+    pkill -9 -f 'view_navigation.launch.py' 2>/dev/null || true
+    pkill -9 -f 'scripts/mission_manager.py' 2>/dev/null || true
+    pkill -9 -f 'opt/ros/jazzy/lib' 2>/dev/null || true
+    docker compose down --remove-orphans || true
+    systemctl --user restart future-lab-agent future-lab-cobot-discovery || true
+    sleep 2
     docker compose up -d
 elif [ "$MODE" == "start" ]; then
     log_info "Garantindo containers Docker em execução..."
@@ -142,7 +149,7 @@ if ping -c 1 -w 2 192.168.0.129 >/dev/null 2>&1; then
     log_ok "TurtleBot 4 acessível via Ping."
     if [ "$MODE" == "reset" ]; then
         log_info "Reiniciando bringup do TurtleBot 4 no RPi4..."
-        ssh -o ConnectTimeout=5 ubuntu@192.168.0.129 "sudo systemctl restart turtlebot4.service" || true
+        ssh -o ConnectTimeout=5 ubuntu@192.168.0.129 "echo turtlebot4 | sudo -S systemctl restart turtlebot4.service" || true
     fi
 else
     log_warn "TurtleBot 4 (192.168.0.129) não responde ao Ping."
