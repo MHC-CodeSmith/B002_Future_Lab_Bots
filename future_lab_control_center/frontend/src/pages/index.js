@@ -594,10 +594,12 @@ export default function Dashboard() {
     const apiBase = getApiBase();
     const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/stop_mission`, { method: 'POST' }, t('tbCancelMissionTitle'));
     if (ok) {
+      const isPartial = data?.status === 'partial' || data?.nav_goal_cancelada === false;
+      const firstAviso = (data?.avisos && data.avisos.length > 0) ? data.avisos[0] : '';
       setNotification({
-        type: 'warning',
-        title: t('tbCancelMissionStartedTitle'),
-        message: data.message || t('tbCancelMissionStartedMsg')
+        type: isPartial ? 'error' : 'warning',
+        title: isPartial ? '⚠️ CANCELAMENTO NÃO CONFIRMADO' : t('tbCancelMissionStartedTitle'),
+        message: isPartial ? (data?.message || firstAviso || 'Falha ao confirmar cancelamento da meta do Nav2.') : (data?.message || t('tbCancelMissionStartedMsg'))
       });
     }
     refreshStatus();
