@@ -263,9 +263,9 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
                               "y": round(float(p.y), 4),
                               "yaw": round(float(yaw), 4)}
             cov = list(msg.pose.covariance)
-            self.amcl_cov = {"x": round(cov[0], 5),
-                             "y": round(cov[7], 5),
-                             "yaw": round(cov[35], 5)}
+            self.amcl_cov = {"x": round(float(cov[0]), 5),
+                             "y": round(float(cov[7]), 5),
+                             "yaw": round(float(cov[35]), 5)}
             self.last_amcl_time = time.time()
         except Exception as e:
             print(f"[WARN TB4] AMCL callback error: {e}")
@@ -276,10 +276,10 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
                     "covariance": None, "age_s": None,
                     "motivo": "nenhuma mensagem recebida em /amcl_pose"}
         idade = round(time.time() - self.last_amcl_time, 1)
-        fresh = idade < AMCL_TTL
+        fresh = bool(idade < AMCL_TTL)
         c = self.amcl_cov or {"x": 1.0, "y": 1.0, "yaw": 1.0}
-        converged = fresh and (c["x"] < COV_XY_MAX and c["y"] < COV_XY_MAX
-                               and c["yaw"] < COV_YAW_MAX)
+        converged = bool(fresh and (c["x"] < COV_XY_MAX and c["y"] < COV_XY_MAX
+                                    and c["yaw"] < COV_YAW_MAX))
         return {"amcl_ok": fresh, "converged": converged, "pose": self.amcl_pose,
                 "covariance": c, "age_s": idade,
                 "motivo": "" if fresh else f"ultima leitura ha {idade}s"}
