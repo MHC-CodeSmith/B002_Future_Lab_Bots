@@ -57,6 +57,7 @@ except ImportError:
 
 TELEMETRY_TTL = 5.0   # s sem mensagem da BASE = telemetria inválida
 FRAME_TTL = 3.0       # s sem frame da OAK-D = câmera sem sinal
+FRAME_MIN_INTERVAL = 1.0 / 15.0   # processa no maximo 15 fps
 AMCL_TTL = 120.0      # o AMCL so publica quando atualiza; parado, fica em silencio
 COV_XY_MAX = 0.05      # m² (em movimento)
 COV_YAW_MAX = 0.06     # rad² (em movimento)
@@ -177,13 +178,22 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
 
     def _compressed_image_callback(self, msg):
         try:
+            agora = time.time()
+            if (agora - self.last_frame_time) < FRAME_MIN_INTERVAL:
+                return
+            self._last_compressed_time = agora
             self.latest_jpeg_frame = bytes(msg.data)
-            self.last_frame_time = time.time()
+            self.last_frame_time = agora
         except Exception:
             pass
 
     def _raw_image_callback(self, msg):
         try:
+            agora = time.time()
+            if (agora - self.last_frame_time) < FRAME_MIN_INTERVAL:
+                return
+            if (agora - self._last_compressed_time) < 2.0:
+                return
             import cv2
             import numpy as np
             height = msg.height
@@ -196,7 +206,7 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
                 success, encoded_img = cv2.imencode('.jpg', img, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
                 if success:
                     self.latest_jpeg_frame = encoded_img.tobytes()
-                    self.last_frame_time = time.time()
+                    self.last_frame_time = agora
         except Exception:
             pass
 
