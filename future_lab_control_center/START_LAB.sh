@@ -85,10 +85,40 @@ fi
 cd "$CONTROL_DIR"
 if [ "$MODE" == "reset" ]; then
     log_info "Modo RESET: Encerrando todos os processos do host e containers..."
-    pkill -9 -f 'localization.launch.py' 2>/dev/null || true
-    pkill -9 -f 'nav2.launch.py' 2>/dev/null || true
-    pkill -9 -f 'view_navigation.launch.py' 2>/dev/null || true
-    pkill -9 -f 'scripts/mission_manager.py' 2>/dev/null || true
+    # Encerrar os pais do ros2 launch com SIGTERM primeiro, para que eles
+    # consigam desligar os proprios filhos. SIGKILL no pai deixa os nos orfaos
+    # com os participantes DDS registrados, saturando o Discovery Server.
+    for _p in 'localization.launch.py' 'nav2.launch.py' \
+              'view_navigation.launch.py' 'scripts/mission_manager.py'; do
+        pkill -f "$_p" 2>/dev/null || true
+    done
+    sleep 3
+
+    # Rede de seguranca: qualquer no filho que tenha sobrevivido.
+    # Esta lista tem de espelhar ALLOWED_PKILLS do host_agent/agent.py.
+    _NOS_NAV2="map_server amcl controller_server planner_server bt_navigator \
+behavior_server smoother_server route_server waypoint_follower \
+velocity_smoother collision_monitor opennav_docking docking_server \
+lifecycle_manager rviz2"
+    for _n in $_NOS_NAV2; do
+        pkill -f "$_n" 2>/dev/null || true
+    done
+    sleep 2
+    for _n in $_NOS_NAV2; do
+        pkill -9 -f "$_n" 2>/dev/null || true
+    done
+    sleep 2
+
+    # Verificacao: nao subir nada por cima de sobrevivente.
+    _SOBROU=$(pgrep -c -f 'map_server|amcl|controller_server|planner_server|bt_navigator|behavior_server|smoother_server|route_server|waypoint_follower|velocity_smoother|collision_monitor|opennav_docking|docking_server|lifecycle_manager|rviz2' 2>/dev/null | awk '{s+=$1} END {print s+0}')
+    if [ "$_SOBROU" -ne 0 ]; then
+        log_warn "$_SOBROU processo(s) do Nav2 sobreviveram a limpeza:"
+        pgrep -af 'map_server|amcl|controller_server|planner_server|bt_navigator|behavior_server|smoother_server|route_server|waypoint_follower|velocity_smoother|collision_monitor|opennav_docking|docking_server|lifecycle_manager|rviz2'
+        log_warn "Subir a stack por cima disso satura o Discovery Server."
+        log_warn "Encerre esses processos manualmente antes de continuar."
+        exit 1
+    fi
+    log_ok "Host limpo — nenhum no Nav2 remanescente."
     docker compose down --remove-orphans || true
     systemctl --user restart future-lab-agent future-lab-cobot-discovery || true
     sleep 2
