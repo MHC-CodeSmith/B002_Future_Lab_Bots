@@ -1,10 +1,15 @@
 # Pose do TurtleBot 4 quando acoplado na dock, no frame "map" do B002_map.yaml.
-# Preenchido por POST /api/v1/turtlebot/save_dock_pose com o AMCL convergido.
-# NAO editar a mao — o valor abaixo e apenas semente para a primeira convergencia.
+# Gravado por POST /api/v1/turtlebot/save_dock_pose com o AMCL convergido.
 dock_pose:
-  x: -0.4044
-  y: -0.0024
-  yaw: 3.1363
-  measured: false
-  measured_at: null
-  covariance: null
+  x: -0.115
+  y: -0.211
+  yaw: 0.0
+  measured: true
+  measured_at: "2026-08-14"
+  covariance: {x: 0.0413, y: 0.0526, yaw: 0.0786}
+  metodo: >-
+    Consenso de tres estimativas independentes: /amcl_pose com o robo docado
+    (-0.345, -0.220, -0.052); origem do odom deduzida de /amcl_pose + /odom em
+    campo (-0.099, -0.105, +0.116); dock_station do waypoints.yaml
+    (-0.115, -0.211, 0.0). Espalhamento de 25 cm em x, 12 cm em y e 10 graus em
+    yaw, tudo dentro de 1 sigma do proprio AMCL no ponto de dock.
