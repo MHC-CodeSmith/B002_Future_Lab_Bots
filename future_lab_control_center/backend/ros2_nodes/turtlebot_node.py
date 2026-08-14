@@ -23,6 +23,8 @@ JAZZY_ENV_CMD = (
 try:
     import rclpy
     from rclpy.node import Node
+    from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
+    from rclpy.executors import MultiThreadedExecutor
     from rclpy.qos import (
         QoSProfile,
         QoSReliabilityPolicy,
@@ -73,6 +75,7 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
         self.last_amcl_time: float = 0.0
         self.last_telemetry_time: float = 0.0
         self.last_frame_time: float = 0.0
+        self._last_compressed_time: float = 0.0
         self.latest_jpeg_frame: Optional[bytes] = None
 
         self._dock_raw_last: Optional[bool] = None
@@ -95,6 +98,12 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
                     pass
             try:
                 super().__init__("future_lab_turtlebot_node")
+
+                # Telemetria e imagens: serializadas entre si (MutuallyExclusiveCallbackGroup)
+                self._cb_sub = MutuallyExclusiveCallbackGroup()
+                # Clientes de serviço e action: não mutam estado e respondem mesmo com decodificação de imagem na outra thread
+                self._cb_cli = ReentrantCallbackGroup()
+
                 try:
                     self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel_unstamped", 10)
                     self.cmd_vel_stamped_pub = self.create_publisher(TwistStamped, "/cmd_vel", 10)
@@ -104,17 +113,17 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
 
                 if HAS_NAV2_ACTION:
                     try:
-                        self.nav_action_client = ActionClient(self, NavigateToPose, "/navigate_to_pose")
+                        self.nav_action_client = ActionClient(self, NavigateToPose, "/navigate_to_pose", callback_group=self._cb_cli)
                     except Exception as e:
                         print(f"[WARN TB4] Erro ao criar ActionClient /navigate_to_pose: {e}")
 
                 try:
-                    self.create_subscription(BatteryState, "/battery_state", self._battery_callback, qos_profile_sensor_data)
+                    self.create_subscription(BatteryState, "/battery_state", self._battery_callback, qos_profile_sensor_data, callback_group=self._cb_sub)
                 except Exception as e:
                     print(f"[WARN TB4] Erro ao assinar /battery_state: {e}")
 
                 try:
-                    self.create_subscription(Odometry, "/odom", self._odom_callback, qos_profile_sensor_data)
+                    self.create_subscription(Odometry, "/odom", self._odom_callback, qos_profile_sensor_data, callback_group=self._cb_sub)
                 except Exception as e:
                     print(f"[WARN TB4] Erro ao assinar /odom: {e}")
 
@@ -124,26 +133,26 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
                         reliability=QoSReliabilityPolicy.RELIABLE,
                         durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
                     )
-                    self.create_subscription(PoseWithCovarianceStamped, "/amcl_pose", self._amcl_callback, qos_latched)
+                    self.create_subscription(PoseWithCovarianceStamped, "/amcl_pose", self._amcl_callback, qos_latched, callback_group=self._cb_sub)
                 except Exception as e:
                     print(f"[WARN TB4] Erro ao assinar /amcl_pose: {e}")
 
                 try:
-                    self.create_subscription(CompressedImage, "/oakd/rgb/preview/image_raw/compressed", self._compressed_image_callback, qos_profile_sensor_data)
+                    self.create_subscription(CompressedImage, "/oakd/rgb/preview/image_raw/compressed", self._compressed_image_callback, qos_profile_sensor_data, callback_group=self._cb_sub)
                 except Exception as e:
                     print(f"[WARN TB4] Erro ao assinar topicos OAK-D: {e}")
 
                 if HAS_CREATE_MSGS and hasattr(DockStatus, '_TYPE_SUPPORT'):
                     try:
-                        self.create_subscription(DockStatus, "/dock_status", self._dock_status_callback, qos_profile_sensor_data)
+                        self.create_subscription(DockStatus, "/dock_status", self._dock_status_callback, qos_profile_sensor_data, callback_group=self._cb_sub)
                     except Exception as e:
                         print(f"[WARN TB4] Não foi possível se inscrever em /dock_status: {e}")
 
                 try:
-                    self.start_delivery_cli = self.create_client(Trigger, "/start_delivery")
-                    self.start_failure_cli = self.create_client(Trigger, "/start_failure")
-                    self.start_restock_cli = self.create_client(Trigger, "/start_restock")
-                    self.stop_mission_cli = self.create_client(Trigger, "/stop_mission")
+                    self.start_delivery_cli = self.create_client(Trigger, "/start_delivery", callback_group=self._cb_cli)
+                    self.start_failure_cli = self.create_client(Trigger, "/start_failure", callback_group=self._cb_cli)
+                    self.start_restock_cli = self.create_client(Trigger, "/start_restock", callback_group=self._cb_cli)
+                    self.stop_mission_cli = self.create_client(Trigger, "/stop_mission", callback_group=self._cb_cli)
                 except Exception as e:
                     print(f"[WARN TB4] Erro ao criar clientes de missao: {e}")
 
@@ -160,8 +169,7 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
     def _spin_loop(self):
         if HAS_RCLPY:
             try:
-                from rclpy.executors import SingleThreadedExecutor
-                executor = SingleThreadedExecutor()
+                executor = MultiThreadedExecutor(num_threads=4)
                 executor.add_node(self)
                 executor.spin()
             except Exception as e:
@@ -284,7 +292,7 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
                 "covariance": c, "age_s": idade,
                 "motivo": "" if fresh else f"ultima leitura ha {idade}s"}
 
-    def call_trigger_service(self, srv_name: str, timeout_sec: float = 2.0):
+    def call_trigger_service(self, srv_name: str, descoberta_sec: float = 2.0, resposta_sec: float = 10.0):
         """Chama um serviço Trigger do mission_manager e devolve (sucesso, mensagem) reais.
         Usa os clientes rclpy criados no __init__ em vez de subprocess fire-and-forget,
         para que o dashboard saiba de fato se a missão foi aceita."""
@@ -297,16 +305,18 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
         cli = cli_map.get(srv_name)
         if cli is None:
             return False, f"Serviço '/{srv_name}' não tem cliente registrado no backend."
-        if not cli.wait_for_service(timeout_sec=timeout_sec):
+        if not cli.wait_for_service(timeout_sec=descoberta_sec):
             return False, (f"Serviço '/{srv_name}' indisponível — o Mission Manager não está "
-                           f"rodando. Use o botão 'Iniciar Mission Manager' no painel.")
+                           f"rodando. Use o botão 'Iniciar Mission Manager'.")
         try:
             fut = cli.call_async(Trigger.Request())
             t0 = time.time()
-            while not fut.done() and (time.time() - t0) < (timeout_sec + 3.0):
+            while not fut.done() and (time.time() - t0) < resposta_sec:
                 time.sleep(0.02)
             if not fut.done():
-                return False, f"Timeout aguardando resposta de '/{srv_name}'."
+                return False, (f"Serviço '/{srv_name}' foi encontrado no grafo mas não "
+                               f"respondeu em {resposta_sec}s. Isso indica caminho de dados "
+                               f"bloqueado ou executor do backend saturado, não Mission Manager ausente.")
             res = fut.result()
             return bool(res.success), (res.message or "")
         except Exception as e:

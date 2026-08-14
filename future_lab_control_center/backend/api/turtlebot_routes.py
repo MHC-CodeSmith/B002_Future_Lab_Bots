@@ -1065,7 +1065,7 @@ def stop_mission():
     sim_state["waiting_confirmation"] = False
 
     # 4. Chamar serviço /stop_mission do Mission Manager
-    mm_ok, mm_msg = node.call_trigger_service("stop_mission", timeout_sec=2.0)
+    mm_ok, mm_msg = node.call_trigger_service("stop_mission", descoberta_sec=1.0, resposta_sec=3.0)
     if not mm_ok:
         avisos.append(f"Mission Manager não estava no ar — nenhuma missão para cancelar.")
 
