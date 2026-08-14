@@ -106,9 +106,14 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
                 self._cb_cli = ReentrantCallbackGroup()
 
                 try:
+                    qos_latched = QoSProfile(
+                        depth=1,
+                        reliability=QoSReliabilityPolicy.RELIABLE,
+                        durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+                    )
                     self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel_unstamped", 10)
                     self.cmd_vel_stamped_pub = self.create_publisher(TwistStamped, "/cmd_vel", 10)
-                    self.initialpose_pub = self.create_publisher(PoseWithCovarianceStamped, "/initialpose", 10)
+                    self.initialpose_pub = self.create_publisher(PoseWithCovarianceStamped, "/initialpose", qos_latched)
                 except Exception as e:
                     print(f"[WARN TB4] Erro ao criar publishers: {e}")
 
@@ -129,11 +134,6 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
                     print(f"[WARN TB4] Erro ao assinar /odom: {e}")
 
                 try:
-                    qos_latched = QoSProfile(
-                        depth=1,
-                        reliability=QoSReliabilityPolicy.RELIABLE,
-                        durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
-                    )
                     self.create_subscription(PoseWithCovarianceStamped, "/amcl_pose", self._amcl_callback, qos_latched, callback_group=self._cb_sub)
                 except Exception as e:
                     print(f"[WARN TB4] Erro ao assinar /amcl_pose: {e}")
