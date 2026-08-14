@@ -993,13 +993,13 @@ export default function TurtleBotDashboardTab({
                 <button
                   type="button"
                   onClick={handleSaveDockPose}
-                  disabled={!amclStatus?.converged || !isDocked || savingDockPose}
+                  disabled={!(isDocked ? amclStatus?.converged_dock : amclStatus?.converged) || !isDocked || savingDockPose}
                   className={`py-1.5 px-2 rounded-lg text-[11px] font-bold border transition-all flex items-center justify-center gap-1 ${
-                    amclStatus?.converged && isDocked
+                    isDocked && (amclStatus?.converged_dock ?? amclStatus?.converged)
                       ? 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-400 shadow'
                       : 'bg-slate-800 text-slate-500 border-slate-700 cursor-not-allowed'
                   }`}
-                  title={amclStatus?.converged && isDocked ? 'Gravar pose real no nav_poses.yaml' : 'Requer AMCL convergido e robô acoplado na dock'}
+                  title={isDocked && (amclStatus?.converged_dock ?? amclStatus?.converged) ? 'Gravar pose real no nav_poses.yaml' : 'Requer AMCL convergido e robô acoplado na dock'}
                 >
                   <CheckCircle2 className="w-3.5 h-3.5" />
                   <span>{savingDockPose ? 'Gravando...' : 'Gravar Pose da Dock'}</span>

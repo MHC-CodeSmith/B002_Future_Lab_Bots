@@ -290,16 +290,18 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
 
     def get_amcl(self) -> Dict:
         if self.amcl_pose is None:
-            return {"amcl_ok": False, "converged": False, "pose": None,
-                    "covariance": None, "age_s": None,
+            return {"amcl_ok": False, "converged": False, "converged_dock": False,
+                    "pose": None, "covariance": None, "age_s": None,
                     "motivo": "nenhuma mensagem recebida em /amcl_pose"}
         idade = round(time.time() - self.last_amcl_time, 1)
         fresh = bool(idade < AMCL_TTL)
         c = self.amcl_cov or {"x": 1.0, "y": 1.0, "yaw": 1.0}
         converged = bool(fresh and (c["x"] < COV_XY_MAX and c["y"] < COV_XY_MAX
                                     and c["yaw"] < COV_YAW_MAX))
-        return {"amcl_ok": fresh, "converged": converged, "pose": self.amcl_pose,
-                "covariance": c, "age_s": idade,
+        converged_dock = bool(fresh and (c["x"] < COV_XY_MAX_DOCK and c["y"] < COV_XY_MAX_DOCK
+                                         and c["yaw"] < COV_YAW_MAX_DOCK))
+        return {"amcl_ok": fresh, "converged": converged, "converged_dock": converged_dock,
+                "pose": self.amcl_pose, "covariance": c, "age_s": idade,
                 "motivo": "" if fresh else f"ultima leitura ha {idade}s"}
 
     def call_trigger_service(self, srv_name: str, descoberta_sec: float = 2.0, resposta_sec: float = 10.0):
