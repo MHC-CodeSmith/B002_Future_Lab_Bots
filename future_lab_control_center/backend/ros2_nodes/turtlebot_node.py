@@ -23,7 +23,12 @@ JAZZY_ENV_CMD = (
 try:
     import rclpy
     from rclpy.node import Node
-    from rclpy.qos import QoSProfile, QoSReliabilityPolicy, qos_profile_sensor_data
+    from rclpy.qos import (
+        QoSProfile,
+        QoSReliabilityPolicy,
+        QoSDurabilityPolicy,
+        qos_profile_sensor_data,
+    )
     from geometry_msgs.msg import Twist, TwistStamped, PoseWithCovarianceStamped
     from sensor_msgs.msg import BatteryState, CompressedImage, Image
     from nav_msgs.msg import Odometry
@@ -50,9 +55,11 @@ except ImportError:
 
 TELEMETRY_TTL = 5.0   # s sem mensagem da BASE = telemetria inválida
 FRAME_TTL = 3.0       # s sem frame da OAK-D = câmera sem sinal
-AMCL_TTL = 5.0        # s sem mensagem de /amcl_pose = AMCL inativo
-COV_XY_MAX = 0.05      # m²
-COV_YAW_MAX = 0.06     # rad²
+AMCL_TTL = 120.0      # o AMCL so publica quando atualiza; parado, fica em silencio
+COV_XY_MAX = 0.05      # m² (em movimento)
+COV_YAW_MAX = 0.06     # rad² (em movimento)
+COV_XY_MAX_DOCK = 0.09 # m² (~30 cm de sigma; estado docado)
+COV_YAW_MAX_DOCK = 0.12 # rad² (~20 graus de sigma; estado docado)
 
 
 class TurtleBotNode(Node if HAS_RCLPY else object):
@@ -112,7 +119,12 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
                     print(f"[WARN TB4] Erro ao assinar /odom: {e}")
 
                 try:
-                    self.create_subscription(PoseWithCovarianceStamped, "/amcl_pose", self._amcl_callback, qos_profile_sensor_data)
+                    qos_latched = QoSProfile(
+                        depth=1,
+                        reliability=QoSReliabilityPolicy.RELIABLE,
+                        durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+                    )
+                    self.create_subscription(PoseWithCovarianceStamped, "/amcl_pose", self._amcl_callback, qos_latched)
                 except Exception as e:
                     print(f"[WARN TB4] Erro ao assinar /amcl_pose: {e}")
 
@@ -259,16 +271,18 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
             print(f"[WARN TB4] AMCL callback error: {e}")
 
     def get_amcl(self) -> Dict:
-        fresh = (time.time() - self.last_amcl_time) < AMCL_TTL
-        if not fresh or self.amcl_pose is None or self.amcl_cov is None:
+        if self.amcl_pose is None:
             return {"amcl_ok": False, "converged": False, "pose": None,
-                    "covariance": None, "age_s": None}
-        c = self.amcl_cov
-        converged = (c["x"] < COV_XY_MAX and c["y"] < COV_XY_MAX
-                     and c["yaw"] < COV_YAW_MAX)
-        return {"amcl_ok": True, "converged": converged, "pose": self.amcl_pose,
-                "covariance": c,
-                "age_s": round(time.time() - self.last_amcl_time, 1)}
+                    "covariance": None, "age_s": None,
+                    "motivo": "nenhuma mensagem recebida em /amcl_pose"}
+        idade = round(time.time() - self.last_amcl_time, 1)
+        fresh = idade < AMCL_TTL
+        c = self.amcl_cov or {"x": 1.0, "y": 1.0, "yaw": 1.0}
+        converged = fresh and (c["x"] < COV_XY_MAX and c["y"] < COV_XY_MAX
+                               and c["yaw"] < COV_YAW_MAX)
+        return {"amcl_ok": fresh, "converged": converged, "pose": self.amcl_pose,
+                "covariance": c, "age_s": idade,
+                "motivo": "" if fresh else f"ultima leitura ha {idade}s"}
 
     def call_trigger_service(self, srv_name: str, timeout_sec: float = 2.0):
         """Chama um serviço Trigger do mission_manager e devolve (sucesso, mensagem) reais.
