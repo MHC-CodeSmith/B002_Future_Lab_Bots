@@ -64,6 +64,15 @@ COV_YAW_MAX = 0.06     # rad² (em movimento)
 COV_XY_MAX_DOCK = 0.09 # m² (~30 cm de sigma; estado docado)
 COV_YAW_MAX_DOCK = 0.12 # rad² (~20 graus de sigma; estado docado)
 
+if HAS_RCLPY:
+    QOS_LATCHED = QoSProfile(
+        depth=1,
+        reliability=QoSReliabilityPolicy.RELIABLE,
+        durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+    )
+else:
+    QOS_LATCHED = 10
+
 
 class TurtleBotNode(Node if HAS_RCLPY else object):
     def __init__(self):
@@ -78,6 +87,7 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
         self.last_frame_time: float = 0.0
         self._last_compressed_time: float = 0.0
         self.latest_jpeg_frame: Optional[bytes] = None
+        self.init_errors: list = []
 
         self._dock_raw_last: Optional[bool] = None
         self._dock_confirm_count: int = 0
@@ -106,48 +116,58 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
                 self._cb_cli = ReentrantCallbackGroup()
 
                 try:
-                    qos_latched = QoSProfile(
-                        depth=1,
-                        reliability=QoSReliabilityPolicy.RELIABLE,
-                        durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
-                    )
                     self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel_unstamped", 10)
                     self.cmd_vel_stamped_pub = self.create_publisher(TwistStamped, "/cmd_vel", 10)
-                    self.initialpose_pub = self.create_publisher(PoseWithCovarianceStamped, "/initialpose", qos_latched)
+                    self.initialpose_pub = self.create_publisher(PoseWithCovarianceStamped, "/initialpose", 10)
                 except Exception as e:
-                    print(f"[WARN TB4] Erro ao criar publishers: {e}")
+                    err = f"Falha ao criar publishers: {type(e).__name__}: {e}"
+                    print(f"[ERRO TB4] {err}")
+                    self.init_errors.append(err)
 
                 if HAS_NAV2_ACTION:
                     try:
                         self.nav_action_client = ActionClient(self, NavigateToPose, "/navigate_to_pose", callback_group=self._cb_cli)
                     except Exception as e:
-                        print(f"[WARN TB4] Erro ao criar ActionClient /navigate_to_pose: {e}")
+                        err = f"Falha ao criar ActionClient /navigate_to_pose: {type(e).__name__}: {e}"
+                        print(f"[ERRO TB4] {err}")
+                        self.init_errors.append(err)
 
                 try:
                     self.create_subscription(BatteryState, "/battery_state", self._battery_callback, qos_profile_sensor_data, callback_group=self._cb_sub)
                 except Exception as e:
-                    print(f"[WARN TB4] Erro ao assinar /battery_state: {e}")
+                    err = f"Falha ao assinar /battery_state: {type(e).__name__}: {e}"
+                    print(f"[ERRO TB4] {err}")
+                    self.init_errors.append(err)
 
                 try:
                     self.create_subscription(Odometry, "/odom", self._odom_callback, qos_profile_sensor_data, callback_group=self._cb_sub)
                 except Exception as e:
-                    print(f"[WARN TB4] Erro ao assinar /odom: {e}")
+                    err = f"Falha ao assinar /odom: {type(e).__name__}: {e}"
+                    print(f"[ERRO TB4] {err}")
+                    self.init_errors.append(err)
 
                 try:
-                    self.create_subscription(PoseWithCovarianceStamped, "/amcl_pose", self._amcl_callback, qos_latched, callback_group=self._cb_sub)
+                    self.create_subscription(PoseWithCovarianceStamped, "/amcl_pose", self._amcl_callback, QOS_LATCHED, callback_group=self._cb_sub)
                 except Exception as e:
-                    print(f"[WARN TB4] Erro ao assinar /amcl_pose: {e}")
+                    err = f"Falha ao assinar /amcl_pose: {type(e).__name__}: {e}"
+                    print(f"[ERRO TB4] {err}")
+                    self.init_errors.append(err)
 
                 try:
                     self.create_subscription(CompressedImage, "/oakd/rgb/preview/image_raw/compressed", self._compressed_image_callback, qos_profile_sensor_data, callback_group=self._cb_sub)
+                    self.create_subscription(Image, "/oakd/rgb/preview/image_raw", self._raw_image_callback, qos_profile_sensor_data, callback_group=self._cb_sub)
                 except Exception as e:
-                    print(f"[WARN TB4] Erro ao assinar topicos OAK-D: {e}")
+                    err = f"Falha ao assinar tópicos OAK-D: {type(e).__name__}: {e}"
+                    print(f"[ERRO TB4] {err}")
+                    self.init_errors.append(err)
 
                 if HAS_CREATE_MSGS and hasattr(DockStatus, '_TYPE_SUPPORT'):
                     try:
                         self.create_subscription(DockStatus, "/dock_status", self._dock_status_callback, qos_profile_sensor_data, callback_group=self._cb_sub)
                     except Exception as e:
-                        print(f"[WARN TB4] Não foi possível se inscrever em /dock_status: {e}")
+                        err = f"Falha ao assinar /dock_status: {type(e).__name__}: {e}"
+                        print(f"[ERRO TB4] {err}")
+                        self.init_errors.append(err)
 
                 try:
                     self.start_delivery_cli = self.create_client(Trigger, "/start_delivery", callback_group=self._cb_cli)
@@ -155,7 +175,9 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
                     self.start_restock_cli = self.create_client(Trigger, "/start_restock", callback_group=self._cb_cli)
                     self.stop_mission_cli = self.create_client(Trigger, "/stop_mission", callback_group=self._cb_cli)
                 except Exception as e:
-                    print(f"[WARN TB4] Erro ao criar clientes de missao: {e}")
+                    err = f"Falha ao criar clientes de missão: {type(e).__name__}: {e}"
+                    print(f"[ERRO TB4] {err}")
+                    self.init_errors.append(err)
 
                 # Thread de spin em background
                 t_spin = threading.Thread(target=self._spin_loop, daemon=True)
@@ -292,7 +314,8 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
         if self.amcl_pose is None:
             return {"amcl_ok": False, "converged": False, "converged_dock": False,
                     "pose": None, "covariance": None, "age_s": None,
-                    "motivo": "nenhuma mensagem recebida em /amcl_pose"}
+                    "motivo": "nenhuma mensagem recebida em /amcl_pose",
+                    "init_errors": self.init_errors}
         idade = round(time.time() - self.last_amcl_time, 1)
         fresh = bool(idade < AMCL_TTL)
         c = self.amcl_cov or {"x": 1.0, "y": 1.0, "yaw": 1.0}
@@ -302,7 +325,8 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
                                          and c["yaw"] < COV_YAW_MAX_DOCK))
         return {"amcl_ok": fresh, "converged": converged, "converged_dock": converged_dock,
                 "pose": self.amcl_pose, "covariance": c, "age_s": idade,
-                "motivo": "" if fresh else f"ultima leitura ha {idade}s"}
+                "motivo": "" if fresh else f"ultima leitura ha {idade}s",
+                "init_errors": self.init_errors}
 
     def call_trigger_service(self, srv_name: str, descoberta_sec: float = 2.0, resposta_sec: float = 10.0):
         """Chama um serviço Trigger do mission_manager e devolve (sucesso, mensagem) reais.
