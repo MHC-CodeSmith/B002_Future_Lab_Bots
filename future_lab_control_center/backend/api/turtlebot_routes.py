@@ -1051,8 +1051,8 @@ def stop_mission():
     node = get_turtlebot_node()
     avisos = []
 
-    # 1. Cancelar todas as metas do /navigate_to_pose
-    cancel_ok, cancel_count, cancel_err = node.cancel_all_nav_goals(timeout_sec=2.0)
+    # 1. Cancelar todas as metas do /navigate_to_pose via serviço CancelGoal
+    cancel_ok, cancel_count, cancel_err = node.cancel_all_nav_goals(timeout_sec=3.0)
     if cancel_err:
         avisos.append(cancel_err)
 
@@ -1069,7 +1069,8 @@ def stop_mission():
     if not mm_ok:
         avisos.append(f"Mission Manager não estava no ar — nenhuma missão para cancelar.")
 
-    # 5. Rajada de zero sustentada: 20 Hz por 2.0 s (40 mensagens)
+    # 5. Rajada de zero como impulso secundário: 20 Hz por 2.0 s (40 mensagens)
+    # Nota: Com o Nav2 ativo, o controller_server reescreve /cmd_vel no ciclo seguinte. O freio real e o cancelamento de meta acima.
     node.send_cmd_vel(0.0, 0.0, duration_sec=2.0, hz=20.0)
 
     overall_status = "success" if cancel_ok else "partial"

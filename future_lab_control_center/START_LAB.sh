@@ -90,30 +90,27 @@ if [ "$MODE" == "reset" ]; then
     # com os participantes DDS registrados, saturando o Discovery Server.
     for _p in 'localization.launch.py' 'nav2.launch.py' \
               'view_navigation.launch.py' 'scripts/mission_manager.py'; do
-        pkill -f "$_p" 2>/dev/null || true
+        pgrep -f "$_p" 2>/dev/null | grep -v "$$" | xargs -r kill -15 2>/dev/null || true
     done
     sleep 3
 
     # Rede de seguranca: qualquer no filho que tenha sobrevivido.
     # Esta lista tem de espelhar ALLOWED_PKILLS do host_agent/agent.py.
-    _NOS_NAV2="map_server amcl controller_server planner_server bt_navigator \
-behavior_server smoother_server route_server waypoint_follower \
-velocity_smoother collision_monitor opennav_docking docking_server \
-lifecycle_manager rviz2"
+    _NOS_NAV2="map_server amcl controller_server planner_server bt_navigator behavior_server smoother_server route_server waypoint_follower velocity_smoother collision_monitor opennav_docking docking_server lifecycle_manager rviz2"
     for _n in $_NOS_NAV2; do
-        pkill -f "$_n" 2>/dev/null || true
+        pkill -x "$_n" 2>/dev/null || true
     done
     sleep 2
     for _n in $_NOS_NAV2; do
-        pkill -9 -f "$_n" 2>/dev/null || true
+        pkill -9 -x "$_n" 2>/dev/null || true
     done
     sleep 2
 
-    # Verificacao: nao subir nada por cima de sobrevivente.
-    _SOBROU=$(pgrep -c -f 'map_server|amcl|controller_server|planner_server|bt_navigator|behavior_server|smoother_server|route_server|waypoint_follower|velocity_smoother|collision_monitor|opennav_docking|docking_server|lifecycle_manager|rviz2' 2>/dev/null | awk '{s+=$1} END {print s+0}')
+    _PATTERN_X='map_server|amcl|controller_server|planner_server|bt_navigator|behavior_server|smoother_server|route_server|waypoint_follower|velocity_smoother|collision_monitor|opennav_docking|docking_server|lifecycle_manager|rviz2'
+    _SOBROU=$(pgrep -x "$_PATTERN_X" 2>/dev/null | wc -l)
     if [ "$_SOBROU" -ne 0 ]; then
         log_warn "$_SOBROU processo(s) do Nav2 sobreviveram a limpeza:"
-        pgrep -af 'map_server|amcl|controller_server|planner_server|bt_navigator|behavior_server|smoother_server|route_server|waypoint_follower|velocity_smoother|collision_monitor|opennav_docking|docking_server|lifecycle_manager|rviz2'
+        pgrep -ax "$_PATTERN_X"
         log_warn "Subir a stack por cima disso satura o Discovery Server."
         log_warn "Encerre esses processos manualmente antes de continuar."
         exit 1
