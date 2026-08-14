@@ -1075,7 +1075,8 @@ def stop_mission():
     overall_status = "success" if cancel_ok else "partial"
     msg = "🛑 Motores parados e metas canceladas."
     if overall_status == "partial":
-        msg = "⚠️ Parada executada parcialmente. Verifique os avisos."
+        msg = ("⚠️ NÃO FOI POSSÍVEL CONFIRMAR O CANCELAMENTO DA META. "
+               "Se o robô estiver em movimento, use o botão físico da Create 3.")
 
     return {
         "status": overall_status,

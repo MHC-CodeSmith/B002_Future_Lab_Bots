@@ -359,29 +359,38 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
             return False, f"Erro ao chamar '/{srv_name}': {e}"
 
     def cancel_all_nav_goals(self, timeout_sec: float = 2.0) -> tuple:
-        """Cancela todas as metas ativas da action /navigate_to_pose via ActionClient.
-        Retorna (sucesso: bool, canceladas_count: int, mensagem_aviso: str).
+        """Cancela todas as metas de /navigate_to_pose.
+
+        Retorna (cancelado, quantas, aviso).
+        cancelado=True SOMENTE quando o servidor respondeu ao pedido de cancelamento.
+        Servidor inalcançavel, timeout ou excecao NUNCA devolvem True: o robo pode
+        estar em movimento e o operador precisa saber que o software nao o parou.
         """
         if not HAS_RCLPY or not HAS_NAV2_ACTION or not self.nav_action_client:
-            return False, 0, "nav2_msgs ou ActionClient de navegação indisponível no backend."
+            return False, 0, "ActionClient de /navigate_to_pose indisponível no backend."
+
+        if not self.nav_action_client.wait_for_server(timeout_sec=timeout_sec):
+            return False, 0, ("Servidor /navigate_to_pose INALCANÇÁVEL — nenhuma meta foi "
+                              "cancelada. Se o robô estiver em movimento, use o botão "
+                              "físico da Create 3.")
+
+        if not hasattr(self.nav_action_client, "cancel_all_goals_async"):
+            return False, 0, "ActionClient sem cancel_all_goals_async — versão de rclpy incompatível."
 
         try:
-            if not self.nav_action_client.wait_for_server(timeout_sec=timeout_sec):
-                return True, 0, "Servidor /navigate_to_pose indisponível (nenhuma meta do Nav2 no ar)."
-
-            if hasattr(self.nav_action_client, 'cancel_all_goals_async'):
-                fut = self.nav_action_client.cancel_all_goals_async()
-                t0 = time.time()
-                while not fut.done() and (time.time() - t0) < timeout_sec:
-                    time.sleep(0.02)
-                if fut.done():
-                    res = fut.result()
-                    goals_cancelled = len(getattr(res, 'goals_canceling', [])) if res else 1
-                    return True, goals_cancelled, ""
-                return False, 0, "Timeout aguardando confirmação de cancelamento da meta do Nav2."
-            return True, 0, ""
+            fut = self.nav_action_client.cancel_all_goals_async()
+            t0 = time.time()
+            while not fut.done() and (time.time() - t0) < timeout_sec:
+                time.sleep(0.02)
+            if not fut.done():
+                return False, 0, ("Timeout aguardando confirmação de cancelamento do Nav2 — "
+                                  "não é possível garantir que a meta foi cancelada.")
+            res = fut.result()
+            quantas = len(getattr(res, "goals_canceling", []) or [])
+            aviso = "" if quantas else "Servidor respondeu; não havia meta ativa para cancelar."
+            return True, quantas, aviso
         except Exception as e:
-            return False, 0, f"Falha ao cancelar meta do Nav2: {e}"
+            return False, 0, f"Falha ao cancelar meta do Nav2: {type(e).__name__}: {e}"
 
     def send_cmd_vel(self, linear_x: float, angular_z: float, duration_sec: float = 0.5, hz: float = 20.0):
         """Publica comandos de velocidade em rajada parametrizada (default 0.5s a 20 Hz)."""
