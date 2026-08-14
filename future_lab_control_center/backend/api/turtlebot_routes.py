@@ -298,21 +298,32 @@ def get_nav_poses():
 
 @router.post("/save_dock_pose")
 def save_dock_pose():
-    """Grava a pose atual do AMCL como pose da dock em nav_poses.yaml. Exige convergência e robô docado."""
+    """Grava a pose atual do AMCL como pose da dock em nav_poses.yaml. Exige amcl_ok, robô docado e limiares de dock."""
     from datetime import datetime
     import yaml
     node = get_turtlebot_node()
     a = node.get_amcl()
     if not a["amcl_ok"]:
+        motivo = a.get("motivo") or "AMCL não está publicando"
         raise HTTPException(
             status_code=409,
-            detail="AMCL não está publicando. Inicie a Localização primeiro."
+            detail=f"AMCL indisponível ({motivo}). Inicie a Localização primeiro."
         )
-    if not a["converged"]:
+
+    COV_XY_MAX_DOCK = 0.09
+    COV_YAW_MAX_DOCK = 0.12
+
+    c = a.get("covariance") or {}
+    cov_x = c.get("x", 1.0)
+    cov_y = c.get("y", 1.0)
+    cov_yaw = c.get("yaw", 1.0)
+
+    dock_converged = (cov_x < COV_XY_MAX_DOCK and cov_y < COV_XY_MAX_DOCK and cov_yaw < COV_YAW_MAX_DOCK)
+    if not dock_converged:
         raise HTTPException(
             status_code=409,
-            detail=f"AMCL ainda não convergiu (covariância {a['covariance']}). "
-                   f"Gire o robô alguns graus e tente de novo."
+            detail=f"AMCL ainda não convergiu para o estado docado (covariância {c}). "
+                   f"Limiares exigidos em dock: xy < {COV_XY_MAX_DOCK}, yaw < {COV_YAW_MAX_DOCK}."
         )
     if not node.is_docked:
         raise HTTPException(
