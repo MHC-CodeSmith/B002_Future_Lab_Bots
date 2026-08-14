@@ -54,6 +54,12 @@ try:
 except ImportError:
     HAS_NAV2_ACTION = False
 
+try:
+    from action_msgs.srv import CancelGoal
+    HAS_CANCEL_SRV = True
+except ImportError:
+    HAS_CANCEL_SRV = False
+
 
 TELEMETRY_TTL = 5.0   # s sem mensagem da BASE = telemetria inválida
 FRAME_TTL = 3.0       # s sem frame da OAK-D = câmera sem sinal
@@ -129,6 +135,19 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
                         self.nav_action_client = ActionClient(self, NavigateToPose, "/navigate_to_pose", callback_group=self._cb_cli)
                     except Exception as e:
                         err = f"Falha ao criar ActionClient /navigate_to_pose: {type(e).__name__}: {e}"
+                        print(f"[ERRO TB4] {err}")
+                        self.init_errors.append(err)
+
+                self.cancel_nav_client = None
+                if HAS_RCLPY and HAS_CANCEL_SRV:
+                    try:
+                        self.cancel_nav_client = self.create_client(
+                            CancelGoal,
+                            "/navigate_to_pose/_action/cancel_goal",
+                            callback_group=self._cb_cli,
+                        )
+                    except Exception as e:
+                        err = f"Falha ao criar cliente /navigate_to_pose/_action/cancel_goal: {type(e).__name__}: {e}"
                         print(f"[ERRO TB4] {err}")
                         self.init_errors.append(err)
 
@@ -358,37 +377,49 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
         except Exception as e:
             return False, f"Erro ao chamar '/{srv_name}': {e}"
 
-    def cancel_all_nav_goals(self, timeout_sec: float = 2.0) -> tuple:
-        """Cancela todas as metas de /navigate_to_pose.
+    def cancel_all_nav_goals(self, timeout_sec: float = 3.0) -> tuple:
+        """Cancela todas as metas ativas de /navigate_to_pose.
+
+        Usa o serviço <action>/_action/cancel_goal (action_msgs/srv/CancelGoal).
+        Requisicao com goal_id zerado e stamp zerado = cancelar TODAS as metas.
 
         Retorna (cancelado, quantas, aviso).
-        cancelado=True SOMENTE quando o servidor respondeu ao pedido de cancelamento.
-        Servidor inalcançavel, timeout ou excecao NUNCA devolvem True: o robo pode
-        estar em movimento e o operador precisa saber que o software nao o parou.
+        cancelado=True SOMENTE quando o servidor devolveu uma resposta.
         """
-        if not HAS_RCLPY or not HAS_NAV2_ACTION or not self.nav_action_client:
-            return False, 0, "ActionClient de /navigate_to_pose indisponível no backend."
+        if not HAS_RCLPY or not HAS_CANCEL_SRV or self.cancel_nav_client is None:
+            return False, 0, ("Cliente de cancelamento indisponível no backend — "
+                              "o botão de parada NÃO cancela metas.")
 
-        if not self.nav_action_client.wait_for_server(timeout_sec=timeout_sec):
-            return False, 0, ("Servidor /navigate_to_pose INALCANÇÁVEL — nenhuma meta foi "
-                              "cancelada. Se o robô estiver em movimento, use o botão "
-                              "físico da Create 3.")
-
-        if not hasattr(self.nav_action_client, "cancel_all_goals_async"):
-            return False, 0, "ActionClient sem cancel_all_goals_async — versão de rclpy incompatível."
+        if not self.cancel_nav_client.wait_for_service(timeout_sec=timeout_sec):
+            return False, 0, ("Serviço /navigate_to_pose/_action/cancel_goal INALCANÇÁVEL — "
+                              "nenhuma meta foi cancelada. Se o robô estiver em movimento, "
+                              "use o botão físico da Create 3.")
 
         try:
-            fut = self.nav_action_client.cancel_all_goals_async()
+            req = CancelGoal.Request()  # goal_id e stamp zerados = todas as metas
+            fut = self.cancel_nav_client.call_async(req)
             t0 = time.time()
             while not fut.done() and (time.time() - t0) < timeout_sec:
                 time.sleep(0.02)
             if not fut.done():
-                return False, 0, ("Timeout aguardando confirmação de cancelamento do Nav2 — "
-                                  "não é possível garantir que a meta foi cancelada.")
+                return False, 0, ("Timeout aguardando resposta do cancelamento — não é "
+                                  "possível garantir que a meta foi cancelada.")
+
             res = fut.result()
+            if res is None:
+                return False, 0, "Resposta vazia do serviço de cancelamento."
+
             quantas = len(getattr(res, "goals_canceling", []) or [])
-            aviso = "" if quantas else "Servidor respondeu; não havia meta ativa para cancelar."
-            return True, quantas, aviso
+            code = int(getattr(res, "return_code", 0))
+
+            # O servidor respondeu. Isso e o que autoriza cancelado=True.
+            # code 0 = ERROR_NONE; 1 = ERROR_REJECTED (tipicamente: nao havia meta ativa)
+            if quantas:
+                return True, quantas, ""
+            if code in (0, 1):
+                return True, 0, "Servidor respondeu; não havia meta ativa para cancelar."
+            return True, 0, f"Servidor respondeu com return_code={code}; nenhuma meta em cancelamento."
+
         except Exception as e:
             return False, 0, f"Falha ao cancelar meta do Nav2: {type(e).__name__}: {e}"
 
