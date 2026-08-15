@@ -187,6 +187,10 @@ def _nav_hint(faltando: list, checks: dict = None) -> str:
     if "map" in faltando or "amcl_pose" in faltando:
         return "Localização não está no ar. Use '1. Iniciar Localização', abra o RViz (Passo 2), faça Undock (Passo 3) e defina a pose inicial (Passo 4)."
     if "navigate_to_pose" in faltando or "global_costmap" in faltando:
+        if checks and checks.get("undocked") is False:
+            return ("Nav2 não pode ser iniciado a frio enquanto o TurtleBot está dockado: "
+                    "a Create 3 suspende odom→base_link. Faça um Undock autorizado, aguarde "
+                    "scan/odom/TF e então use 'Lançar Nav2 Stack'.")
         return "Nav2 não está no ar. Use '5. Lançar Nav2 Stack'."
     if "start_delivery" in faltando or "stop_mission" in faltando:
         return "Mission Manager não está no ar. Use 'Iniciar Mission Manager'."
@@ -245,7 +249,7 @@ def get_nav_readiness():
         "scan":                  scan_status["fresh"] if create3_alive else None,
         # Localização
         "map":                   localization_running and node.count_publishers("/map") > 0,
-        "amcl_pose":             localization_running and amcl_status.get("initialized", False),
+        "amcl_pose":             localization_running and amcl_status.get("amcl_ok", False),
         "amcl_converged":        localization_running and amcl_status["converged"],
         # Navegação
         "navigate_to_pose":      nav2_running and "/navigate_to_pose" in actions,
@@ -1025,6 +1029,19 @@ def _call_host_agent(path: str, method: str = "POST", json_body: dict = None, ti
         )
 
 
+def _trigger_mission_via_host(service_name: str) -> tuple[bool, str]:
+    """Usa o participante ROS do host; o container não recebe respostas de serviços."""
+    result = _call_host_agent(
+        "/ros/trigger_mission",
+        method="POST",
+        json_body={"service": service_name},
+        timeout=55.0,
+    )
+    if not result.get("responded"):
+        return False, result.get("detail", "Serviço ROS não respondeu.")
+    return bool(result.get("success")), result.get("message", "")
+
+
 def _lifecycle_failure_lines(log_text: str) -> list[str]:
     markers = (
         "failed to send response to",
@@ -1106,6 +1123,44 @@ def launch_localization():
 @router.post("/launch_nav2")
 def launch_nav2():
     """Inicia uma geracao e so confirma apos os managed nodes ativos."""
+    host_status = _call_host_agent("/status", method="GET", timeout=3.0)
+    current = host_status.get("nav2", {})
+    if isinstance(current, dict) and current.get("running"):
+        raise HTTPException(
+            status_code=409,
+            detail=("Nav2 já está ativo; nenhuma nova geração foi criada. "
+                    f"PID principal: {current.get('pid')}."),
+        )
+
+    node = get_turtlebot_node()
+    if not node.telemetry_fresh():
+        raise HTTPException(
+            status_code=503,
+            detail="Telemetria da Create 3 está ausente; Nav2 não foi iniciado.",
+        )
+    if node.is_docked is not False:
+        raise HTTPException(
+            status_code=409,
+            detail=("Nav2 não foi iniciado: enquanto dockada, a Create 3 suspende "
+                    "odom→base_link e o lifecycle aborta no planner_server. Faça um "
+                    "Undock autorizado, aguarde scan/odom/TF e tente novamente."),
+        )
+
+    scan_status = node.get_scan_status()
+    if not scan_status.get("fresh"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Nav2 não foi iniciado: {scan_status.get('reason') or '/scan não está fresco'}.",
+        )
+
+    amcl_status = node.get_amcl()
+    if not amcl_status.get("initialized"):
+        raise HTTPException(
+            status_code=409,
+            detail=("Nav2 não foi iniciado: nenhuma pose inicial foi confirmada pelo AMCL. "
+                    "Defina a pose inicial e tente novamente."),
+        )
+
     result = _launch_and_wait_lifecycle("nav2")
     _processes_cache["timestamp"] = 0.0
     _nav_readiness_cache["timestamp"] = 0.0
@@ -1160,8 +1215,7 @@ def stop_mission_manager_process():
 def trigger_delivery():
     """Aciona o serviço ROS 2 de entrega de peças (/start_delivery)."""
     _require_live_telemetry()
-    node = get_turtlebot_node()
-    ok, msg = node.call_trigger_service("start_delivery")
+    ok, msg = _trigger_mission_via_host("start_delivery")
     if not ok:
         raise HTTPException(status_code=503, detail=msg)
     return {"status": "success", "message": msg or "Rotina de Entrega acionada!"}
@@ -1170,8 +1224,7 @@ def trigger_delivery():
 def trigger_failure():
     """Aciona o serviço ROS 2 de recolhimento de peça com defeito / descarte (/start_failure)."""
     _require_live_telemetry()
-    node = get_turtlebot_node()
-    ok, msg = node.call_trigger_service("start_failure")
+    ok, msg = _trigger_mission_via_host("start_failure")
     if not ok:
         raise HTTPException(status_code=503, detail=msg)
     return {"status": "success", "message": msg or "Rotina de Falha/Descarte acionada!"}
@@ -1180,8 +1233,7 @@ def trigger_failure():
 def trigger_restock():
     """Aciona o serviço ROS 2 de reabastecimento de matéria-prima (/start_restock)."""
     _require_live_telemetry()
-    node = get_turtlebot_node()
-    ok, msg = node.call_trigger_service("start_restock")
+    ok, msg = _trigger_mission_via_host("start_restock")
     if not ok:
         raise HTTPException(status_code=503, detail=msg)
     return {"status": "success", "message": msg or "Rotina de Reabastecimento acionada!"}
@@ -1213,7 +1265,10 @@ def stop_mission():
     sim_state["waiting_confirmation"] = False
 
     # 4. Chamar serviço /stop_mission do Mission Manager
-    mm_ok, mm_msg = node.call_trigger_service("stop_mission", descoberta_sec=3.0, resposta_sec=10.0)
+    try:
+        mm_ok, mm_msg = _trigger_mission_via_host("stop_mission")
+    except HTTPException as exc:
+        mm_ok, mm_msg = False, str(exc.detail)
     if not mm_ok:
         avisos.append(f"Mission Manager não estava no ar — nenhuma missão para cancelar.")
 

@@ -703,9 +703,18 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
         }
 
 _tb_node: Optional[TurtleBotNode] = None
+_tb_node_lock = threading.Lock()
 
 def get_turtlebot_node() -> TurtleBotNode:
+    """Devolve a unica instancia ROS usada pelo processo HTTP.
+
+    O frontend consulta varios endpoints em paralelo no primeiro carregamento.
+    Sem a trava, duas threads podiam observar ``_tb_node is None`` e construir
+    dois nos com o mesmo nome, cada um com seus proprios clientes de servico.
+    """
     global _tb_node
     if _tb_node is None:
-        _tb_node = TurtleBotNode()
+        with _tb_node_lock:
+            if _tb_node is None:
+                _tb_node = TurtleBotNode()
     return _tb_node

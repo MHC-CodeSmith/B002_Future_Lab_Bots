@@ -30,6 +30,15 @@ TOKEN_FILE = REPO_DIR / "future_lab_control_center" / ".agent_token"
 TB4_WS = REPO_DIR / "turtlebot4_jazzy"
 DOCKER_COMPOSE_FILE = REPO_DIR / "future_lab_control_center" / "docker-compose.yml"
 INITIAL_POSE_HELPER = REPO_DIR / "future_lab_control_center" / "host_agent" / "initial_pose_once.py"
+TRIGGER_SERVICE_HELPER = REPO_DIR / "future_lab_control_center" / "host_agent" / "trigger_service_once.py"
+
+TRIGGER_SERVICES = {
+    "start_delivery": "/start_delivery",
+    "start_failure": "/start_failure",
+    "start_restock": "/start_restock",
+    "stop_mission": "/stop_mission",
+}
+TRIGGER_SERVICE_LOCK = threading.Lock()
 
 JAZZY_ENV_CMD = (
     "source /opt/ros/jazzy/setup.bash && "
@@ -514,6 +523,65 @@ def run_initial_pose(x: float, y: float, yaw: float, timeout: float = 15.0) -> t
     return result, 200
 
 
+def run_trigger_service(
+    service_name: str,
+    discovery_timeout: float = 20.0,
+    response_timeout: float = 20.0,
+) -> tuple[dict, int]:
+    """Chama uma vez um Trigger permitido e exige a resposta real do servidor."""
+    service_path = TRIGGER_SERVICES.get(service_name)
+    if service_path is None:
+        return {"detail": f"Trigger '{service_name}' não permitido."}, 422
+
+    command = (
+        f"{JAZZY_ENV_CMD} && exec python3 '{TRIGGER_SERVICE_HELPER}' "
+        '--service "$1" --discovery-timeout "$2" --response-timeout "$3"'
+    )
+    try:
+        with TRIGGER_SERVICE_LOCK:
+            completed = subprocess.run(
+                [
+                    "/bin/bash", "-lc", command, "trigger-service",
+                    service_path, str(discovery_timeout), str(response_timeout),
+                ],
+                cwd=str(REPO_DIR),
+                capture_output=True,
+                text=True,
+                timeout=discovery_timeout + response_timeout + 10.0,
+                check=False,
+            )
+    except subprocess.TimeoutExpired:
+        return {
+            "detail": (
+                f"Helper de '{service_path}' excedeu o prazo; o estado da requisição "
+                "é indeterminado e ela não deve ser repetida automaticamente."
+            )
+        }, 504
+    except OSError as exc:
+        return {"detail": f"Falha ao executar helper de trigger: {exc}"}, 500
+
+    result = None
+    for line in reversed(completed.stdout.splitlines()):
+        try:
+            candidate = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(candidate, dict):
+            result = candidate
+            break
+
+    if result is None:
+        diagnostic = (completed.stderr or completed.stdout).strip()[-1000:]
+        return {
+            "detail": "Helper de trigger terminou sem resposta JSON mensurável.",
+            "diagnostic": diagnostic,
+        }, 500
+    if completed.returncode != 0 or not result.get("responded"):
+        result["detail"] = result.get("error", "Serviço ROS não respondeu.")
+        return result, 504 if result.get("request_sent") else 503
+    return result, 200
+
+
 def check_port_open(host: str, port: int, timeout: float = 1.5) -> bool:
     try:
         with socket.create_connection((host, port), timeout=timeout):
@@ -638,6 +706,17 @@ class AgentRequestHandler(BaseHTTPRequestHandler):
                 self._send_json({"detail": str(exc)}, 422)
                 return
             result, code = run_initial_pose(x, y, yaw)
+            self._send_json(result, code)
+            return
+
+        if path == "/ros/trigger_mission":
+            try:
+                body = self._read_json()
+                service_name = str(body.get("service", ""))
+            except ValueError as exc:
+                self._send_json({"detail": str(exc)}, 422)
+                return
+            result, code = run_trigger_service(service_name)
             self._send_json(result, code)
             return
 

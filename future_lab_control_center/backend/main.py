@@ -64,4 +64,7 @@ if __name__ == "__main__":
     import uvicorn
     from backend.config.settings import get_settings
     settings = get_settings()
-    uvicorn.run("main:app", host="0.0.0.0", port=settings.BACKEND_PORT, reload=True)
+    # Este processo mantem um no rclpy e threads de executor persistentes.
+    # O reloader de desenvolvimento cria processos filhos e pode deixar
+    # participantes/endpoints DDS antigos visiveis durante as substituicoes.
+    uvicorn.run(app, host="0.0.0.0", port=settings.BACKEND_PORT, reload=False)

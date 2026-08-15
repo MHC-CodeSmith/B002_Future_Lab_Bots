@@ -161,5 +161,40 @@ class InitialPoseHostRunnerTest(unittest.TestCase):
         run.assert_not_called()
 
 
+class TriggerServiceHostRunnerTest(unittest.TestCase):
+    def test_success_requires_measured_server_response(self):
+        completed = subprocess.CompletedProcess(
+            args=[], returncode=0,
+            stdout='{"responded": true, "success": true, "message": "aceita"}\n',
+            stderr="",
+        )
+        with patch.object(agent.subprocess, "run", return_value=completed):
+            result, code = agent.run_trigger_service("start_delivery")
+        self.assertEqual(200, code)
+        self.assertTrue(result["responded"])
+        self.assertTrue(result["success"])
+
+    def test_response_timeout_is_ambiguous_and_not_success(self):
+        completed = subprocess.CompletedProcess(
+            args=[], returncode=4,
+            stdout=(
+                '{"responded": false, "request_sent": true, '
+                '"error": "sem resposta"}\n'
+            ),
+            stderr="",
+        )
+        with patch.object(agent.subprocess, "run", return_value=completed):
+            result, code = agent.run_trigger_service("start_delivery")
+        self.assertEqual(504, code)
+        self.assertFalse(result["responded"])
+
+    def test_rejects_service_outside_allowlist(self):
+        with patch.object(agent.subprocess, "run") as run:
+            result, code = agent.run_trigger_service("robot_power")
+        self.assertEqual(422, code)
+        self.assertIn("não permitido", result["detail"])
+        run.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
