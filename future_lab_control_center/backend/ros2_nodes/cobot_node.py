@@ -19,7 +19,7 @@ try:
     from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
     from rclpy.executors import MultiThreadedExecutor
     from sensor_msgs.msg import JointState
-    from std_msgs.msg import String
+    from std_msgs.msg import Bool, String
     from std_srvs.srv import Trigger
     
     if not rclpy.ok():
@@ -29,6 +29,7 @@ except Exception as e:
     print(f"[WARN] ROS 2 rclpy não ativado no momento: {e}")
     HAS_RCLPY = False
     JointState = object
+    Bool = object
     String = object
     Trigger = object
 
