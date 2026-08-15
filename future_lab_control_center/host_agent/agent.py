@@ -582,6 +582,8 @@ def run_trigger_service(
     return result, 200
 
 
+
+
 def check_port_open(host: str, port: int, timeout: float = 1.5) -> bool:
     try:
         with socket.create_connection((host, port), timeout=timeout):

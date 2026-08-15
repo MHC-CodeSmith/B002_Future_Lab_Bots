@@ -19,7 +19,8 @@ export default function TurtleBotDashboardTab({
   onLaunchNav2, 
   onLaunchViz, 
   onLaunchMissionManager, 
-  onTriggerDelivery, 
+  onMissionTestStartDelivery,
+  onMissionTestItemReleased,
   onTriggerFailure,
   onTriggerRestock, 
   onTriggerPatrol, 
@@ -27,9 +28,6 @@ export default function TurtleBotDashboardTab({
   onLaunchIntegrated3D,
   onTeleop,
   onStartOakdCamera,
-  onStartSim,
-  onNextSimStep,
-  onStopSim,
   onRestartDaemon,
   onStopLocalization,
   onStopNav2,
@@ -43,13 +41,18 @@ export default function TurtleBotDashboardTab({
   const batteryCurrent = telemetryOk && tbStatus?.battery_current != null ? tbStatus.battery_current : null;
   const isCharging = telemetryOk && tbStatus?.charging === true;
   const isDocked = telemetryOk ? tbStatus?.is_docked : null;
-  const simState = tbStatus?.sim_state;
   const pose = (telemetryOk && tbStatus?.current_pose) ? tbStatus.current_pose : null;
   const oakdStreaming = tbStatus?.oakd_streaming === true;
   const navReady = tbNavReadiness?.ready === true;
   const motionAllowed = telemetryOk && navReady;
+  const missionReady = tbNavReadiness?.mission_ready === true;
+  const deliveryAllowed = telemetryOk && missionReady && tbNavReadiness?.checks?.start_delivery === true;
+  const failureAllowed = telemetryOk && missionReady && tbNavReadiness?.checks?.start_failure === true;
+  const restockAllowed = telemetryOk && missionReady && tbNavReadiness?.checks?.start_restock === true;
+  const missionManagerRunning = tbProcesses?.mission_manager?.running === true &&
+    tbProcesses?.mission_manager?.instances === 1 &&
+    tbProcesses?.mission_manager?.visible_on_ros_graph === true;
 
-  const [selectedSimItem, setSelectedSimItem] = useState('blue');
   const [loadingDiag, setLoadingDiag] = useState(false);
   const [logs, setLogs] = useState([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
@@ -69,6 +72,7 @@ export default function TurtleBotDashboardTab({
   const [navPoses, setNavPoses] = useState(null);
   const [savingDockPose, setSavingDockPose] = useState(false);
   const [clearingCostmaps, setClearingCostmaps] = useState(false);
+  const [missionSignalLoading, setMissionSignalLoading] = useState(null);
 
   const [inventoryItems, setInventoryItems] = useState([]);
   const [actionLoading, setActionLoading] = useState(null);
@@ -151,6 +155,28 @@ export default function TurtleBotDashboardTab({
       setInitX(navPoses.dock_pose.x);
       setInitY(navPoses.dock_pose.y);
       setInitYaw(navPoses.dock_pose.yaw);
+    }
+  };
+
+  const startMissionTestDelivery = async (item) => {
+    if (!onMissionTestStartDelivery || missionSignalLoading) return;
+    setMissionSignalLoading(item);
+    try {
+      await onMissionTestStartDelivery(item);
+      handleSelectLogSource('mission');
+    } finally {
+      setMissionSignalLoading(null);
+    }
+  };
+
+  const publishMissionTestRelease = async () => {
+    if (!onMissionTestItemReleased || missionSignalLoading) return;
+    setMissionSignalLoading('release');
+    try {
+      await onMissionTestItemReleased();
+      handleSelectLogSource('mission');
+    } finally {
+      setMissionSignalLoading(null);
     }
   };
 
@@ -326,128 +352,6 @@ export default function TurtleBotDashboardTab({
             )}
           </div>
         )}
-
-        {/* 🎭 MODO SIMULADO INTERATIVO EXCLUSIVO TURTLEBOT 4 */}
-        <div className="p-5 rounded-2xl border-2 border-indigo-500/50 bg-gradient-to-br from-slate-900/95 via-indigo-950/30 to-slate-900/95 shadow-2xl space-y-4 my-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-indigo-500/30 pb-3">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 bg-indigo-500/20 text-indigo-400 rounded-xl border border-indigo-500/40">
-                <Play className="w-5 h-5 animate-pulse" />
-              </div>
-              <div>
-                <h3 className="text-base font-black text-slate-100 flex items-center gap-2">
-                  {t('simTitle')}
-                </h3>
-                <p className="text-xs text-slate-400">
-                  {t('simSub')}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              {!simState?.active ? (
-                <button
-                  disabled={!motionAllowed}
-                  title={!motionAllowed ? "Simulação bloqueada: requer telemetria fresca e stack pronta" : ""}
-                  onClick={() => onStartSim && onStartSim(selectedSimItem)}
-                  className={`py-2.5 px-5 font-extrabold rounded-xl shadow-lg flex items-center gap-2 transition-all active:scale-95 text-xs ${
-                    motionAllowed 
-                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white' 
-                      : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
-                  }`}
-                >
-                  <Play className="w-4 h-4" />
-                  <span>{t('btnStartSim')}</span>
-                </button>
-              ) : (
-                <button
-                  onClick={() => onStopSim && onStopSim()}
-                  className="py-2.5 px-5 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-extrabold rounded-xl shadow-lg flex items-center gap-2 transition-all active:scale-95 text-xs animate-pulse"
-                >
-                  <Square className="w-4 h-4" />
-                  <span>{t('btnStopSim')}</span>
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Seleção de Peça / Lata */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-3 bg-slate-900/80 rounded-xl border border-slate-800">
-            <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-              {t('selectPiece')}
-            </span>
-            <div className="flex items-center gap-3 w-full sm:w-auto">
-              <button
-                disabled={simState?.active}
-                onClick={() => setSelectedSimItem('blue')}
-                className={`flex-1 sm:flex-none py-2 px-4 rounded-xl font-extrabold text-xs flex items-center justify-center gap-2 transition-all border ${
-                  selectedSimItem === 'blue'
-                    ? 'bg-blue-600 text-white border-blue-400 shadow-lg shadow-blue-600/30'
-                    : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700'
-                }`}
-              >
-                <span className="w-2.5 h-2.5 rounded-full bg-blue-400"></span>
-                <span>{t('blueTinLabel')}</span>
-              </button>
-
-              <button
-                disabled={simState?.active}
-                onClick={() => setSelectedSimItem('red')}
-                className={`flex-1 sm:flex-none py-2 px-4 rounded-xl font-extrabold text-xs flex items-center justify-center gap-2 transition-all border ${
-                  selectedSimItem === 'red'
-                    ? 'bg-red-600 text-white border-red-400 shadow-lg shadow-red-600/30'
-                    : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700'
-                }`}
-              >
-                <span className="w-2.5 h-2.5 rounded-full bg-red-400"></span>
-                <span>{t('redTinLabel')}</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Status da Etapa + Botão Interativo OK / PRÓXIMO PASSO */}
-          {simState?.active && (
-            <div className="space-y-3 p-4 bg-indigo-950/40 rounded-xl border border-indigo-500/40">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-indigo-500/20 pb-2">
-                <div>
-                  <span className="text-xs font-extrabold text-indigo-400 uppercase tracking-widest">
-                    {t('currentStep')} ({simState.step_index || 1}/4):
-                  </span>
-                  <h4 className="text-sm font-extrabold text-white mt-0.5">
-                    {simState.step_title || 'Navegando...'}
-                  </h4>
-                </div>
-                <span className={`px-3 py-1 rounded-full text-xs font-black self-start sm:self-auto ${
-                  simState.waiting_confirmation
-                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 animate-pulse'
-                    : 'bg-amber-500/20 text-amber-300 border border-amber-500/50'
-                }`}>
-                  {simState.waiting_confirmation ? t('waitingConfirm') : t('movingRobot')}
-                </span>
-              </div>
-
-              <p className="text-xs text-slate-300 font-medium">
-                {simState.step_description}
-              </p>
-
-              {/* BOTÃO INTERATIVO OK / PRÓXIMO PASSO */}
-              {simState.waiting_confirmation && (
-                <button
-                  disabled={!motionAllowed}
-                  onClick={() => onNextSimStep && onNextSimStep()}
-                  className={`w-full py-3.5 font-black rounded-xl shadow-xl flex items-center justify-center gap-3 transition-all text-sm border-2 uppercase tracking-wide mt-2 ${
-                    motionAllowed 
-                      ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 hover:to-teal-400 text-slate-950 border-emerald-300 active:scale-98' 
-                      : 'bg-slate-800 text-slate-500 border-slate-700 cursor-not-allowed'
-                  }`}
-                >
-                  <CheckCircle2 className="w-5 h-5 text-slate-950" />
-                  <span>{t('btnConfirmNext')}</span>
-                </button>
-              )}
-            </div>
-          )}
-        </div>
 
         {/* Cards de Métricas */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-5">
@@ -1111,20 +1015,23 @@ export default function TurtleBotDashboardTab({
 
           <div className="flex gap-2">
             <button
+              disabled={missionManagerRunning}
               onClick={() => {
                 if (onLaunchMissionManager) onLaunchMissionManager();
                 handleSelectLogSource('mission');
               }}
-              className="flex-1 py-3 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 text-xs sm:text-sm"
+              title={missionManagerRunning ? "Mission Manager já está rodando em instância única" : ""}
+              className="flex-1 py-3 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:from-slate-800 disabled:to-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed text-white font-bold rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 text-xs sm:text-sm"
             >
               <Play className="w-4.5 h-4.5 fill-current" />
               {t('btnStartNode')}
             </button>
             <button
+              disabled={!tbProcesses?.mission_manager?.running}
               onClick={() => {
                 if (onStopMissionManagerProcess) onStopMissionManagerProcess();
               }}
-              className="px-4 py-3 bg-red-950/70 hover:bg-red-900/90 text-red-200 border border-red-500/50 font-bold rounded-xl flex items-center gap-2 transition-all active:scale-95 text-xs shadow-md shadow-red-950/30"
+              className="px-4 py-3 bg-red-950/70 hover:bg-red-900/90 disabled:bg-slate-900 disabled:text-slate-600 disabled:border-slate-800 disabled:cursor-not-allowed text-red-200 border border-red-500/50 font-bold rounded-xl flex items-center gap-2 transition-all active:scale-95 text-xs shadow-md shadow-red-950/30"
             >
               <Square className="w-4 h-4 fill-current text-red-400" />
               <span>{t('btnKillNode')}</span>
@@ -1133,28 +1040,23 @@ export default function TurtleBotDashboardTab({
 
           <div className="border-t border-slate-700/60 pt-3">
             <p className="text-xs font-bold text-slate-300 mb-2">{t('triggerRoutineTitle')}</p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {tbNavReadiness && (
+              <div className={`mb-3 p-2.5 rounded-lg border text-[11px] ${
+                missionReady
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                  : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+              }`}>
+                <strong>{missionReady ? '✅ Missões prontas: ' : '⚠️ Missões bloqueadas: '}</strong>
+                {tbNavReadiness.mission_hint || 'Aguardando medição de prontidão.'}
+              </div>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <button
-                disabled={!motionAllowed}
-                title={!motionAllowed ? "Rotina bloqueada: requer telemetria fresca e stack pronta" : ""}
-                onClick={onTriggerDelivery}
-                className={`py-3 px-2 font-bold rounded-xl border flex flex-col items-center justify-center gap-1 transition-all text-xs ${
-                  motionAllowed 
-                    ? 'bg-slate-800 hover:bg-blue-900/40 hover:border-blue-500/50 text-slate-100 border-slate-700' 
-                    : 'bg-slate-900 text-slate-600 border-slate-800 cursor-not-allowed'
-                }`}
-              >
-                <Truck className="w-5 h-5 text-blue-400" />
-                <span>/start_delivery</span>
-                <span className="text-[10px] text-slate-400 font-normal">{t('deliveryLabel')}</span>
-              </button>
-
-              <button
-                disabled={!motionAllowed}
-                title={!motionAllowed ? "Rotina bloqueada: requer telemetria fresca e stack pronta" : ""}
+                disabled={!failureAllowed}
+                title={!failureAllowed ? "Rotina de falha bloqueada: consulte a prontidão específica de missões" : ""}
                 onClick={onTriggerFailure}
                 className={`py-3 px-2 font-bold rounded-xl border flex flex-col items-center justify-center gap-1 transition-all text-xs ${
-                  motionAllowed 
+                  failureAllowed
                     ? 'bg-slate-800 hover:bg-red-900/40 hover:border-red-500/50 text-slate-100 border-slate-700' 
                     : 'bg-slate-900 text-slate-600 border-slate-800 cursor-not-allowed'
                 }`}
@@ -1165,11 +1067,11 @@ export default function TurtleBotDashboardTab({
               </button>
 
               <button
-                disabled={!motionAllowed}
-                title={!motionAllowed ? "Rotina bloqueada: requer telemetria fresca e stack pronta" : ""}
+                disabled={!restockAllowed}
+                title={!restockAllowed ? "Restock bloqueado: consulte a prontidão específica de missões" : ""}
                 onClick={onTriggerRestock}
                 className={`py-3 px-2 font-bold rounded-xl border flex flex-col items-center justify-center gap-1 transition-all text-xs ${
-                  motionAllowed 
+                  restockAllowed
                     ? 'bg-slate-800 hover:bg-amber-900/40 hover:border-amber-500/50 text-slate-100 border-slate-700' 
                     : 'bg-slate-900 text-slate-600 border-slate-800 cursor-not-allowed'
                 }`}
@@ -1180,19 +1082,46 @@ export default function TurtleBotDashboardTab({
               </button>
 
               <button
-                disabled={!motionAllowed}
-                title={!motionAllowed ? "Rotina bloqueada: requer telemetria fresca e stack pronta" : ""}
-                onClick={onTriggerPatrol}
+                disabled
+                title="Patrulha indisponível: o Mission Manager não expõe /start_patrol"
                 className={`py-3 px-2 font-bold rounded-xl border flex flex-col items-center justify-center gap-1 transition-all text-xs ${
-                  motionAllowed 
-                    ? 'bg-slate-800 hover:bg-purple-900/40 hover:border-purple-500/50 text-slate-100 border-slate-700' 
-                    : 'bg-slate-900 text-slate-600 border-slate-800 cursor-not-allowed'
+                  'bg-slate-900 text-slate-600 border-slate-800 cursor-not-allowed'
                 }`}
               >
                 <RefreshCw className="w-5 h-5 text-purple-400" />
                 <span>/start_patrol</span>
                 <span className="text-[10px] text-slate-400 font-normal">{t('patrolLabel')}</span>
               </button>
+            </div>
+
+            <div className="mt-3 p-3 rounded-xl border border-cyan-500/30 bg-cyan-950/20 space-y-2">
+              <div>
+                <p className="text-xs font-bold text-cyan-200">{t('tbMissionSignalTitle')}</p>
+                <p className="text-[10px] text-slate-400 mt-1">{t('tbMissionSignalSubtitle')}</p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <button
+                  disabled={!deliveryAllowed || Boolean(missionSignalLoading)}
+                  onClick={() => startMissionTestDelivery('blue')}
+                  className="py-2 px-3 rounded-lg border border-blue-500/40 bg-blue-950/40 hover:bg-blue-900/60 disabled:bg-slate-900 disabled:text-slate-600 disabled:border-slate-800 text-blue-200 text-[11px] font-bold disabled:cursor-not-allowed"
+                >
+                  {missionSignalLoading === 'blue' ? 'Iniciando...' : t('tbSimulateBlueClass')}
+                </button>
+                <button
+                  disabled={!deliveryAllowed || Boolean(missionSignalLoading)}
+                  onClick={() => startMissionTestDelivery('red')}
+                  className="py-2 px-3 rounded-lg border border-red-500/40 bg-red-950/40 hover:bg-red-900/60 disabled:bg-slate-900 disabled:text-slate-600 disabled:border-slate-800 text-red-200 text-[11px] font-bold disabled:cursor-not-allowed"
+                >
+                  {missionSignalLoading === 'red' ? 'Iniciando...' : t('tbSimulateRedClass')}
+                </button>
+                <button
+                  disabled={!missionManagerRunning || Boolean(missionSignalLoading)}
+                  onClick={publishMissionTestRelease}
+                  className="py-2 px-3 rounded-lg border border-emerald-500/40 bg-emerald-950/40 hover:bg-emerald-900/60 disabled:bg-slate-900 disabled:text-slate-600 disabled:border-slate-800 text-emerald-200 text-[11px] font-bold disabled:cursor-not-allowed"
+                >
+                  {missionSignalLoading === 'release' ? 'Publicando...' : t('tbSimulateItemReleased')}
+                </button>
+              </div>
             </div>
 
             {/* Botão de Emergência para Cancelamento de Missão */}

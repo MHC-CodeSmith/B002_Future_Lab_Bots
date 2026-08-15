@@ -402,6 +402,14 @@ def _run_handshake_test_standalone(item_class: str):
         from backend.ros2_nodes.cell_event_bridge import record_detected_class
         record_detected_class(item_class)
 
+        # O registro acima serve somente ao estado interno da ponte. A rotina
+        # do TurtleBot mede a classe pelo tópico ROS e não deve assumir que o
+        # valor registrado localmente chegou ao outro robô.
+        if not node.publish_product_class(item_class):
+            print("[HANDSHAKE TEST] ❌ /product_class não foi publicado; abortando antes de mover o TurtleBot.")
+            cell_state["status"] = "handshake_publish_failed"
+            return
+
         print(f"[HANDSHAKE TEST] 🚚 2. Disparando TurtleBot 4 para a lata '{item_class}'...")
         if is_valid_tin_class(item_class):
             trigger_delivery()

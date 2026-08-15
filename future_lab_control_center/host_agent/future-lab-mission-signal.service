@@ -1,0 +1,14 @@
+[Unit]
+Description=Future Lab Mission Signal Agent
+After=graphical-session.target future-lab-agent.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/B002_Future_Lab_Bots/future_lab_control_center/host_agent
+ExecStart=/usr/bin/python3 %h/B002_Future_Lab_Bots/future_lab_control_center/host_agent/mission_signal_agent.py
+Restart=always
+RestartSec=2
+KillMode=process
+
+[Install]
+WantedBy=default.target

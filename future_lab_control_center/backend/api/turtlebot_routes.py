@@ -10,6 +10,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from backend.mission_readiness import mission_readiness
 from backend.ros2_nodes.turtlebot_node import get_turtlebot_node
 from backend.api.health_routes import _launch_gui_in_pty
 
@@ -89,6 +90,13 @@ from backend.api.health_routes import ping_host
 
 class SimulationStartSchema(BaseModel):
     item: str = "blue"  # "blue", "red", "invalid", "restock"
+
+
+class MissionTestClassSchema(BaseModel):
+    """Classe sintética usada somente para testar o handshake do TurtleBot."""
+
+    item: str
+
 
 @router.get("/ros_env")
 def get_ros_env():
@@ -198,6 +206,7 @@ def _nav_hint(faltando: list, checks: dict = None) -> str:
         return "Sensores da base não estão publicando. Verifique o TurtleBot 4 e o Discovery Server."
     return "Verifique os itens em 'missing'."
 
+
 _nav_readiness_cache = {"timestamp": 0.0, "data": None}
 
 @router.get("/nav_readiness")
@@ -265,10 +274,16 @@ def get_nav_readiness():
                     "navigate_to_pose", "global_costmap", "create3_undock_action",
                     "start_delivery", "stop_mission"]
     faltando = [k for k in obrigatorios if not checks.get(k)]
+    mission = mission_readiness(checks)
 
     out = {
         "ready": not faltando,
         "missing": faltando,
+        "mission_ready": mission["ready"],
+        "mission_missing": mission["missing"],
+        "mission_required": mission["required"],
+        "mission_start_mode": mission["start_mode"],
+        "mission_hint": mission["hint"],
         "checks": checks,
         "evidence": {
             "scan": scan_status,
@@ -281,6 +296,21 @@ def get_nav_readiness():
     _nav_readiness_cache["timestamp"] = now
     _nav_readiness_cache["data"] = out
     return out
+
+
+def _require_mission_ready() -> dict:
+    """Impõe no backend a mesma guarda exibida pelo dashboard."""
+    readiness = get_nav_readiness()
+    if readiness.get("mission_ready") is not True:
+        missing = readiness.get("mission_missing") or ["estado de missão desconhecido"]
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Missão recusada porque a prontidão medida não passou: "
+                + ", ".join(str(item) for item in missing)
+            ),
+        )
+    return readiness
 
 @router.get("/amcl_status")
 def get_amcl_status():
@@ -990,6 +1020,7 @@ def set_dock_status(payload: DockStatusPayload):
     )
 
 HOST_AGENT_URL = "http://127.0.0.1:8100"
+MISSION_SIGNAL_AGENT_URL = "http://127.0.0.1:8101"
 
 def _load_agent_token() -> str:
     token_file = Path(__file__).resolve().parent.parent / ".agent_token"
@@ -1027,6 +1058,83 @@ def _call_host_agent(path: str, method: str = "POST", json_body: dict = None, ti
             status_code=503,
             detail=f"Agente do host (127.0.0.1:8100) inacessível: {e}. Execute 'systemctl --user start future-lab-agent' ou o ícone da Área de Trabalho."
         )
+
+
+def _publish_mission_signal_on_host(signal: str, value: str = "") -> dict:
+    """Usa a ponte dedicada do host e exige confirmação da delivery_routine."""
+    import json
+    import urllib.error
+    import urllib.request
+
+    body = json.dumps({"signal": signal, "value": value}).encode("utf-8")
+    request = urllib.request.Request(
+        f"{MISSION_SIGNAL_AGENT_URL}/publish",
+        data=body,
+        headers={
+            "X-Agent-Token": AGENT_TOKEN,
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=25.0) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = json.loads(exc.read().decode("utf-8", "replace")).get("detail")
+        except Exception:
+            detail = str(exc)
+        raise HTTPException(status_code=exc.code, detail=detail or str(exc))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Mission Signal Agent (127.0.0.1:8101) inacessível: {exc}",
+        )
+    if result.get("received_by_mission") is not True:
+        raise HTTPException(
+            status_code=504,
+            detail="A delivery_routine não confirmou o recebimento do sinal.",
+        )
+    return result
+
+
+def _start_test_delivery_on_host(product_class: str) -> dict:
+    """Une classe fresca e trigger, exigindo confirmação do destino no host."""
+    import json
+    import urllib.error
+    import urllib.request
+
+    body = json.dumps({"value": product_class}).encode("utf-8")
+    request = urllib.request.Request(
+        f"{MISSION_SIGNAL_AGENT_URL}/start_delivery",
+        data=body,
+        headers={
+            "X-Agent-Token": AGENT_TOKEN,
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=25.0) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        try:
+            error = json.loads(exc.read().decode("utf-8", "replace"))
+            detail = error.get("detail")
+        except Exception:
+            detail = str(exc)
+        raise HTTPException(status_code=exc.code, detail=detail or str(exc))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Mission Signal Agent (127.0.0.1:8101) inacessível: {exc}",
+        )
+    if result.get("started") is not True:
+        raise HTTPException(
+            status_code=504,
+            detail="O destino da delivery não foi confirmado pela rotina.",
+        )
+    return result
 
 
 def _trigger_mission_via_host(service_name: str) -> tuple[bool, str]:
@@ -1215,15 +1323,85 @@ def stop_mission_manager_process():
 def trigger_delivery():
     """Aciona o serviço ROS 2 de entrega de peças (/start_delivery)."""
     _require_live_telemetry()
+    _require_mission_ready()
     ok, msg = _trigger_mission_via_host("start_delivery")
     if not ok:
         raise HTTPException(status_code=503, detail=msg)
     return {"status": "success", "message": msg or "Rotina de Entrega acionada!"}
 
+
+@router.post("/mission_test/product_class")
+def publish_mission_test_product_class(payload: MissionTestClassSchema):
+    """Publica somente uma classificação sintética; não move nenhum robô."""
+    aliases = {
+        "blue": "tin_valid_blue",
+        "tin_valid_blue": "tin_valid_blue",
+        "red": "tin_valid_red",
+        "tin_valid_red": "tin_valid_red",
+    }
+    requested = str(payload.item or "").strip().lower()
+    product_class = aliases.get(requested)
+    if product_class is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Classe de teste inválida. Use somente 'blue' ou 'red'.",
+        )
+
+    result = _publish_mission_signal_on_host("product_class", product_class)
+    return {
+        **result,
+        "status": "received",
+        "message": (
+            f"Classe sintética '{product_class}' recebida e registrada pela rotina "
+            "de missão no host."
+        ),
+    }
+
+
+@router.post("/mission_test/start_delivery")
+def start_mission_test_delivery(payload: MissionTestClassSchema):
+    """Simula a visão do cobot e inicia delivery com classe fresca confirmada."""
+    _require_live_telemetry()
+    _require_mission_ready()
+    aliases = {
+        "blue": "tin_valid_blue",
+        "tin_valid_blue": "tin_valid_blue",
+        "red": "tin_valid_red",
+        "tin_valid_red": "tin_valid_red",
+    }
+    requested = str(payload.item or "").strip().lower()
+    product_class = aliases.get(requested)
+    if product_class is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Classe de teste inválida. Use somente 'blue' ou 'red'.",
+        )
+    result = _start_test_delivery_on_host(product_class)
+    return {
+        **result,
+        "status": "started",
+        "message": (
+            f"Delivery iniciada com '{product_class}' e destino "
+            f"'{result['target']}' confirmado no log da rotina."
+        ),
+    }
+
+
+@router.post("/mission_test/item_released")
+def publish_mission_test_item_released():
+    """Publica somente o sinal sintético de lata liberada; não move o cobot."""
+    result = _publish_mission_signal_on_host("item_released", "")
+    return {
+        **result,
+        "status": "received",
+        "message": "Liberação sintética recebida e confirmada pela rotina de missão.",
+    }
+
 @router.post("/trigger_failure")
 def trigger_failure():
     """Aciona o serviço ROS 2 de recolhimento de peça com defeito / descarte (/start_failure)."""
     _require_live_telemetry()
+    _require_mission_ready()
     ok, msg = _trigger_mission_via_host("start_failure")
     if not ok:
         raise HTTPException(status_code=503, detail=msg)
@@ -1233,6 +1411,7 @@ def trigger_failure():
 def trigger_restock():
     """Aciona o serviço ROS 2 de reabastecimento de matéria-prima (/start_restock)."""
     _require_live_telemetry()
+    _require_mission_ready()
     ok, msg = _trigger_mission_via_host("start_restock")
     if not ok:
         raise HTTPException(status_code=503, detail=msg)

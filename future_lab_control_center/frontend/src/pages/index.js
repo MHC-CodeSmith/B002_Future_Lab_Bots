@@ -506,17 +506,38 @@ export default function Dashboard() {
     refreshStatus();
   };
 
-  const handleTbTriggerDelivery = async () => {
+  const handleTbMissionTestStartDelivery = async (item) => {
     const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/trigger_delivery`, { method: 'POST' }, t('tbDeliveryTitle'));
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/mission_test/start_delivery`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ item })
+    }, t('tbMissionSignalTitle'));
     if (ok) {
       setNotification({
         type: 'success',
         title: t('tbDeliveryStartedTitle'),
-        message: data.message || t('tbDeliveryStartedMsg')
+        message: data.message
       });
     }
     refreshStatus();
+    return ok;
+  };
+
+  const handleTbMissionTestItemReleased = async () => {
+    const apiBase = getApiBase();
+    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/mission_test/item_released`, {
+      method: 'POST'
+    }, t('tbMissionSignalTitle'));
+    if (ok) {
+      setNotification({
+        type: 'info',
+        title: t('tbMissionSignalPublishedTitle'),
+        message: data.message
+      });
+    }
+    refreshStatus();
+    return ok;
   };
 
   const handleTbTriggerRestock = async () => {
@@ -542,49 +563,6 @@ export default function Dashboard() {
         type: 'success',
         title: t('tbFailureStartedTitle'),
         message: data.message || t('tbFailureStartedMsg')
-      });
-    }
-    refreshStatus();
-  };
-
-  const handleTbStartSim = async (item = 'blue') => {
-    const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/simulation/start`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ item })
-    }, t('tbSimStartTitle'));
-    if (ok) {
-      setNotification({
-        type: 'success',
-        title: t('tbSimStartedTitle'),
-        message: data.message || t('tbSimStartedMsg')
-      });
-    }
-    refreshStatus();
-  };
-
-  const handleTbNextSimStep = async () => {
-    const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/simulation/next_step`, { method: 'POST' }, t('tbSimNextTitle'));
-    if (ok) {
-      setNotification({
-        type: 'info',
-        title: t('tbSimNextStartedTitle'),
-        message: data.message || t('tbSimNextStartedMsg')
-      });
-    }
-    refreshStatus();
-  };
-
-  const handleTbStopSim = async () => {
-    const apiBase = getApiBase();
-    const { ok, data } = await safeApiCall(`${apiBase}/turtlebot/simulation/stop`, { method: 'POST' }, t('tbSimStopTitle'));
-    if (ok) {
-      setNotification({
-        type: 'warning',
-        title: t('tbSimStopStartedTitle'),
-        message: data.message || t('tbSimStopStartedMsg')
       });
     }
     refreshStatus();
@@ -808,7 +786,8 @@ export default function Dashboard() {
           onLaunchNav2={handleTbLaunchNav2}
           onLaunchViz={handleTbLaunchViz}
           onLaunchMissionManager={handleTbLaunchMissionManager}
-          onTriggerDelivery={handleTbTriggerDelivery}
+          onMissionTestStartDelivery={handleTbMissionTestStartDelivery}
+          onMissionTestItemReleased={handleTbMissionTestItemReleased}
           onTriggerFailure={handleTbTriggerFailure}
           onTriggerRestock={handleTbTriggerRestock}
           onTriggerPatrol={handleTbTriggerPatrol}
@@ -816,9 +795,6 @@ export default function Dashboard() {
           onLaunchIntegrated3D={handleTbLaunchIntegrated3D}
           onTeleop={handleTbTeleop}
           onStartOakdCamera={handleTbStartOakdCamera}
-          onStartSim={handleTbStartSim}
-          onNextSimStep={handleTbNextSimStep}
-          onStopSim={handleTbStopSim}
           onRestartDaemon={handleTbRestartDaemon}
           onStopLocalization={handleTbStopLocalization}
           onStopNav2={handleTbStopNav2}

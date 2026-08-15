@@ -100,8 +100,30 @@ class CobotNode(BaseNode):
         if HAS_RCLPY and rclpy.ok():
             try:
                 super().__init__("future_lab_cobot_node")
-                self.move_cli = ActionClient(self, MoveGroup, "/move_action")
-                self.follow_jt_cli = ActionClient(self, FollowJointTrajectory, "/mycobot_arm_controller/follow_joint_trajectory")
+
+                # MoveIt e ros2_control não estão instalados em todas as
+                # imagens do backend. A ausência de uma action não pode
+                # derrubar os publishers simples usados no handshake.
+                if hasattr(MoveGroup, "_TYPE_SUPPORT"):
+                    try:
+                        self.move_cli = ActionClient(self, MoveGroup, "/move_action")
+                    except Exception as e:
+                        print(f"[WARN] Action /move_action indisponível: {e}")
+                else:
+                    print("[WARN] moveit_msgs indisponível; /move_action desativada no backend.")
+
+                if hasattr(FollowJointTrajectory, "_TYPE_SUPPORT"):
+                    try:
+                        self.follow_jt_cli = ActionClient(
+                            self,
+                            FollowJointTrajectory,
+                            "/mycobot_arm_controller/follow_joint_trajectory",
+                        )
+                    except Exception as e:
+                        print(f"[WARN] Action FollowJointTrajectory indisponível: {e}")
+                else:
+                    print("[WARN] control_msgs indisponível; FollowJointTrajectory desativada no backend.")
+
                 self.pump_on_cli = self.create_client(Trigger, "/pump_on")
                 self.pump_off_cli = self.create_client(Trigger, "/pump_off")
                 self.release_cli = self.create_client(Trigger, "/release_servos")
@@ -185,25 +207,37 @@ class CobotNode(BaseNode):
         self.tb4_at_pickup_event.clear()
         return self.tb4_at_pickup_event.wait(timeout=timeout_sec)
 
-    def publish_item_released(self):
+    def publish_item_released(self, count: int = 5, interval_sec: float = 0.05):
         """Notifica o TurtleBot 4 de que a lata foi solta na bandeja e a bomba foi desligada."""
         if hasattr(self, 'item_released_pub') and self.item_released_pub is not None:
             msg = Bool()
             msg.data = True
-            for _ in range(5):
-                self.item_released_pub.publish(msg)
-                time.sleep(0.05)
-            print("[INFO] Sinal /item_released_on_tb4 enviado ao TurtleBot 4!")
+            try:
+                for _ in range(max(1, int(count))):
+                    self.item_released_pub.publish(msg)
+                    time.sleep(max(0.01, float(interval_sec)))
+                print("[INFO] Sinal /item_released_on_tb4 publicado pelo backend.")
+                return True
+            except Exception as e:
+                print(f"[WARN] Falha ao publicar /item_released_on_tb4: {e}")
+        return False
 
-    def publish_product_class(self, cls_name: str):
+    def publish_product_class(
+        self, cls_name: str, count: int = 3, interval_sec: float = 0.05
+    ):
         """Publica a classe da lata identificada no tópico ROS 2 /product_class para comunicação inter-robôs."""
         if hasattr(self, 'product_class_pub') and self.product_class_pub is not None:
             msg = String()
             msg.data = str(cls_name)
-            for _ in range(3):
-                self.product_class_pub.publish(msg)
-                time.sleep(0.05)
-            print(f"[INFO] Tópico ROS 2 /product_class publicado com sucesso: '{cls_name}'")
+            try:
+                for _ in range(max(1, int(count))):
+                    self.product_class_pub.publish(msg)
+                    time.sleep(max(0.01, float(interval_sec)))
+                print(f"[INFO] Tópico ROS 2 /product_class publicado pelo backend: '{cls_name}'")
+                return True
+            except Exception as e:
+                print(f"[WARN] Falha ao publicar /product_class: {e}")
+        return False
 
     def load_poses(self):
         """Carrega o arquivo de poses do disco testando múltiplos caminhos (container, host e local)."""
@@ -586,23 +620,26 @@ class CobotNode(BaseNode):
 
 # Instância Singleton gerenciada no backend
 _cobot_node: Optional[CobotNode] = None
+_cobot_node_lock = threading.Lock()
 
 def get_cobot_node() -> CobotNode:
     global _cobot_node
     if _cobot_node is None:
-        if HAS_RCLPY:
-            try:
-                if not rclpy.ok():
-                    rclpy.init(args=None)
-            except Exception:
-                pass
-        _cobot_node = CobotNode()
-        if getattr(_cobot_node, 'is_ros_active', False):
-            try:
-                executor = MultiThreadedExecutor()
-                executor.add_node(_cobot_node)
-                spin_thread = threading.Thread(target=executor.spin, daemon=True)
-                spin_thread.start()
-            except Exception as e:
-                print(f"[WARN] Erro ao iniciar executor ROS 2: {e}")
+        with _cobot_node_lock:
+            if _cobot_node is None:
+                if HAS_RCLPY:
+                    try:
+                        if not rclpy.ok():
+                            rclpy.init(args=None)
+                    except Exception:
+                        pass
+                _cobot_node = CobotNode()
+                if getattr(_cobot_node, 'is_ros_active', False):
+                    try:
+                        executor = MultiThreadedExecutor()
+                        executor.add_node(_cobot_node)
+                        spin_thread = threading.Thread(target=executor.spin, daemon=True)
+                        spin_thread.start()
+                    except Exception as e:
+                        print(f"[WARN] Erro ao iniciar executor ROS 2: {e}")
     return _cobot_node

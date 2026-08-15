@@ -93,9 +93,9 @@ def fake_undock_node(docked, client):
 
 class DeliveryClassificationTest(unittest.TestCase):
     def test_known_classes_have_explicit_destinations(self):
-        for value in ("red", "vermelho", "tin_valid_red"):
+        for value in ("red", "vermelho", "tin_valid_red", "tin_valid_red_square"):
             self.assertEqual("delivery_red", delivery_module.delivery_target_for_class(value))
-        for value in ("blue", "azul", "tin_valid_blue"):
+        for value in ("blue", "azul", "tin_valid_blue", "tin_valid_blue_square"):
             self.assertEqual("delivery_blue", delivery_module.delivery_target_for_class(value))
 
     def test_unknown_or_invalid_class_never_defaults_to_red(self):
@@ -181,6 +181,23 @@ class DeliveryClassificationTest(unittest.TestCase):
         node._item_released_monotonic = time.monotonic()
         callbacks[0]()
         self.assertEqual(["delivery_blue"], delivered)
+
+    def test_cancel_timer_never_destroys_entity_during_callback(self):
+        timer = types.SimpleNamespace(cancelled=False)
+        timer.cancel = lambda: setattr(timer, "cancelled", True)
+        destroyed = []
+        node = types.SimpleNamespace(
+            _classification_timer=timer,
+            destroy_timer=destroyed.append,
+        )
+
+        delivery_module.DeliveryRoutine._cancel_timer(
+            node, "_classification_timer"
+        )
+
+        self.assertTrue(timer.cancelled)
+        self.assertIsNone(node._classification_timer)
+        self.assertEqual([], destroyed)
 
 
 class UndockSafetyTest(unittest.TestCase):
