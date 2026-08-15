@@ -3,6 +3,7 @@
 # ============================================================
 import os
 import time
+import math
 import subprocess
 import threading
 from typing import Optional
@@ -45,14 +46,14 @@ _assert_ros_env()
 
 os.environ["ROS_DOMAIN_ID"] = "0"
 os.environ["RMW_IMPLEMENTATION"] = "rmw_fastrtps_cpp"
-os.environ["ROS_AUTOMATIC_DISCOVERY_RANGE"] = "SUBNET"
+os.environ.pop("ROS_AUTOMATIC_DISCOVERY_RANGE", None)
 os.environ["ROS_SUPER_CLIENT"] = "True"
 os.environ["ROS_DISCOVERY_SERVER"] = "192.168.0.129:11811;"
 
 JAZZY_ENV_CMD = (
     "source /opt/ros/jazzy/setup.bash && "
     "source /home/future-lab/B002_Future_Lab_Bots/turtlebot4_jazzy/setup.bash && "
-    "export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET && "
+    "unset ROS_AUTOMATIC_DISCOVERY_RANGE && "
     "export ROS_SUPER_CLIENT=True && "
     "export ROS_DISCOVERY_SERVER='192.168.0.129:11811;' && "
     "export DISPLAY=:0 && "
@@ -138,11 +139,26 @@ def get_processes():
 
         out = {}
         for nome, padrao in _PROCESS_PATTERNS.items():
-            is_active = bool(host_status.get(nome))
+            raw = host_status.get(nome, {})
+            # Compatibilidade temporaria com um agente antigo, que devolvia bool.
+            if isinstance(raw, bool):
+                raw = {
+                    "running": raw,
+                    "owned": raw,
+                    "instances": 1 if raw else 0,
+                    "pids": ["host_active"] if raw else [],
+                    "error": None,
+                }
+            is_active = bool(raw.get("running"))
             item = {
-                "launched_by_dashboard": is_active,
-                "pids": ["host_active"] if is_active else [],
-                "pattern": padrao
+                "running": is_active,
+                "launched_by_dashboard": bool(raw.get("owned")),
+                "instances": int(raw.get("instances", 0)),
+                "pid": raw.get("pid"),
+                "pgid": raw.get("pgid"),
+                "pids": raw.get("pids", []),
+                "pattern": padrao,
+                "error": raw.get("error"),
             }
             if nome == "mission_manager":
                 item["visible_on_ros_graph"] = "/start_delivery" in services
@@ -157,6 +173,10 @@ def get_processes():
         return out
 
 def _nav_hint(faltando: list, checks: dict = None) -> str:
+    if "scan" in faltando and checks and checks.get("undocked") is False:
+        return ("O TurtleBot está acoplado e o modo de economia desligou o motor do RPLidar. "
+                "O LaserScan só ficará disponível depois de um undock autorizado ou de o "
+                "operador ligar explicitamente o motor do lidar.")
     if not faltando:
         if checks and checks.get("undocked") is False:
             return ("Stack pronta, mas o robô está acoplado. Faça Undock (Passo 3) "
@@ -187,6 +207,26 @@ def get_nav_readiness():
     node = get_turtlebot_node()
 
     create3_alive = node.telemetry_fresh()
+    scan_status = node.get_scan_status()
+    amcl_status = node.get_amcl()
+
+    try:
+        host_status = _call_host_agent("/status", method="GET", timeout=2.0)
+    except Exception:
+        host_status = {}
+
+    localization_process = host_status.get("localization", {})
+    nav2_process = host_status.get("nav2", {})
+    localization_running = bool(
+        isinstance(localization_process, dict)
+        and localization_process.get("running")
+        and localization_process.get("instances") == 1
+    )
+    nav2_running = bool(
+        isinstance(nav2_process, dict)
+        and nav2_process.get("running")
+        and nav2_process.get("instances") == 1
+    )
 
     topics = {t[0] for t in node.get_topic_names_and_types()}
     services = {s[0] for s in node.get_service_names_and_types()}
@@ -202,14 +242,14 @@ def get_nav_readiness():
         "create3_undock_action": ("/undock" in actions) if create3_alive else None,
         "undocked":              (not node.is_docked) if create3_alive else None,
         "odom":                  ("/odom" in topics) if create3_alive else None,
-        "scan":                  ("/scan" in topics) if create3_alive else None,
+        "scan":                  scan_status["fresh"] if create3_alive else None,
         # Localização
-        "map":                   ("/map" in topics) or node.count_publishers("/map") > 0,
-        "amcl_pose":             ("/amcl_pose" in topics) or node.count_publishers("/amcl_pose") > 0,
-        "amcl_converged":        node.get_amcl()["converged"],
+        "map":                   localization_running and node.count_publishers("/map") > 0,
+        "amcl_pose":             localization_running and amcl_status.get("initialized", False),
+        "amcl_converged":        localization_running and amcl_status["converged"],
         # Navegação
-        "navigate_to_pose":      "/navigate_to_pose" in actions,
-        "global_costmap":        ("/global_costmap/costmap" in topics) or node.count_publishers("/global_costmap/costmap") > 0,
+        "navigate_to_pose":      nav2_running and "/navigate_to_pose" in actions,
+        "global_costmap":        nav2_running and node.count_publishers("/global_costmap/costmap") > 0,
         # Missões
         "start_delivery":        "/start_delivery" in services,
         "start_failure":         "/start_failure" in services,
@@ -226,6 +266,12 @@ def get_nav_readiness():
         "ready": not faltando,
         "missing": faltando,
         "checks": checks,
+        "evidence": {
+            "scan": scan_status,
+            "localization_process": localization_process,
+            "nav2_process": nav2_process,
+            "amcl": amcl_status,
+        },
         "hint": _nav_hint(faltando, checks),
     }
     _nav_readiness_cache["timestamp"] = now
@@ -790,18 +836,36 @@ def send_teleop(payload: TeleopPayload):
         raise HTTPException(status_code=500, detail=f"Falha ao enviar teleop: {e}")
 
 class InitialPosePayload(BaseModel):
-    x: float = 0.0
-    y: float = 0.0
-    yaw: float = 0.0
+    x: float
+    y: float
+    yaw: float
 
 @router.post("/set_initial_pose")
 def set_initial_pose(payload: InitialPosePayload):
-    """Define a pose inicial do TurtleBot 4 no mapa (/initialpose) para convergência do AMCL."""
-    node = get_turtlebot_node()
-    ok, msg = node.publish_initial_pose(payload.x, payload.y, payload.yaw)
-    if not ok:
-        raise HTTPException(status_code=503, detail=msg)
-    return {"status": "success", "message": msg}
+    """Define a pose no host e so confirma apos evidencia nova do AMCL."""
+    if not all(math.isfinite(value) for value in (payload.x, payload.y, payload.yaw)):
+        raise HTTPException(status_code=422, detail="X, Y e yaw precisam ser números finitos medidos no mapa.")
+    result = _call_host_agent(
+        "/ros/set_initial_pose",
+        method="POST",
+        json_body={"x": payload.x, "y": payload.y, "yaw": payload.yaw},
+        timeout=25.0,
+    )
+    confirmed_pose = result.get("pose")
+    source = result.get("confirmation_source")
+    covariance = result.get("covariance")
+    if confirmed_pose:
+        get_turtlebot_node().record_external_amcl_measurement(
+            confirmed_pose, covariance, source or "host_amcl_confirmation"
+        )
+    _nav_readiness_cache["timestamp"] = 0.0
+    return {
+        "status": "success",
+        "message": "Pose inicial recebida e aplicada pelo AMCL no host.",
+        "confirmed_pose": confirmed_pose,
+        "covariance": covariance,
+        "confirmation_source": source,
+    }
 
 _dock_lock = threading.Lock()
 _undock_lock = threading.Lock()
@@ -960,53 +1024,137 @@ def _call_host_agent(path: str, method: str = "POST", json_body: dict = None, ti
             detail=f"Agente do host (127.0.0.1:8100) inacessível: {e}. Execute 'systemctl --user start future-lab-agent' ou o ícone da Área de Trabalho."
         )
 
+
+def _lifecycle_failure_lines(log_text: str) -> list[str]:
+    markers = (
+        "failed to send response to",
+        "Failed to bring up all requested nodes",
+        "was unable to be reached",
+    )
+    return [
+        line for line in log_text.splitlines()
+        if any(marker in line for marker in markers)
+    ][-3:]
+
+
+def _launch_and_wait_lifecycle(target: str, timeout: float = 90.0):
+    """Confirma lifecycle e faz no maximo um retry quando o log prova falha."""
+    last_log = ""
+    for attempt in (1, 2):
+        result = _call_host_agent(f"/launch/{target}", method="POST")
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            status = _call_host_agent("/status", method="GET", timeout=3.0).get(target, {})
+            if not status.get("running"):
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"O processo '{target}' terminou antes de o lifecycle ficar ativo.",
+                )
+            logs_result = _call_host_agent(
+                f"/logs/{target}?lines=220", method="GET", timeout=4.0
+            )
+            last_log = "\n".join(logs_result.get("logs", []))
+            if "Managed nodes are active" in last_log:
+                result["lifecycle_ready"] = True
+                result["attempts"] = attempt
+                result["message"] = (
+                    f"'{target}' iniciado e lifecycle ROS confirmado como ativo."
+                )
+                return result
+
+            failures = _lifecycle_failure_lines(last_log)
+            if failures:
+                # A geracao nao se recupera de resposta change_state perdida ou
+                # bringup abortado. Encerra antes de uma unica nova tentativa.
+                _call_host_agent(f"/stop/{target}", method="POST", timeout=15.0)
+                if attempt == 2:
+                    raise HTTPException(
+                        status_code=503,
+                        detail=(
+                            f"'{target}' falhou no lifecycle em duas geracoes controladas. "
+                            "Nenhum processo incompleto foi mantido. Evidencias: "
+                            + " | ".join(failures)
+                        ),
+                    )
+                time.sleep(1.0)
+                break
+            time.sleep(1.0)
+        else:
+            relevant = [
+                line for line in last_log.splitlines()
+                if "Waiting for service" in line
+            ][-3:]
+            detail = (
+                f"O processo '{target}' existe, mas o lifecycle nao ficou ativo em "
+                f"{timeout:.0f}s. Nao inicie outra copia."
+            )
+            if relevant:
+                detail += " Ultimas evidencias: " + " | ".join(relevant)
+            raise HTTPException(status_code=504, detail=detail)
+
+    raise HTTPException(status_code=500, detail=f"Falha inesperada ao iniciar '{target}'.")
+
 @router.post("/launch_localization")
 def launch_localization():
-    """Lança o módulo de Localização Nav2 no host via Agente."""
-    _call_host_agent("/launch/localization", method="POST")
-    return {"status": "success", "message": "Localização Nav2 (B002_map.yaml) iniciada com sucesso!"}
+    """Inicia uma geracao e so confirma apos map_server e AMCL ativos."""
+    result = _launch_and_wait_lifecycle("localization")
+    get_turtlebot_node().clear_amcl_measurement()
+    _processes_cache["timestamp"] = 0.0
+    _nav_readiness_cache["timestamp"] = 0.0
+    return result
 
 @router.post("/launch_nav2")
 def launch_nav2():
-    """Lança o Stack de Navegação Nav2 no host via Agente."""
-    _call_host_agent("/launch/nav2", method="POST")
-    return {"status": "success", "message": "Stack Nav2 (nav2_custom.yaml) iniciado com sucesso!"}
+    """Inicia uma geracao e so confirma apos os managed nodes ativos."""
+    result = _launch_and_wait_lifecycle("nav2")
+    _processes_cache["timestamp"] = 0.0
+    _nav_readiness_cache["timestamp"] = 0.0
+    return result
 
 @router.post("/launch_viz")
 def launch_viz():
-    """Abre a visualização de navegação do Nav2 no monitor do PC Host via Agente."""
-    _call_host_agent("/launch/viz", method="POST")
-    return {"status": "success", "message": "Janela do RViz Nav2 disparada no monitor do PC Host!"}
+    """Inicia uma unica instancia do RViz no host."""
+    result = _call_host_agent("/launch/viz", method="POST")
+    _processes_cache["timestamp"] = 0.0
+    return result
 
 @router.post("/stop_localization")
 def stop_localization():
-    """Encerra o processo de Localização Nav2 no host via Agente."""
-    _call_host_agent("/stop/localization", method="POST")
-    return {"status": "success", "message": "Processo de Localização encerrado (Ctrl+C) com sucesso!"}
+    """Encerra e confirma a ausencia de map_server, AMCL e lifecycle manager."""
+    result = _call_host_agent("/stop/localization", method="POST", timeout=12.0)
+    get_turtlebot_node().clear_amcl_measurement()
+    _processes_cache["timestamp"] = 0.0
+    _nav_readiness_cache["timestamp"] = 0.0
+    return result
 
 @router.post("/stop_nav2")
 def stop_nav2():
-    """Encerra o Stack de Navegação Nav2 no host via Agente."""
-    _call_host_agent("/stop/nav2", method="POST")
-    return {"status": "success", "message": "Stack de Navegação Nav2 encerrado preservando Mapa/Localização!"}
+    """Encerra e confirma a ausencia dos processos da navegacao."""
+    result = _call_host_agent("/stop/nav2", method="POST", timeout=12.0)
+    _processes_cache["timestamp"] = 0.0
+    _nav_readiness_cache["timestamp"] = 0.0
+    return result
 
 @router.post("/stop_viz")
 def stop_viz():
-    """Encerra o RViz2 no host via Agente."""
-    _call_host_agent("/stop/viz", method="POST")
-    return {"status": "success", "message": "Janela do RViz2 encerrada (Ctrl+C) com sucesso!"}
+    """Encerra e confirma a ausencia do RViz."""
+    result = _call_host_agent("/stop/viz", method="POST", timeout=12.0)
+    _processes_cache["timestamp"] = 0.0
+    return result
 
 @router.post("/launch_mission_manager")
 def launch_mission_manager():
-    """Inicializa o Gerenciador de Missões no host via Agente."""
-    _call_host_agent("/launch/mission_manager", method="POST")
-    return {"status": "success", "message": "Nó Mestre do Mission Manager inicializado!"}
+    """Inicia uma unica instancia do Mission Manager."""
+    result = _call_host_agent("/launch/mission_manager", method="POST")
+    _processes_cache["timestamp"] = 0.0
+    return result
 
 @router.post("/stop_mission_manager_process")
 def stop_mission_manager_process():
-    """Encerra o processo do Mission Manager no host via Agente."""
-    _call_host_agent("/stop/mission_manager", method="POST")
-    return {"status": "success", "message": "Processo do Mission Manager finalizado (Ctrl+C) com sucesso!"}
+    """Encerra e confirma a ausencia do Mission Manager."""
+    result = _call_host_agent("/stop/mission_manager", method="POST", timeout=12.0)
+    _processes_cache["timestamp"] = 0.0
+    return result
 
 @router.post("/trigger_delivery")
 def trigger_delivery():
@@ -1052,7 +1200,7 @@ def stop_mission():
     avisos = []
 
     # 1. Cancelar todas as metas do /navigate_to_pose via serviço CancelGoal
-    cancel_ok, cancel_count, cancel_err = node.cancel_all_nav_goals(timeout_sec=3.0)
+    cancel_ok, cancel_count, cancel_err = node.cancel_all_nav_goals(timeout_sec=3.0, confirm_sec=5.0)
     if cancel_err:
         avisos.append(cancel_err)
 
@@ -1071,10 +1219,12 @@ def stop_mission():
 
     # 5. Rajada de zero como impulso secundário: 20 Hz por 2.0 s (40 mensagens)
     # Nota: Com o Nav2 ativo, o controller_server reescreve /cmd_vel no ciclo seguinte. O freio real e o cancelamento de meta acima.
-    node.send_cmd_vel(0.0, 0.0, duration_sec=2.0, hz=20.0)
+    zero_requested = node.send_cmd_vel(0.0, 0.0, duration_sec=2.0, hz=20.0)
+    if not zero_requested:
+        avisos.append("Publishers de velocidade indisponiveis; comando zero nao foi enviado.")
 
     overall_status = "success" if cancel_ok else "partial"
-    msg = "🛑 Motores parados e metas canceladas."
+    msg = "🛑 Cancelamento da meta confirmado; comando de velocidade zero solicitado."
     if overall_status == "partial":
         msg = ("⚠️ NÃO FOI POSSÍVEL CONFIRMAR O CANCELAMENTO DA META. "
                "Se o robô estiver em movimento, use o botão físico da Create 3.")
@@ -1085,7 +1235,7 @@ def stop_mission():
         "nav_goal_cancelada": cancel_ok,
         "processos_simulacao_mortos": killed_sim_procs,
         "mission_manager_ok": mm_ok,
-        "cmd_vel_zerado": True,
+        "cmd_vel_zero_solicitado": zero_requested,
         "avisos": avisos
     }
 

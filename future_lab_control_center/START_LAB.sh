@@ -20,7 +20,7 @@ echo "  🚀 Future Lab Control Center — Modo: [${MODE^^}]"
 echo "  📅 Data: $(date)"
 export ROS_DOMAIN_ID=0
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
+unset ROS_AUTOMATIC_DISCOVERY_RANGE
 export ROS_SUPER_CLIENT=True
 export ROS_DISCOVERY_SERVER="192.168.0.129:11811;"
 echo "  📄 Log: $LOG_FILE"
@@ -85,39 +85,17 @@ fi
 cd "$CONTROL_DIR"
 if [ "$MODE" == "reset" ]; then
     log_info "Modo RESET: Encerrando todos os processos do host e containers..."
-    # Encerrar os pais do ros2 launch com SIGTERM primeiro, para que eles
-    # consigam desligar os proprios filhos. SIGKILL no pai deixa os nos orfaos
-    # com os participantes DDS registrados, saturando o Discovery Server.
-    for _p in 'localization.launch.py' 'nav2.launch.py' \
-              'view_navigation.launch.py' 'scripts/mission_manager.py'; do
-        pgrep -f "$_p" 2>/dev/null | grep -v "$$" | xargs -r kill -15 2>/dev/null || true
-    done
-    sleep 3
-
-    # Rede de seguranca: qualquer no filho que tenha sobrevivido.
-    # Esta lista tem de espelhar ALLOWED_PKILLS do host_agent/agent.py.
-    _NOS_NAV2="map_server amcl controller_server planner_server bt_navigator behavior_server smoother_server route_server waypoint_follower velocity_smoother collision_monitor opennav_docking docking_server lifecycle_manager rviz2"
-    for _n in $_NOS_NAV2; do
-        pkill -x "$_n" 2>/dev/null || true
-    done
+    # KillMode=control-group encerra os filhos pertencentes ao servico. O modo
+    # --cleanup trata geracoes antigas/manuais e falha se nao puder confirmar 0.
+    systemctl --user stop future-lab-agent || true
     sleep 2
-    for _n in $_NOS_NAV2; do
-        pkill -9 -x "$_n" 2>/dev/null || true
-    done
-    sleep 2
-
-    _PATTERN_X='map_server|amcl|controller_server|planner_server|bt_navigator|behavior_server|smoother_server|route_server|waypoint_follower|velocity_smoother|collision_monitor|opennav_docking|docking_server|lifecycle_manager|rviz2'
-    _SOBROU=$(pgrep -x "$_PATTERN_X" 2>/dev/null | wc -l)
-    if [ "$_SOBROU" -ne 0 ]; then
-        log_warn "$_SOBROU processo(s) do Nav2 sobreviveram a limpeza:"
-        pgrep -ax "$_PATTERN_X"
-        log_warn "Subir a stack por cima disso satura o Discovery Server."
-        log_warn "Encerre esses processos manualmente antes de continuar."
+    if ! python3 "$CONTROL_DIR/host_agent/agent.py" --cleanup; then
+        log_fail "A limpeza nao conseguiu confirmar zero processos Nav2 no host."
         exit 1
     fi
-    log_ok "Host limpo — nenhum no Nav2 remanescente."
+    log_ok "Host limpo — ausencia dos processos Nav2 confirmada."
     docker compose down --remove-orphans || true
-    systemctl --user restart future-lab-agent future-lab-cobot-discovery || true
+    systemctl --user restart future-lab-cobot-discovery || true
     sleep 2
     docker compose up -d
 elif [ "$MODE" == "start" ]; then
@@ -128,9 +106,6 @@ fi
 # 6. Agente do Host (:8100)
 if systemctl --user is-active --quiet future-lab-agent; then
     log_ok "Agente do host (:8100) ativo."
-    if [ "$MODE" == "reset" ]; then
-        systemctl --user restart future-lab-agent
-    fi
 else
     log_warn "Agente do host inativo. Iniciando..."
     if [ "$MODE" != "check" ]; then

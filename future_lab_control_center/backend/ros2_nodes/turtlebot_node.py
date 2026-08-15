@@ -7,14 +7,14 @@ from typing import Dict, Optional
 
 os.environ["ROS_DOMAIN_ID"] = "0"
 os.environ["RMW_IMPLEMENTATION"] = "rmw_fastrtps_cpp"
-os.environ["ROS_AUTOMATIC_DISCOVERY_RANGE"] = "SUBNET"
+os.environ.pop("ROS_AUTOMATIC_DISCOVERY_RANGE", None)
 os.environ["ROS_SUPER_CLIENT"] = "True"
 os.environ["ROS_DISCOVERY_SERVER"] = "192.168.0.129:11811;"
 
 JAZZY_ENV_CMD = (
     "source /opt/ros/jazzy/setup.bash && "
     "source /home/future-lab/B002_Future_Lab_Bots/turtlebot4_jazzy/setup.bash && "
-    "export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET && "
+    "unset ROS_AUTOMATIC_DISCOVERY_RANGE && "
     "export ROS_SUPER_CLIENT=True && "
     "export ROS_DISCOVERY_SERVER='192.168.0.129:11811;' && "
     "export DISPLAY=:0 && "
@@ -32,7 +32,7 @@ try:
         qos_profile_sensor_data,
     )
     from geometry_msgs.msg import Twist, TwistStamped, PoseWithCovarianceStamped
-    from sensor_msgs.msg import BatteryState, CompressedImage, Image
+    from sensor_msgs.msg import BatteryState, CompressedImage, Image, LaserScan
     from nav_msgs.msg import Odometry
     from std_srvs.srv import Trigger
     HAS_RCLPY = True
@@ -56,12 +56,16 @@ except ImportError:
 
 try:
     from action_msgs.srv import CancelGoal
+    from action_msgs.msg import GoalStatus, GoalStatusArray
     HAS_CANCEL_SRV = True
 except ImportError:
     HAS_CANCEL_SRV = False
+    GoalStatus = None
+    GoalStatusArray = None
 
 
 TELEMETRY_TTL = 5.0   # s sem mensagem da BASE = telemetria inválida
+SCAN_TTL = 2.0        # /scan normalmente publica a varios Hz; 2 s prova fluxo parado
 FRAME_TTL = 3.0       # s sem frame da OAK-D = câmera sem sinal
 FRAME_MIN_INTERVAL = 1.0 / 15.0   # processa no maximo 15 fps
 AMCL_TTL = 120.0      # o AMCL so publica quando atualiza; parado, fica em silencio
@@ -76,8 +80,14 @@ if HAS_RCLPY:
         reliability=QoSReliabilityPolicy.RELIABLE,
         durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
     )
+    QOS_INITIAL_POSE = QoSProfile(
+        depth=10,
+        reliability=QoSReliabilityPolicy.RELIABLE,
+        durability=QoSDurabilityPolicy.VOLATILE,
+    )
 else:
     QOS_LATCHED = 10
+    QOS_INITIAL_POSE = 10
 
 
 class TurtleBotNode(Node if HAS_RCLPY else object):
@@ -88,12 +98,21 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
         self.current_pose: Dict[str, float] = {"x": 0.0, "y": 0.0, "yaw": 0.0}
         self.amcl_pose: Optional[Dict[str, float]] = None
         self.amcl_cov: Optional[Dict[str, float]] = None
+        self.amcl_source: Optional[str] = None
+        self.amcl_initialized: bool = False
         self.last_amcl_time: float = 0.0
         self.last_telemetry_time: float = 0.0
         self.last_frame_time: float = 0.0
+        self.last_scan_time: float = 0.0
+        self.last_scan_frame: Optional[str] = None
         self._last_compressed_time: float = 0.0
         self.latest_jpeg_frame: Optional[bytes] = None
         self.init_errors: list = []
+        self._nav_status_lock = threading.Lock()
+        self._nav_goal_statuses: Dict[bytes, int] = {}
+        self.last_nav_status_time: float = 0.0
+        self._initial_pose_ack = threading.Event()
+        self._initial_pose_request_started: float = 0.0
 
         self._dock_raw_last: Optional[bool] = None
         self._dock_confirm_count: int = 0
@@ -124,7 +143,14 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
                 try:
                     self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel_unstamped", 10)
                     self.cmd_vel_stamped_pub = self.create_publisher(TwistStamped, "/cmd_vel", 10)
-                    self.initialpose_pub = self.create_publisher(PoseWithCovarianceStamped, "/initialpose", 10)
+                    # O AMCL do TurtleBot 4 solicita BEST_EFFORT em /initialpose.
+                    # Igualar o QoS evita a perda observada entre o container e
+                    # o reader do AMCL no host usando Fast DDS Discovery Server.
+                    self.initialpose_pub = self.create_publisher(
+                        PoseWithCovarianceStamped,
+                        "/initialpose",
+                        QOS_INITIAL_POSE,
+                    )
                 except Exception as e:
                     err = f"Falha ao criar publishers: {type(e).__name__}: {e}"
                     print(f"[ERRO TB4] {err}")
@@ -151,6 +177,20 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
                         print(f"[ERRO TB4] {err}")
                         self.init_errors.append(err)
 
+                if HAS_CANCEL_SRV:
+                    try:
+                        self.create_subscription(
+                            GoalStatusArray,
+                            "/navigate_to_pose/_action/status",
+                            self._nav_status_callback,
+                            QOS_LATCHED,
+                            callback_group=self._cb_cli,
+                        )
+                    except Exception as e:
+                        err = f"Falha ao assinar /navigate_to_pose/_action/status: {type(e).__name__}: {e}"
+                        print(f"[ERRO TB4] {err}")
+                        self.init_errors.append(err)
+
                 try:
                     self.create_subscription(BatteryState, "/battery_state", self._battery_callback, qos_profile_sensor_data, callback_group=self._cb_sub)
                 except Exception as e:
@@ -162,6 +202,19 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
                     self.create_subscription(Odometry, "/odom", self._odom_callback, qos_profile_sensor_data, callback_group=self._cb_sub)
                 except Exception as e:
                     err = f"Falha ao assinar /odom: {type(e).__name__}: {e}"
+                    print(f"[ERRO TB4] {err}")
+                    self.init_errors.append(err)
+
+                try:
+                    self.create_subscription(
+                        LaserScan,
+                        "/scan",
+                        self._scan_callback,
+                        qos_profile_sensor_data,
+                        callback_group=self._cb_sub,
+                    )
+                except Exception as e:
+                    err = f"Falha ao assinar /scan: {type(e).__name__}: {e}"
                     print(f"[ERRO TB4] {err}")
                     self.init_errors.append(err)
 
@@ -304,6 +357,13 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
         except Exception:
             pass
 
+    def _scan_callback(self, msg):
+        try:
+            self.last_scan_time = time.time()
+            self.last_scan_frame = str(msg.header.frame_id or "")
+        except Exception as e:
+            print(f"[WARN TB4] Scan callback error: {e}")
+
     def _dock_status_callback(self, msg):
         try:
             if hasattr(msg, 'is_docked'):
@@ -326,26 +386,89 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
                              "y": round(float(cov[7]), 5),
                              "yaw": round(float(cov[35]), 5)}
             self.last_amcl_time = time.time()
+            self.amcl_source = "amcl_pose_topic"
+            self.amcl_initialized = True
+            if self._initial_pose_request_started and self.last_amcl_time >= self._initial_pose_request_started:
+                self._initial_pose_ack.set()
         except Exception as e:
             print(f"[WARN TB4] AMCL callback error: {e}")
 
     def get_amcl(self) -> Dict:
-        if self.amcl_pose is None:
+        if self.amcl_pose is None or not self.amcl_initialized:
             return {"amcl_ok": False, "converged": False, "converged_dock": False,
                     "pose": None, "covariance": None, "age_s": None,
+                    "initialized": False, "source": self.amcl_source,
                     "motivo": "nenhuma mensagem recebida em /amcl_pose",
                     "init_errors": self.init_errors}
         idade = round(time.time() - self.last_amcl_time, 1)
         fresh = bool(idade < AMCL_TTL)
-        c = self.amcl_cov or {"x": 1.0, "y": 1.0, "yaw": 1.0}
-        converged = bool(fresh and (c["x"] < COV_XY_MAX and c["y"] < COV_XY_MAX
-                                    and c["yaw"] < COV_YAW_MAX))
-        converged_dock = bool(fresh and (c["x"] < COV_XY_MAX_DOCK and c["y"] < COV_XY_MAX_DOCK
-                                         and c["yaw"] < COV_YAW_MAX_DOCK))
+        c = self.amcl_cov
+        converged = bool(c is not None and fresh and (
+            c["x"] < COV_XY_MAX and c["y"] < COV_XY_MAX and c["yaw"] < COV_YAW_MAX
+        ))
+        converged_dock = bool(c is not None and fresh and (
+            c["x"] < COV_XY_MAX_DOCK and c["y"] < COV_XY_MAX_DOCK
+            and c["yaw"] < COV_YAW_MAX_DOCK
+        ))
+        motivo = "" if fresh else f"ultima leitura ha {idade}s"
+        if fresh and c is None:
+            motivo = "pose medida, mas covariancia nao foi recebida"
         return {"amcl_ok": fresh, "converged": converged, "converged_dock": converged_dock,
                 "pose": self.amcl_pose, "covariance": c, "age_s": idade,
-                "motivo": "" if fresh else f"ultima leitura ha {idade}s",
+                "initialized": True, "source": self.amcl_source, "motivo": motivo,
                 "init_errors": self.init_errors}
+
+    def record_external_amcl_measurement(self, pose: Dict, covariance: Optional[Dict], source: str) -> bool:
+        """Registra somente valores finitos medidos pelo helper ROS do host."""
+        try:
+            measured_pose = {key: float(pose[key]) for key in ("x", "y", "yaw")}
+            if not all(math.isfinite(value) for value in measured_pose.values()):
+                return False
+            measured_cov = None
+            if covariance is not None:
+                measured_cov = {
+                    key: float(covariance[key]) for key in ("x", "y", "yaw")
+                }
+                if not all(math.isfinite(value) for value in measured_cov.values()):
+                    return False
+            self.amcl_pose = {key: round(value, 4) for key, value in measured_pose.items()}
+            self.amcl_cov = (
+                {key: round(value, 5) for key, value in measured_cov.items()}
+                if measured_cov is not None else None
+            )
+            self.last_amcl_time = time.time()
+            self.amcl_source = source
+            self.amcl_initialized = True
+            return True
+        except (KeyError, TypeError, ValueError):
+            return False
+
+    def clear_amcl_measurement(self):
+        self.amcl_pose = None
+        self.amcl_cov = None
+        self.amcl_source = None
+        self.amcl_initialized = False
+        self.last_amcl_time = 0.0
+
+    def get_scan_status(self) -> Dict:
+        publisher_count = self.count_publishers("/scan") if HAS_RCLPY else 0
+        age = None if self.last_scan_time == 0.0 else round(time.time() - self.last_scan_time, 2)
+        fresh = bool(age is not None and age < SCAN_TTL)
+        if fresh:
+            reason = ""
+        elif publisher_count == 0:
+            reason = "nenhum publisher de /scan"
+        elif self.last_scan_time == 0.0:
+            reason = "publisher existe, mas nenhuma mensagem /scan foi recebida"
+        else:
+            reason = f"ultima mensagem /scan ha {age}s"
+        return {
+            "fresh": fresh,
+            "age_s": age,
+            "frame_id": self.last_scan_frame,
+            "publisher_count": publisher_count,
+            "reason": reason,
+        }
 
     def call_trigger_service(self, srv_name: str, descoberta_sec: float = 2.0, resposta_sec: float = 10.0):
         """Chama um serviço Trigger do mission_manager e devolve (sucesso, mensagem) reais.
@@ -377,14 +500,38 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
         except Exception as e:
             return False, f"Erro ao chamar '/{srv_name}': {e}"
 
-    def cancel_all_nav_goals(self, timeout_sec: float = 3.0) -> tuple:
+    def _nav_status_callback(self, msg):
+        """Mantem o snapshot autoritativo publicado pelo action server do Nav2."""
+        try:
+            statuses = {
+                bytes(item.goal_info.goal_id.uuid): int(item.status)
+                for item in msg.status_list
+            }
+            with self._nav_status_lock:
+                self._nav_goal_statuses = statuses
+                self.last_nav_status_time = time.time()
+        except Exception as e:
+            print(f"[WARN TB4] Falha ao processar status de /navigate_to_pose: {e}")
+
+    def _nav_goals_still_active(self, goal_ids) -> list[bytes]:
+        active_states = {
+            GoalStatus.STATUS_ACCEPTED,
+            GoalStatus.STATUS_EXECUTING,
+            GoalStatus.STATUS_CANCELING,
+        }
+        with self._nav_status_lock:
+            statuses = dict(self._nav_goal_statuses)
+        return [goal_id for goal_id in goal_ids if statuses.get(goal_id) in active_states]
+
+    def cancel_all_nav_goals(self, timeout_sec: float = 3.0, confirm_sec: float = 5.0) -> tuple:
         """Cancela todas as metas ativas de /navigate_to_pose.
 
         Usa o serviço <action>/_action/cancel_goal (action_msgs/srv/CancelGoal).
         Requisicao com goal_id zerado e stamp zerado = cancelar TODAS as metas.
 
         Retorna (cancelado, quantas, aviso).
-        cancelado=True SOMENTE quando o servidor devolveu uma resposta.
+        cancelado=True SOMENTE quando o servidor aceita a solicitacao e as metas
+        deixam os estados ACCEPTED/EXECUTING/CANCELING.
         """
         if not HAS_RCLPY or not HAS_CANCEL_SRV or self.cancel_nav_client is None:
             return False, 0, ("Cliente de cancelamento indisponível no backend — "
@@ -397,6 +544,7 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
 
         try:
             req = CancelGoal.Request()  # goal_id e stamp zerados = todas as metas
+            request_started_at = time.time()
             fut = self.cancel_nav_client.call_async(req)
             t0 = time.time()
             while not fut.done() and (time.time() - t0) < timeout_sec:
@@ -409,16 +557,42 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
             if res is None:
                 return False, 0, "Resposta vazia do serviço de cancelamento."
 
-            quantas = len(getattr(res, "goals_canceling", []) or [])
+            goals_canceling = list(getattr(res, "goals_canceling", []) or [])
+            quantas = len(goals_canceling)
             code = int(getattr(res, "return_code", 0))
 
-            # O servidor respondeu. Isso e o que autoriza cancelado=True.
-            # code 0 = ERROR_NONE; 1 = ERROR_REJECTED (tipicamente: nao havia meta ativa)
-            if quantas:
-                return True, quantas, ""
-            if code in (0, 1):
-                return True, 0, "Servidor respondeu; não havia meta ativa para cancelar."
-            return True, 0, f"Servidor respondeu com return_code={code}; nenhuma meta em cancelamento."
+            # action_msgs/srv/CancelGoal: somente ERROR_NONE confirma aceite.
+            # ERROR_REJECTED/UNKNOWN_GOAL_ID/GOAL_TERMINATED nao sao sucesso.
+            if code != CancelGoal.Response.ERROR_NONE:
+                return False, 0, (
+                    f"Servidor de action rejeitou o cancelamento (return_code={code}); "
+                    "nenhuma parada foi confirmada."
+                )
+
+            if not goals_canceling:
+                return True, 0, "Servidor confirmou que não havia meta ativa para cancelar."
+
+            goal_ids = {bytes(item.goal_id.uuid) for item in goals_canceling}
+            deadline = time.monotonic() + confirm_sec
+            while time.monotonic() < deadline:
+                with self._nav_status_lock:
+                    status_observed_after_request = self.last_nav_status_time >= request_started_at
+                if status_observed_after_request and not self._nav_goals_still_active(goal_ids):
+                    return True, quantas, ""
+                time.sleep(0.05)
+
+            still_active = self._nav_goals_still_active(goal_ids)
+            with self._nav_status_lock:
+                status_observed_after_request = self.last_nav_status_time >= request_started_at
+            if not status_observed_after_request:
+                return False, quantas, (
+                    f"Cancelamento aceito para {quantas} meta(s), mas o topico de status "
+                    f"nao confirmou a transicao em {confirm_sec:.1f}s."
+                )
+            return False, quantas, (
+                f"Cancelamento aceito para {quantas} meta(s), mas {len(still_active)} "
+                f"continuaram ativas apos {confirm_sec:.1f}s."
+            )
 
         except Exception as e:
             return False, 0, f"Falha ao cancelar meta do Nav2: {type(e).__name__}: {e}"
@@ -448,10 +622,19 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
                         pass
                     time.sleep(sleep_dt)
             threading.Thread(target=_burst, daemon=True).start()
+            return True
+        return False
 
-    def publish_initial_pose(self, x: float = 0.0, y: float = 0.0, yaw: float = 0.0) -> tuple:
+    def publish_initial_pose(self, x: float, y: float, yaw: float, confirm_sec: float = 5.0) -> tuple:
         if not HAS_RCLPY or not self.initialpose_pub:
-            return False, "rclpy não inicializado no nó para publicar /initialpose"
+            return False, "rclpy não inicializado no nó para publicar /initialpose", None
+
+        subscribers = self.count_subscribers("/initialpose")
+        if subscribers < 1:
+            return False, (
+                "AMCL não está inscrito em /initialpose; inicie e ative a localização antes "
+                "de definir a pose."
+            ), None
 
         try:
             msg = PoseWithCovarianceStamped()
@@ -471,14 +654,31 @@ class TurtleBotNode(Node if HAS_RCLPY else object):
             cov[35] = 0.06853891945200942
             msg.pose.covariance = cov
 
-            for _ in range(3):
+            self._initial_pose_ack.clear()
+            self._initial_pose_request_started = time.time()
+            for _ in range(5):
                 msg.header.stamp = self.get_clock().now().to_msg()
                 self.initialpose_pub.publish(msg)
                 time.sleep(0.2)
 
-            return True, f"Pose inicial (x={x}, y={y}, yaw={yaw}) publicada com sucesso em /initialpose!"
+            confirmed = self._initial_pose_ack.wait(timeout=confirm_sec)
+            self._initial_pose_request_started = 0.0
+            if not confirmed:
+                return False, (
+                    f"Pose publicada para {subscribers} subscriber(s), mas nenhuma nova "
+                    f"/amcl_pose confirmou o recebimento em {confirm_sec:.1f}s."
+                ), None
+
+            observed = dict(self.amcl_pose) if self.amcl_pose else None
+            print(f"[INFO TB4] Pose inicial confirmada pelo AMCL: solicitada=({x}, {y}, {yaw}), observada={observed}")
+            return True, (
+                f"Pose inicial confirmada pelo AMCL: x={observed.get('x') if observed else x}, "
+                f"y={observed.get('y') if observed else y}, "
+                f"yaw={observed.get('yaw') if observed else yaw}."
+            ), observed
         except Exception as e:
-            return False, f"Erro ao publicar /initialpose: {e}"
+            self._initial_pose_request_started = 0.0
+            return False, f"Erro ao publicar /initialpose: {e}", None
 
     def telemetry_fresh(self) -> bool:
         return (time.time() - self.last_telemetry_time) < TELEMETRY_TTL

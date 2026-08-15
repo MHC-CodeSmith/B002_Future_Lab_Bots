@@ -1,6 +1,6 @@
 import os
 os.environ["ROS_DOMAIN_ID"] = "0"
-os.environ["ROS_AUTOMATIC_DISCOVERY_RANGE"] = "SUBNET"
+os.environ.pop("ROS_AUTOMATIC_DISCOVERY_RANGE", None)
 os.environ["RMW_IMPLEMENTATION"] = "rmw_fastrtps_cpp"
 os.environ["ROS_SUPER_CLIENT"] = "True"
 os.environ["ROS_DISCOVERY_SERVER"] = "192.168.0.129:11811;"

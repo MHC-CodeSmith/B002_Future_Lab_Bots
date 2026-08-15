@@ -62,6 +62,8 @@ export default function TurtleBotDashboardTab({
   const [initYaw, setInitYaw] = useState(0.0);
   const [settingPose, setSettingPose] = useState(false);
   const [poseMsg, setPoseMsg] = useState(null);
+  const [startingLocalization, setStartingLocalization] = useState(false);
+  const [startingNav2, setStartingNav2] = useState(false);
 
   const [amclStatus, setAmclStatus] = useState(null);
   const [navPoses, setNavPoses] = useState(null);
@@ -178,14 +180,22 @@ export default function TurtleBotDashboardTab({
     setSettingPose(true);
     setPoseMsg(null);
     try {
+      const x = Number(initX);
+      const y = Number(initY);
+      const yaw = Number(initYaw);
+      if (![x, y, yaw].every(Number.isFinite)) {
+        setPoseMsg({ type: 'error', text: 'X, Y e yaw precisam ser números válidos medidos no mapa.' });
+        return;
+      }
       const res = await fetch(`http://${window.location.hostname}:8000/api/v1/turtlebot/set_initial_pose`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ x: parseFloat(initX), y: parseFloat(initY), yaw: parseFloat(initYaw) })
+        body: JSON.stringify({ x, y, yaw })
       });
       const data = await res.json();
       if (res.ok) {
         setPoseMsg({ type: 'success', text: data.message || 'Pose inicial enviada!' });
+        await fetchAmclAndPoses();
       } else {
         setPoseMsg({ type: 'error', text: data.detail || 'Falha ao enviar pose inicial.' });
       }
@@ -824,15 +834,21 @@ export default function TurtleBotDashboardTab({
             {/* Passo 1: Localização */}
             <div className="flex gap-2">
               <button
-                onClick={() => {
-                  if (onLaunchLocalization) onLaunchLocalization();
+                disabled={startingLocalization}
+                onClick={async () => {
+                  setStartingLocalization(true);
                   handleSelectLogSource('localization');
+                  try {
+                    if (onLaunchLocalization) await onLaunchLocalization();
+                  } finally {
+                    setStartingLocalization(false);
+                  }
                 }}
-                className="flex-1 py-3 px-4 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold rounded-xl flex items-center justify-between transition-all active:scale-95 text-xs sm:text-sm"
+                className="flex-1 py-3 px-4 bg-slate-800 hover:bg-slate-700 disabled:opacity-60 disabled:cursor-wait text-slate-200 border border-slate-700 font-bold rounded-xl flex items-center justify-between transition-all active:scale-95 text-xs sm:text-sm"
               >
                 <span className="flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-emerald-400" />
-                  {t('step1Loc')}
+                  {startingLocalization ? <RefreshCw className="w-4 h-4 text-emerald-400 animate-spin" /> : <MapPin className="w-4 h-4 text-emerald-400" />}
+                  {startingLocalization ? 'Aguardando lifecycle...' : t('step1Loc')}
                 </span>
                 <span className="text-[10px] sm:text-xs text-slate-400 font-normal hidden sm:inline">localization.launch.py</span>
               </button>
@@ -850,11 +866,12 @@ export default function TurtleBotDashboardTab({
             {/* Passo 2: RViz */}
             <div className="flex gap-2">
               <button
+                disabled={startingLocalization}
                 onClick={() => {
                   if (onLaunchViz) onLaunchViz();
                   handleSelectLogSource('viz');
                 }}
-                className="flex-1 py-3 px-4 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold rounded-xl flex items-center justify-between transition-all active:scale-95 text-xs sm:text-sm"
+                className="flex-1 py-3 px-4 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed text-slate-200 border border-slate-700 font-bold rounded-xl flex items-center justify-between transition-all active:scale-95 text-xs sm:text-sm"
               >
                 <span className="flex items-center gap-2">
                   <Eye className="w-4 h-4 text-blue-400" />
@@ -885,15 +902,21 @@ export default function TurtleBotDashboardTab({
             {/* Passo 5: Nav2 Stack */}
             <div className="flex gap-2">
               <button
-                onClick={() => {
-                  if (onLaunchNav2) onLaunchNav2();
+                disabled={startingNav2}
+                onClick={async () => {
+                  setStartingNav2(true);
                   handleSelectLogSource('nav2');
+                  try {
+                    if (onLaunchNav2) await onLaunchNav2();
+                  } finally {
+                    setStartingNav2(false);
+                  }
                 }}
-                className="flex-1 py-3 px-4 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold rounded-xl flex items-center justify-between transition-all active:scale-95 text-xs sm:text-sm"
+                className="flex-1 py-3 px-4 bg-slate-800 hover:bg-slate-700 disabled:opacity-60 disabled:cursor-wait text-slate-200 border border-slate-700 font-bold rounded-xl flex items-center justify-between transition-all active:scale-95 text-xs sm:text-sm"
               >
                 <span className="flex items-center gap-2">
-                  <Navigation className="w-4 h-4 text-amber-400" />
-                  {t('step2Nav')}
+                  {startingNav2 ? <RefreshCw className="w-4 h-4 text-amber-400 animate-spin" /> : <Navigation className="w-4 h-4 text-amber-400" />}
+                  {startingNav2 ? 'Aguardando lifecycle...' : t('step2Nav')}
                 </span>
                 <span className="text-[10px] sm:text-xs text-slate-400 font-normal hidden sm:inline">nav2.launch.py</span>
               </button>
@@ -949,6 +972,18 @@ export default function TurtleBotDashboardTab({
                 </span>
                 <span className="text-[10px] text-slate-500 font-mono">/initialpose</span>
               </div>
+
+              {tbNavReadiness?.checks?.scan === false && (
+                <div className={`p-2 rounded-lg border text-[10px] font-bold ${
+                  isDocked
+                    ? 'bg-amber-500/10 text-amber-300 border-amber-500/40'
+                    : 'bg-red-500/10 text-red-300 border-red-500/40'
+                }`}>
+                  {isDocked
+                    ? 'LiDAR pausado enquanto o TurtleBot está na dock. O mapa continua válido, mas não haverá pontos do LaserScan até um undock autorizado ou acionamento explícito do motor do lidar.'
+                    : `LaserScan sem fluxo: ${tbNavReadiness?.evidence?.scan?.reason || 'nenhuma mensagem /scan recebida.'}`}
+                </div>
+              )}
 
               {/* Badge de Convergência do AMCL */}
               <div className="flex items-center justify-between p-2 rounded-lg border border-slate-800 bg-slate-950/60 text-xs">

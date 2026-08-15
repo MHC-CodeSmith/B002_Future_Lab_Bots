@@ -10,6 +10,8 @@ WorkingDirectory=%h/B002_Future_Lab_Bots/future_lab_control_center/host_agent
 ExecStart=/usr/bin/python3 %h/B002_Future_Lab_Bots/future_lab_control_center/host_agent/agent.py
 Restart=always
 RestartSec=3
+KillMode=control-group
+TimeoutStopSec=15
 
 [Install]
 WantedBy=default.target
